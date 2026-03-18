@@ -7,8 +7,10 @@ class AppState: ObservableObject {
     @Published var isRecording = false
     @Published var isTranscribing = false
     @Published var isEngineReady = false
-    @Published var lastTranscription = ""
+    @Published var history: [String] = []
     @Published var lastError: String?
+
+    private static let maxHistory = 5
     @Published var launchAtLogin = false {
         didSet { updateLaunchAtLogin() }
     }
@@ -19,6 +21,7 @@ class AppState: ObservableObject {
     let pasteManager = PasteManager()
     let setupManager = SetupManager()
     let settingsWindow = SettingsWindowController()
+    let historyWindow = HistoryWindowController()
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -112,12 +115,19 @@ class AppState: ObservableObject {
                 return
             }
 
-            lastTranscription = text
+            history.insert(text, at: 0)
+            if history.count > Self.maxHistory {
+                history.removeLast()
+            }
             pasteManager.pasteText(text)
 
             // Clean up temp file
             try? FileManager.default.removeItem(at: audioURL)
         }
+    }
+
+    func showHistory() {
+        historyWindow.show(appState: self)
     }
 
     func showSettings() {
