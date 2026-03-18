@@ -157,29 +157,27 @@ class SettingsWindowController {
     private var window: NSWindow?
 
     func show(appState: AppState) {
-        if let window = window {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
+        // Close previous window if any
+        window?.orderOut(nil)
+        window = nil
 
         let settingsView = SettingsView(appState: appState)
         let hostingView = NSHostingView(rootView: settingsView)
 
-        let window = NSWindow(
+        let w = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: 380),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
-        window.title = "NanoWhisper Settings"
-        window.contentView = hostingView
-        window.center()
-        window.isReleasedWhenClosed = false
-        window.makeKeyAndOrderFront(nil)
-
+        w.title = "NanoWhisper Settings"
+        w.contentView = hostingView
+        w.isReleasedWhenClosed = false
+        w.isRestorable = false
+        w.collectionBehavior = [.moveToActiveSpace]
+        w.center()
+        w.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-
-        self.window = window
+        window = w
     }
 }

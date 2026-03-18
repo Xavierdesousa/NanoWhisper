@@ -50,17 +50,6 @@ struct NanoWhisperApp: App {
                 Label("Ready — \(shortcutName) to record", systemImage: "mic")
             }
 
-            // Last transcription
-            if !appState.lastTranscription.isEmpty {
-                Divider()
-                Text("Last:")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Text(appState.lastTranscription)
-                    .font(.caption)
-                    .lineLimit(3)
-            }
-
             // Error
             if let error = appState.lastError {
                 Divider()
@@ -70,6 +59,10 @@ struct NanoWhisperApp: App {
             }
 
             Divider()
+
+            Button("History") {
+                appState.showHistory()
+            }
 
             Button("Settings...") {
                 appState.showSettings()
