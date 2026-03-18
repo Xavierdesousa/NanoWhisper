@@ -3,6 +3,7 @@
 APP_NAME = NanoWhisper
 BUILD_DIR = .build/release
 APP_BUNDLE = $(APP_NAME).app
+SIGN_IDENTITY = Moonji Dev
 
 # Build the Swift executable (release mode)
 build:
@@ -22,8 +23,9 @@ app: build
 	@cp scripts/transcribe.py $(APP_BUNDLE)/Contents/Resources/scripts/
 	@cp scripts/setup.sh $(APP_BUNDLE)/Contents/Resources/scripts/
 	@chmod +x $(APP_BUNDLE)/Contents/Resources/scripts/setup.sh
-	@# Ad-hoc sign (no Apple Developer account needed)
-	@codesign --force --deep --sign - $(APP_BUNDLE)
+	@# Sign with local certificate (permissions persist across rebuilds)
+	@codesign --force --deep --sign "$(SIGN_IDENTITY)" $(APP_BUNDLE) 2>/dev/null || \
+		(echo "Signing with '$(SIGN_IDENTITY)' failed, falling back to ad-hoc"; codesign --force --deep --sign - $(APP_BUNDLE))
 	@echo "Done! $(APP_BUNDLE) is ready."
 	@echo "Run: open $(APP_BUNDLE)"
 
