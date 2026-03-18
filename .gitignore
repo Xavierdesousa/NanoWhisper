@@ -7,6 +7,9 @@ NanoWhisper.app/
 *.xcworkspace/
 xcuserdata/
 
+# Claude Code
+.claude/
+
 # macOS
 .DS_Store
 *.swp
