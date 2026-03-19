@@ -30,8 +30,10 @@ class PasteManager {
     }
 
     /// Check if we have accessibility permissions (needed for CGEvent posting)
+    @MainActor
     static func checkAccessibility() -> Bool {
-        let options = [kAXTrustedCheckOptionPrompt.takeRetainedValue(): true] as CFDictionary
+        let key: CFString = "AXTrustedCheckOptionPrompt" as CFString
+        let options = [key: true] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
     }
 }

@@ -15,7 +15,7 @@ struct NanoWhisperApp: App {
             if appState.setupManager.isSettingUp {
                 Label(appState.setupManager.setupProgress, systemImage: "arrow.down.circle")
                     .foregroundColor(.blue)
-                Text("First launch — this takes a few minutes")
+                Text("Downloading model (~2.7GB)")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -74,16 +74,9 @@ struct NanoWhisperApp: App {
             Divider()
 
             Button("Quit") {
-                // Leave daemon running for fast restart
-                appState.transcriber.disconnect()
                 NSApplication.shared.terminate(nil)
             }
             .keyboardShortcut("q", modifiers: .command)
-
-            Button("Quit & Stop Engine") {
-                appState.transcriber.stopDaemon()
-                NSApplication.shared.terminate(nil)
-            }
         } label: {
             menuBarLabel
         }
@@ -105,7 +98,6 @@ struct NanoWhisperApp: App {
         }
     }
 
-    /// Returns an SF Symbol name for non-default states, nil for the default (ready) state
     private var menuBarSFIcon: String? {
         if appState.setupManager.isSettingUp {
             return "arrow.down.circle"

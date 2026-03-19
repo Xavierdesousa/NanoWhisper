@@ -64,7 +64,7 @@ struct SettingsView: View {
                 HStack {
                     Text("Model:")
                     Spacer()
-                    Text("Parakeet TDT 0.6B v3 (Multilingual)")
+                    Text("Parakeet TDT 0.6B v3 (CoreML)")
                         .foregroundColor(.secondary)
                 }
                 HStack {
@@ -72,16 +72,6 @@ struct SettingsView: View {
                     Spacer()
                     Text(appState.isEngineReady ? "Ready" : "Loading...")
                         .foregroundColor(appState.isEngineReady ? .green : .orange)
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Picker("Decoding", selection: $appState.decodingPreset) {
-                        Text("Fast").tag(DecodingPreset.fast)
-                        Text("Balanced (recommended)").tag(DecodingPreset.balanced)
-                        Text("Best").tag(DecodingPreset.best)
-                    }
-
-                    decodingIndicator
                 }
             }
 
@@ -112,7 +102,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 400, height: 520)
+        .frame(width: 400, height: 440)
         .background(ShortcutRecorder(
             isRecording: $isRecordingShortcut,
             onShortcutCaptured: { keyCode, modifiers in
@@ -124,40 +114,6 @@ struct SettingsView: View {
                 shortcutDisplay = shortcut.displayString
             }
         ))
-    }
-
-    private var decodingIndicator: some View {
-        let (speed, accuracy): (Double, Double) = {
-            switch appState.decodingPreset {
-            case .fast: return (1.0, 0.7)
-            case .balanced: return (0.8, 0.85)
-            case .best: return (0.5, 1.0)
-            }
-        }()
-
-        return VStack(spacing: 4) {
-            decodingBar(label: "Speed", value: speed, color: .blue)
-            decodingBar(label: "Accuracy", value: accuracy, color: .green)
-        }
-    }
-
-    private func decodingBar(label: String, value: Double, color: Color) -> some View {
-        HStack(spacing: 8) {
-            Text(label)
-                .font(.system(size: 10))
-                .foregroundColor(.secondary)
-                .frame(width: 55, alignment: .trailing)
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(Color.primary.opacity(0.08))
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(color.opacity(0.6))
-                        .frame(width: geo.size.width * value)
-                }
-            }
-            .frame(height: 6)
-        }
     }
 }
 
@@ -229,7 +185,7 @@ class SettingsWindowController {
         let hostingView = NSHostingView(rootView: settingsView)
 
         let w = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 520),
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 440),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
