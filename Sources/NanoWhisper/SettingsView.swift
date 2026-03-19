@@ -17,6 +17,7 @@ struct SettingsView: View {
             Section("General") {
                 Toggle("Launch at login", isOn: $appState.launchAtLogin)
                 Toggle("Sound feedback", isOn: $appState.soundEnabled)
+                Toggle("History", isOn: $appState.historyEnabled)
             }
 
             Section("Shortcut") {

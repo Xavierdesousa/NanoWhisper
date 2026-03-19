@@ -2,21 +2,47 @@ import SwiftUI
 import Combine
 import ServiceManagement
 
+struct HistoryEntry: Codable, Identifiable {
+    let id: UUID
+    let text: String
+    let date: Date
+
+    init(text: String) {
+        self.id = UUID()
+        self.text = text
+        self.date = Date()
+    }
+}
+
 @MainActor
 class AppState: ObservableObject {
     @Published var isRecording = false
     @Published var isTranscribing = false
     @Published var isEngineReady = false
-    @Published var history: [String] = []
+    @Published var history: [HistoryEntry] = [] {
+        didSet { saveHistory() }
+    }
     @Published var lastError: String?
 
-    private static let maxHistory = 5
+    private static let maxHistory = 15
+    private static let historyEnabledKey = "historyEnabled"
+    private static let historyFileURL: URL = {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("NanoWhisper", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("history.json")
+    }()
+
     @Published var launchAtLogin = false {
         didSet { updateLaunchAtLogin() }
     }
 
     @Published var soundEnabled: Bool = true {
         didSet { sound.isEnabled = soundEnabled }
+    }
+
+    @Published var historyEnabled: Bool = true {
+        didSet { UserDefaults.standard.set(historyEnabled, forKey: Self.historyEnabledKey) }
     }
 
     let audioRecorder = AudioRecorder()
@@ -52,8 +78,16 @@ class AppState: ObservableObject {
             launchAtLogin = SMAppService.mainApp.status == .enabled
         }
 
-        // Sync sound setting
+        // Load persisted history
+        history = Self.loadHistory()
+
+        // Sync settings
         soundEnabled = sound.isEnabled
+        if UserDefaults.standard.object(forKey: Self.historyEnabledKey) == nil {
+            historyEnabled = true
+        } else {
+            historyEnabled = UserDefaults.standard.bool(forKey: Self.historyEnabledKey)
+        }
 
         // Check accessibility on launch (prompts user)
         _ = PasteManager.checkAccessibility()
@@ -126,9 +160,11 @@ class AppState: ObservableObject {
                 return
             }
 
-            history.insert(text, at: 0)
-            if history.count > Self.maxHistory {
-                history.removeLast()
+            if historyEnabled {
+                history.insert(HistoryEntry(text: text), at: 0)
+                if history.count > Self.maxHistory {
+                    history.removeLast()
+                }
             }
             pasteManager.pasteText(text)
 
@@ -143,6 +179,20 @@ class AppState: ObservableObject {
 
     func showSettings() {
         settingsWindow.show(appState: self)
+    }
+
+    private func saveHistory() {
+        if let data = try? JSONEncoder().encode(history) {
+            try? data.write(to: Self.historyFileURL)
+        }
+    }
+
+    private static func loadHistory() -> [HistoryEntry] {
+        guard let data = try? Data(contentsOf: historyFileURL),
+              let entries = try? JSONDecoder().decode([HistoryEntry].self, from: data) else {
+            return []
+        }
+        return entries
     }
 
     private func updateLaunchAtLogin() {
