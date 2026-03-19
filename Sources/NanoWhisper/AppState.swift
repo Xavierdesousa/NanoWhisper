@@ -24,8 +24,8 @@ class AppState: ObservableObject {
     }
     @Published var lastError: String?
 
-    private static let maxHistory = 15
     private static let historyEnabledKey = "historyEnabled"
+    private static let maxHistoryKey = "maxHistoryCount"
     private static let historyFileURL: URL = {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             .appendingPathComponent("NanoWhisper", isDirectory: true)
@@ -43,6 +43,16 @@ class AppState: ObservableObject {
 
     @Published var historyEnabled: Bool = true {
         didSet { UserDefaults.standard.set(historyEnabled, forKey: Self.historyEnabledKey) }
+    }
+
+    @Published var maxHistoryCount: Int = 15 {
+        didSet {
+            UserDefaults.standard.set(maxHistoryCount, forKey: Self.maxHistoryKey)
+            // Trim history if new limit is lower
+            if history.count > maxHistoryCount {
+                history = Array(history.prefix(maxHistoryCount))
+            }
+        }
     }
 
     let audioRecorder = AudioRecorder()
@@ -88,6 +98,8 @@ class AppState: ObservableObject {
         } else {
             historyEnabled = UserDefaults.standard.bool(forKey: Self.historyEnabledKey)
         }
+        let storedMax = UserDefaults.standard.integer(forKey: Self.maxHistoryKey)
+        maxHistoryCount = storedMax > 0 ? storedMax : 15
 
         // Check accessibility on launch (prompts user)
         _ = PasteManager.checkAccessibility()
@@ -162,7 +174,7 @@ class AppState: ObservableObject {
 
             if historyEnabled {
                 history.insert(HistoryEntry(text: text), at: 0)
-                if history.count > Self.maxHistory {
+                if history.count > maxHistoryCount {
                     history.removeLast()
                 }
             }

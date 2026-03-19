@@ -18,6 +18,13 @@ struct SettingsView: View {
                 Toggle("Launch at login", isOn: $appState.launchAtLogin)
                 Toggle("Sound feedback", isOn: $appState.soundEnabled)
                 Toggle("History", isOn: $appState.historyEnabled)
+                if appState.historyEnabled {
+                    Picker("Max transcriptions", selection: $appState.maxHistoryCount) {
+                        ForEach([5, 10, 15, 25, 50, 100], id: \.self) { n in
+                            Text("\(n)").tag(n)
+                        }
+                    }
+                }
             }
 
             Section("Shortcut") {
@@ -159,9 +166,13 @@ class SettingsWindowController {
     private var window: NSWindow?
 
     func show(appState: AppState) {
-        // Close previous window if any
-        window?.orderOut(nil)
-        window = nil
+        if let w = window {
+            w.collectionBehavior = [.moveToActiveSpace]
+            centerOnCurrentScreen(w)
+            w.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
 
         let settingsView = SettingsView(appState: appState)
         let hostingView = NSHostingView(rootView: settingsView)
@@ -177,7 +188,7 @@ class SettingsWindowController {
         w.isReleasedWhenClosed = false
         w.isRestorable = false
         w.collectionBehavior = [.moveToActiveSpace]
-        w.center()
+        centerOnCurrentScreen(w)
         w.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         window = w

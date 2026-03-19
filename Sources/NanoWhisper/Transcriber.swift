@@ -25,11 +25,21 @@ class Transcriber {
     func transcribe(audioURL: URL) async -> String {
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                guard let self = self, let conn = self.connection else {
+                guard let self = self else {
                     continuation.resume(returning: "")
                     return
                 }
-                let response = conn.sendCommand("TRANSCRIBE:\(audioURL.path)")
+
+                // Try sending, reconnect once if socket is dead (e.g. after sleep)
+                var response = self.connection?.sendCommand("TRANSCRIBE:\(audioURL.path)")
+                if response == nil {
+                    self.connection?.disconnect()
+                    self.connection = nil
+                    if self.tryConnect() {
+                        response = self.connection?.sendCommand("TRANSCRIBE:\(audioURL.path)")
+                    }
+                }
+
                 if let response = response, response.hasPrefix("OK:") {
                     continuation.resume(returning: String(response.dropFirst(3)))
                 } else {

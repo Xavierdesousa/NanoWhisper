@@ -27,17 +27,9 @@ struct HistoryView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                     Spacer()
-                    Button(action: {
+                    ActionButton(label: "Clear All", icon: "trash", color: .red.opacity(0.8)) {
                         showClearConfirm = true
-                    }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "trash")
-                            Text("Clear All")
-                        }
-                        .font(.caption)
-                        .foregroundColor(.red.opacity(0.8))
                     }
-                    .buttonStyle(.plain)
                     .alert("Clear History", isPresented: $showClearConfirm) {
                         Button("Cancel", role: .cancel) {}
                         Button("Clear All", role: .destructive) {
@@ -113,31 +105,19 @@ struct HistoryRow: View {
             HStack(spacing: 12) {
                 Spacer()
 
-                Button(action: {
+                ActionButton(
+                    label: copied ? "Copied" : "Copy",
+                    icon: copied ? "checkmark" : "doc.on.doc",
+                    color: copied ? .green : .secondary
+                ) {
                     onCopy()
                     copied = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                         copied = false
                     }
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                        Text(copied ? "Copied" : "Copy")
-                    }
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(copied ? .green : .secondary)
                 }
-                .buttonStyle(.plain)
 
-                Button(action: onDelete) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "trash")
-                        Text("Delete")
-                    }
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
+                ActionButton(label: "Delete", icon: "trash", color: .secondary, action: onDelete)
             }
         }
         .padding(12)
@@ -153,12 +133,45 @@ struct HistoryRow: View {
     }
 }
 
+struct ActionButton: View {
+    let label: String
+    let icon: String
+    var color: Color = .secondary
+    let action: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                Text(label)
+            }
+            .font(.system(size: 11, weight: .medium))
+            .foregroundColor(color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(isHovering ? Color.primary.opacity(0.08) : Color.clear)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 5))
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+    }
+}
+
 class HistoryWindowController {
     private var window: NSWindow?
 
     func show(appState: AppState) {
-        window?.orderOut(nil)
-        window = nil
+        if let w = window {
+            w.collectionBehavior = [.moveToActiveSpace]
+            centerOnCurrentScreen(w)
+            w.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
 
         let view = HistoryView(appState: appState)
         let hostingView = NSHostingView(rootView: view)
@@ -175,7 +188,7 @@ class HistoryWindowController {
         w.isReleasedWhenClosed = false
         w.isRestorable = false
         w.collectionBehavior = [.moveToActiveSpace]
-        w.center()
+        centerOnCurrentScreen(w)
         w.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         window = w
