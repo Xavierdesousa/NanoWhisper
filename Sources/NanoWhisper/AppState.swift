@@ -175,12 +175,10 @@ class AppState: ObservableObject {
 
     func startRecording() {
         lastError = nil
-        print("[AppState] startRecording called")
         do {
             sound.playStart()
             try audioRecorder.startRecording()
             isRecording = true
-            print("[AppState] calling overlay.show()")
             recordingOverlay.show(audioLevelPublisher: audioRecorder.audioLevelSubject)
         } catch {
             lastError = "Mic error: \(error.localizedDescription)"
