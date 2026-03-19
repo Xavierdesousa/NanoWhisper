@@ -1,8 +1,16 @@
-# NanoWhisper
+<p align="center">
+  <img src="Resources/AppIcon.png" width="128" height="128" alt="NanoWhisper icon">
+</p>
 
-Local, offline speech-to-text for macOS. Lives in your menubar, transcribes with [NVIDIA Parakeet](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3), and pastes the result wherever your cursor is.
+<h1 align="center">NanoWhisper</h1>
 
-No cloud. No API keys. No subscription. Just press a shortcut and talk.
+<p align="center">
+  Local, offline speech-to-text for macOS. Lives in your menubar, transcribes with <a href="https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3">NVIDIA Parakeet</a>, and pastes the result wherever your cursor is.
+</p>
+
+<p align="center">
+  No cloud. No API keys. No subscription. Just press a shortcut and talk.
+</p>
 
 ## How it works
 
@@ -12,6 +20,17 @@ No cloud. No API keys. No subscription. Just press a shortcut and talk.
 4. Text appears in your active text field + clipboard
 
 Transcription runs entirely on-device using the Parakeet TDT 0.6B v3 model — a multilingual ASR model supporting 25 languages with automatic detection. Works great for French, English, and mixed-language input.
+
+## Features
+
+- **Menubar app** — no dock icon, stays out of your way
+- **Global hotkey** — editable shortcut (default ⌥ Space)
+- **Sound feedback** — audio cues on record start, stop, and empty transcription (toggleable)
+- **History** — last 15 transcriptions with timestamps, persisted across restarts (⌘H to open)
+- **Auto-paste** — transcribed text goes to clipboard and is pasted into the active field
+- **Background daemon** — model stays loaded for instant re-launch
+- **Auto-setup** — first launch installs everything automatically
+- **Launch at login** — optional, configurable in settings
 
 ## Requirements
 
@@ -26,7 +45,6 @@ Transcription runs entirely on-device using the Parakeet TDT 0.6B v3 model — a
 git clone https://github.com/Xavierdesousa/NanoWhisper.git
 cd NanoWhisper
 make app
-open NanoWhisper.app
 ```
 
 On first launch, the app automatically:
@@ -41,11 +59,12 @@ This takes a few minutes. Subsequent launches are instant thanks to the backgrou
 | Action | How |
 |---|---|
 | Start/stop recording | **⌥ Space** (default) |
-| Change shortcut | Menubar → Settings |
+| Open history | **⌘H** or Menubar → History |
+| Open settings | **⌘,** or Menubar → Settings |
 | Quit (keep engine alive) | Menubar → Quit |
 | Quit (free all memory) | Menubar → Quit & Stop Engine |
 
-The transcription engine runs as a background daemon. When you **Quit**, the daemon stays alive so reopening the app is instant (~24ms). Use **Quit & Stop Engine** to fully shut it down.
+The transcription engine runs as a background daemon. When you **Quit**, the daemon stays alive so reopening the app is instant. Use **Quit & Stop Engine** to fully shut it down.
 
 ## Permissions
 
@@ -77,14 +96,22 @@ make clean
 │   ├── AppState.swift            # App state + recording flow
 │   ├── AudioRecorder.swift       # Microphone capture (AVAudioEngine)
 │   ├── Transcriber.swift         # Daemon socket client
-│   ├── HotkeyManager.swift      # Global shortcut (Carbon API)
+│   ├── HotkeyManager.swift       # Global shortcut (Carbon API)
 │   ├── PasteManager.swift        # Clipboard + ⌘V simulation
 │   ├── SetupManager.swift        # Auto-setup on first launch
-│   └── SettingsView.swift        # Settings window
+│   ├── SoundManager.swift        # Audio feedback (start/stop/error)
+│   ├── SettingsView.swift        # Settings window
+│   ├── HistoryView.swift         # History window
+│   └── WindowUtils.swift         # Multi-screen window positioning
 ├── scripts/
 │   ├── transcribe.py             # Transcription daemon (Unix socket server)
 │   └── setup.sh                  # Python env + model setup
-├── Resources/Info.plist
+├── Resources/
+│   ├── Info.plist
+│   ├── AppIcon.icns
+│   ├── start.m4a                 # Record start sound
+│   ├── stop.m4a                  # Record stop sound
+│   └── noResult.m4a              # Empty transcription sound
 ├── Package.swift
 └── Makefile
 ```
@@ -94,7 +121,7 @@ make clean
 Just send them the repo. They need:
 1. Apple Silicon Mac with macOS 13+
 2. Python 3.12 (`brew install python@3.12`)
-3. Run `make app && open NanoWhisper.app`
+3. Run `make app`
 
 No Apple Developer account or code signing required — the app is ad-hoc signed.
 
