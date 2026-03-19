@@ -4,19 +4,13 @@ import ServiceManagement
 
 struct TranscriptionDebugInfo: Codable {
     let audioDuration: Double?
-    let trimmedDuration: Double?
     let transcribeDuration: Double?
-    let idleSinceLast: Double?
-    let rtf: Double?  // real-time factor: transcribe_time / audio_time
-    let preset: String?
+    let rtf: Double?
 
     enum CodingKeys: String, CodingKey {
         case audioDuration = "audio_duration"
-        case trimmedDuration = "trimmed_duration"
         case transcribeDuration = "transcribe_duration"
-        case idleSinceLast = "idle_since_last"
         case rtf
-        case preset
     }
 }
 
@@ -32,12 +26,6 @@ struct HistoryEntry: Codable, Identifiable {
         self.date = Date()
         self.debugInfo = debugInfo
     }
-}
-
-enum DecodingPreset: String, CaseIterable, Codable {
-    case fast
-    case balanced
-    case best
 }
 
 @MainActor
@@ -75,17 +63,9 @@ class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(debugMode, forKey: "debugMode") }
     }
 
-    @Published var decodingPreset: DecodingPreset = .fast {
-        didSet {
-            UserDefaults.standard.set(decodingPreset.rawValue, forKey: "decodingPreset")
-            applyDecodingPreset()
-        }
-    }
-
     @Published var maxHistoryCount: Int = 15 {
         didSet {
             UserDefaults.standard.set(maxHistoryCount, forKey: Self.maxHistoryKey)
-            // Trim history if new limit is lower
             if history.count > maxHistoryCount {
                 history = Array(history.prefix(maxHistoryCount))
             }
@@ -138,38 +118,32 @@ class AppState: ObservableObject {
         let storedMax = UserDefaults.standard.integer(forKey: Self.maxHistoryKey)
         maxHistoryCount = storedMax > 0 ? storedMax : 15
         debugMode = UserDefaults.standard.bool(forKey: "debugMode")
-        if let preset = UserDefaults.standard.string(forKey: "decodingPreset"),
-           let value = DecodingPreset(rawValue: preset) {
-            decodingPreset = value
-        }
 
         // Check accessibility on launch (prompts user)
         _ = PasteManager.checkAccessibility()
 
         // Begin: either setup or start engine directly
-        if setupManager.needsSetup {
-            setupManager.runSetup()
-        } else {
-            setupManager.setupComplete = true
-        }
+        setupManager.runSetup()
     }
 
     func startEngine() {
+        guard let models = setupManager.models else {
+            lastError = "Models not loaded"
+            return
+        }
+
         lastError = nil
-        transcriber.onReady = { [weak self] in
-            Task { @MainActor in
-                self?.isEngineReady = true
-                self?.lastError = nil
-                self?.applyDecodingPreset()
+
+        Task {
+            do {
+                try await transcriber.initialize(models: models)
+                isEngineReady = true
+                lastError = nil
+            } catch {
+                lastError = "Engine init failed: \(error.localizedDescription)"
+                isEngineReady = false
             }
         }
-        transcriber.onError = { [weak self] error in
-            Task { @MainActor in
-                self?.lastError = error
-                self?.isEngineReady = false
-            }
-        }
-        transcriber.start()
     }
 
     func toggleRecording() {
@@ -249,10 +223,6 @@ class AppState: ObservableObject {
             return []
         }
         return entries
-    }
-
-    private func applyDecodingPreset() {
-        transcriber.setDecoding(preset: decodingPreset.rawValue)
     }
 
     private func updateLaunchAtLogin() {

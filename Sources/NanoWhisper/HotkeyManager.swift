@@ -2,7 +2,7 @@ import Carbon
 import AppKit
 
 // Global reference for the C callback
-private var hotkeyManagerInstance: HotkeyManager?
+nonisolated(unsafe) private var hotkeyManagerInstance: HotkeyManager?
 
 // C-compatible callback
 private func hotkeyHandler(

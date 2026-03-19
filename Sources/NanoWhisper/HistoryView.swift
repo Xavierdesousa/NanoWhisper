@@ -87,27 +87,15 @@ struct HistoryRow: View {
 
     @ViewBuilder
     private func debugInfoView(_ info: TranscriptionDebugInfo) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 12) {
-                if let audio = info.audioDuration, audio > 0 {
-                    if let trimmed = info.trimmedDuration {
-                        debugTag("Audio", String(format: "%.1fs → %.1fs", audio, trimmed))
-                    } else {
-                        debugTag("Audio", String(format: "%.1fs", audio))
-                    }
-                }
-                if let transcribe = info.transcribeDuration {
-                    debugTag("Transcribe", String(format: "%.2fs", transcribe))
-                }
-                if let rtf = info.rtf {
-                    debugTag("RTF", String(format: "%.2fx", rtf))
-                }
-                if let preset = info.preset {
-                    debugTag("Preset", preset.capitalized)
-                }
+        HStack(spacing: 12) {
+            if let audio = info.audioDuration, audio > 0 {
+                debugTag("Audio", String(format: "%.1fs", audio))
             }
-            if let idle = info.idleSinceLast {
-                debugTag("Idle", String(format: "%.0fs", idle))
+            if let transcribe = info.transcribeDuration {
+                debugTag("Transcribe", String(format: "%.2fs", transcribe))
+            }
+            if let rtf = info.rtf {
+                debugTag("RTF", String(format: "%.2fx", rtf))
             }
         }
         .padding(6)
