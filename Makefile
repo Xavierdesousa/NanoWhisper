@@ -19,6 +19,8 @@ app: build
 	@cp $(BUILD_DIR)/$(APP_NAME) $(APP_BUNDLE)/Contents/MacOS/
 	@# Copy Info.plist
 	@cp Resources/Info.plist $(APP_BUNDLE)/Contents/
+	@# Copy icon
+	@cp Resources/AppIcon.icns $(APP_BUNDLE)/Contents/Resources/
 	@# Copy sounds
 	@cp Resources/start.m4a $(APP_BUNDLE)/Contents/Resources/
 	@cp Resources/stop.m4a $(APP_BUNDLE)/Contents/Resources/
