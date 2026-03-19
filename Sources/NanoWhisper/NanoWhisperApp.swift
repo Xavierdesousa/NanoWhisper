@@ -85,7 +85,7 @@ struct NanoWhisperApp: App {
                 NSApplication.shared.terminate(nil)
             }
         } label: {
-            Image(systemName: menuBarIcon)
+            menuBarLabel
         }
         .menuBarExtraStyle(.menu)
     }
@@ -94,7 +94,19 @@ struct NanoWhisperApp: App {
         appState.hotkeyManager.currentShortcut.displayString
     }
 
-    private var menuBarIcon: String {
+    @ViewBuilder
+    private var menuBarLabel: some View {
+        if let sfIcon = menuBarSFIcon {
+            Image(systemName: sfIcon)
+        } else if let nsImage = loadMenuBarIcon() {
+            Image(nsImage: nsImage)
+        } else {
+            Image(systemName: "mic")
+        }
+    }
+
+    /// Returns an SF Symbol name for non-default states, nil for the default (ready) state
+    private var menuBarSFIcon: String? {
         if appState.setupManager.isSettingUp {
             return "arrow.down.circle"
         } else if appState.isRecording {
@@ -104,8 +116,16 @@ struct NanoWhisperApp: App {
         } else if !appState.isEngineReady {
             return "mic.slash"
         } else {
-            return "mic"
+            return nil
         }
+    }
+
+    private func loadMenuBarIcon() -> NSImage? {
+        guard let url = Bundle.main.url(forResource: "menubar_icon", withExtension: "png"),
+              let image = NSImage(contentsOf: url) else { return nil }
+        image.isTemplate = true
+        image.size = NSSize(width: 18, height: 18)
+        return image
     }
 }
 

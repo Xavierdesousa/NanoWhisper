@@ -21,6 +21,9 @@ app: build
 	@cp Resources/Info.plist $(APP_BUNDLE)/Contents/
 	@# Copy icon
 	@cp Resources/AppIcon.icns $(APP_BUNDLE)/Contents/Resources/
+	@# Copy menubar icon
+	@cp Resources/menubar_icon.png $(APP_BUNDLE)/Contents/Resources/
+	@cp Resources/menubar_icon@2x.png $(APP_BUNDLE)/Contents/Resources/
 	@# Copy sounds
 	@cp Resources/start.m4a $(APP_BUNDLE)/Contents/Resources/
 	@cp Resources/stop.m4a $(APP_BUNDLE)/Contents/Resources/
