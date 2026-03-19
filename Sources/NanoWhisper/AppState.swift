@@ -2,16 +2,42 @@ import SwiftUI
 import Combine
 import ServiceManagement
 
+struct TranscriptionDebugInfo: Codable {
+    let audioDuration: Double?
+    let trimmedDuration: Double?
+    let transcribeDuration: Double?
+    let idleSinceLast: Double?
+    let rtf: Double?  // real-time factor: transcribe_time / audio_time
+    let preset: String?
+
+    enum CodingKeys: String, CodingKey {
+        case audioDuration = "audio_duration"
+        case trimmedDuration = "trimmed_duration"
+        case transcribeDuration = "transcribe_duration"
+        case idleSinceLast = "idle_since_last"
+        case rtf
+        case preset
+    }
+}
+
 struct HistoryEntry: Codable, Identifiable {
     let id: UUID
     let text: String
     let date: Date
+    var debugInfo: TranscriptionDebugInfo?
 
-    init(text: String) {
+    init(text: String, debugInfo: TranscriptionDebugInfo? = nil) {
         self.id = UUID()
         self.text = text
         self.date = Date()
+        self.debugInfo = debugInfo
     }
+}
+
+enum DecodingPreset: String, CaseIterable, Codable {
+    case fast
+    case balanced
+    case best
 }
 
 @MainActor
@@ -43,6 +69,17 @@ class AppState: ObservableObject {
 
     @Published var historyEnabled: Bool = true {
         didSet { UserDefaults.standard.set(historyEnabled, forKey: Self.historyEnabledKey) }
+    }
+
+    @Published var debugMode: Bool = false {
+        didSet { UserDefaults.standard.set(debugMode, forKey: "debugMode") }
+    }
+
+    @Published var decodingPreset: DecodingPreset = .fast {
+        didSet {
+            UserDefaults.standard.set(decodingPreset.rawValue, forKey: "decodingPreset")
+            applyDecodingPreset()
+        }
     }
 
     @Published var maxHistoryCount: Int = 15 {
@@ -100,6 +137,11 @@ class AppState: ObservableObject {
         }
         let storedMax = UserDefaults.standard.integer(forKey: Self.maxHistoryKey)
         maxHistoryCount = storedMax > 0 ? storedMax : 15
+        debugMode = UserDefaults.standard.bool(forKey: "debugMode")
+        if let preset = UserDefaults.standard.string(forKey: "decodingPreset"),
+           let value = DecodingPreset(rawValue: preset) {
+            decodingPreset = value
+        }
 
         // Check accessibility on launch (prompts user)
         _ = PasteManager.checkAccessibility()
@@ -118,6 +160,7 @@ class AppState: ObservableObject {
             Task { @MainActor in
                 self?.isEngineReady = true
                 self?.lastError = nil
+                self?.applyDecodingPreset()
             }
         }
         transcriber.onError = { [weak self] error in
@@ -163,22 +206,23 @@ class AppState: ObservableObject {
         isTranscribing = true
 
         Task {
-            let text = await transcriber.transcribe(audioURL: audioURL)
+            let result = await transcriber.transcribe(audioURL: audioURL)
             isTranscribing = false
 
-            if text.isEmpty {
+            if result.text.isEmpty {
                 lastError = "Empty transcription"
                 sound.playNoResult()
                 return
             }
 
             if historyEnabled {
-                history.insert(HistoryEntry(text: text), at: 0)
+                let entry = HistoryEntry(text: result.text, debugInfo: result.debugInfo)
+                history.insert(entry, at: 0)
                 if history.count > maxHistoryCount {
                     history.removeLast()
                 }
             }
-            pasteManager.pasteText(text)
+            pasteManager.pasteText(result.text)
 
             // Clean up temp file
             try? FileManager.default.removeItem(at: audioURL)
@@ -205,6 +249,10 @@ class AppState: ObservableObject {
             return []
         }
         return entries
+    }
+
+    private func applyDecodingPreset() {
+        transcriber.setDecoding(preset: decodingPreset.rawValue)
     }
 
     private func updateLaunchAtLogin() {

@@ -22,11 +22,16 @@ class Transcriber {
         }
     }
 
-    func transcribe(audioURL: URL) async -> String {
+    struct TranscriptionResult {
+        let text: String
+        let debugInfo: TranscriptionDebugInfo?
+    }
+
+    func transcribe(audioURL: URL) async -> TranscriptionResult {
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 guard let self = self else {
-                    continuation.resume(returning: "")
+                    continuation.resume(returning: TranscriptionResult(text: "", debugInfo: nil))
                     return
                 }
 
@@ -41,11 +46,19 @@ class Transcriber {
                 }
 
                 if let response = response, response.hasPrefix("OK:") {
-                    continuation.resume(returning: String(response.dropFirst(3)))
+                    let payload = String(response.dropFirst(3))
+                    // Parse "text\tDEBUG:{json}" format
+                    let parts = payload.components(separatedBy: "\tDEBUG:")
+                    let text = parts[0]
+                    var debugInfo: TranscriptionDebugInfo?
+                    if parts.count > 1, let data = parts[1].data(using: .utf8) {
+                        debugInfo = try? JSONDecoder().decode(TranscriptionDebugInfo.self, from: data)
+                    }
+                    continuation.resume(returning: TranscriptionResult(text: text, debugInfo: debugInfo))
                 } else {
                     let err = response ?? "No response from engine"
                     self.onError?(err)
-                    continuation.resume(returning: "")
+                    continuation.resume(returning: TranscriptionResult(text: "", debugInfo: nil))
                 }
             }
         }
@@ -66,6 +79,12 @@ class Transcriber {
 
         daemonProcess?.terminate()
         daemonProcess = nil
+    }
+
+    func setDecoding(preset: String) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            self?.connection?.sendCommand("DECODING:\(preset)")
+        }
     }
 
     /// Just disconnect the app (leave daemon running)

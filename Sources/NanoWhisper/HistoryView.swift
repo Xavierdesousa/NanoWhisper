@@ -49,7 +49,7 @@ struct HistoryView: View {
     private var historyList: some View {
         List {
             ForEach(Array(appState.history.enumerated()), id: \.element.id) { index, entry in
-                HistoryRow(entry: entry, onCopy: {
+                HistoryRow(entry: entry, showDebug: appState.debugMode, onCopy: {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(entry.text, forType: .string)
                 }, onDelete: {
@@ -65,6 +65,7 @@ struct HistoryView: View {
 
 struct HistoryRow: View {
     let entry: HistoryEntry
+    let showDebug: Bool
     let onCopy: () -> Void
     let onDelete: () -> Void
     @State private var copied = false
@@ -84,6 +85,45 @@ struct HistoryRow: View {
         return f
     }()
 
+    @ViewBuilder
+    private func debugInfoView(_ info: TranscriptionDebugInfo) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 12) {
+                if let audio = info.audioDuration, audio > 0 {
+                    if let trimmed = info.trimmedDuration {
+                        debugTag("Audio", String(format: "%.1fs → %.1fs", audio, trimmed))
+                    } else {
+                        debugTag("Audio", String(format: "%.1fs", audio))
+                    }
+                }
+                if let transcribe = info.transcribeDuration {
+                    debugTag("Transcribe", String(format: "%.2fs", transcribe))
+                }
+                if let rtf = info.rtf {
+                    debugTag("RTF", String(format: "%.2fx", rtf))
+                }
+                if let preset = info.preset {
+                    debugTag("Preset", preset.capitalized)
+                }
+            }
+            if let idle = info.idleSinceLast {
+                debugTag("Idle", String(format: "%.0fs", idle))
+            }
+        }
+        .padding(6)
+        .background(RoundedRectangle(cornerRadius: 4).fill(Color.blue.opacity(0.06)))
+    }
+
+    private func debugTag(_ label: String, _ value: String) -> some View {
+        HStack(spacing: 3) {
+            Text(label)
+                .foregroundColor(.secondary)
+            Text(value)
+                .foregroundColor(.primary)
+        }
+        .font(.system(size: 10, design: .monospaced))
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             // Date header
@@ -100,6 +140,11 @@ struct HistoryRow: View {
             Text(entry.text)
                 .font(.body)
                 .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Debug info
+            if showDebug, let info = entry.debugInfo {
+                debugInfoView(info)
+            }
 
             // Actions
             HStack(spacing: 12) {
