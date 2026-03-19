@@ -1,9 +1,13 @@
 import AVFoundation
+import Combine
 
 class AudioRecorder {
     private var audioEngine: AVAudioEngine?
     private var audioFile: AVAudioFile?
     private var outputURL: URL?
+
+    /// Current audio level (0.0 – 1.0), updated from the recording tap.
+    let audioLevelSubject = PassthroughSubject<Float, Never>()
 
     func startRecording() throws {
         let engine = AVAudioEngine()
@@ -58,6 +62,21 @@ class AudioRecorder {
 
             if error == nil && convertedBuffer.frameLength > 0 {
                 try? self.audioFile?.write(from: convertedBuffer)
+
+                // Compute RMS level for the visualizer
+                if let channelData = convertedBuffer.floatChannelData?[0] {
+                    let frames = Int(convertedBuffer.frameLength)
+                    var sum: Float = 0
+                    for i in 0..<frames {
+                        let sample = channelData[i]
+                        sum += sample * sample
+                    }
+                    let rms = sqrt(sum / Float(max(frames, 1)))
+                    // Boost and apply sqrt curve so quiet speech is still visible
+                    let boosted = min(rms * 25.0, 1.0)
+                    let level = sqrt(boosted)
+                    self.audioLevelSubject.send(level)
+                }
             }
         }
 

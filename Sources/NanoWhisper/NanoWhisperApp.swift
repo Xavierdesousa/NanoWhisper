@@ -15,9 +15,6 @@ struct NanoWhisperApp: App {
             if appState.setupManager.isSettingUp {
                 Label(appState.setupManager.setupProgress, systemImage: "arrow.down.circle")
                     .foregroundColor(.blue)
-                Text("Downloading model (~2.7GB)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
             // Setup failed
             else if let setupErr = appState.setupManager.setupError {
@@ -42,12 +39,18 @@ struct NanoWhisperApp: App {
             }
             // Recording
             else if appState.isRecording {
-                Label("Recording... (\(shortcutName) to stop)", systemImage: "mic.fill")
+                Label("Recording... (\(shortcutName))", systemImage: "mic.fill")
                     .foregroundColor(.red)
+                Button("Stop Recording") {
+                    appState.toggleRecording()
+                }
             }
             // Ready
             else {
-                Label("Ready — \(shortcutName) to record", systemImage: "mic")
+                Label("Ready — \(shortcutName)", systemImage: "mic")
+                Button("Start Recording") {
+                    appState.toggleRecording()
+                }
             }
 
             // Error
@@ -101,10 +104,6 @@ struct NanoWhisperApp: App {
     private var menuBarSFIcon: String? {
         if appState.setupManager.isSettingUp {
             return "arrow.down.circle"
-        } else if appState.isRecording {
-            return "waveform"
-        } else if appState.isTranscribing {
-            return "ellipsis.circle"
         } else if !appState.isEngineReady {
             return "mic.slash"
         } else {

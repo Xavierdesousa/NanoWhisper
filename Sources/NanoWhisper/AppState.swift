@@ -80,15 +80,30 @@ class AppState: ObservableObject {
     let settingsWindow = SettingsWindowController()
     let historyWindow = HistoryWindowController()
     let sound = SoundManager()
+    let recordingOverlay = RecordingOverlayController()
 
     private var cancellables = Set<AnyCancellable>()
 
     init() {
+        recordingOverlay.onStop = { [weak self] in
+            Task { @MainActor in
+                self?.toggleRecording()
+            }
+        }
+
         hotkeyManager.onHotkeyPressed = { [weak self] in
             Task { @MainActor in
                 self?.toggleRecording()
             }
         }
+
+        // Forward setupManager changes so SwiftUI re-renders menu bar
+        setupManager.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
 
         // Watch for setup completion → start engine
         setupManager.$setupComplete
@@ -160,10 +175,13 @@ class AppState: ObservableObject {
 
     func startRecording() {
         lastError = nil
+        print("[AppState] startRecording called")
         do {
             sound.playStart()
             try audioRecorder.startRecording()
             isRecording = true
+            print("[AppState] calling overlay.show()")
+            recordingOverlay.show(audioLevelPublisher: audioRecorder.audioLevelSubject)
         } catch {
             lastError = "Mic error: \(error.localizedDescription)"
         }
@@ -172,8 +190,10 @@ class AppState: ObservableObject {
     func stopRecording() {
         sound.playStop()
         isRecording = false
+        recordingOverlay.transitionToLoading()
         guard let audioURL = audioRecorder.stopRecording() else {
             lastError = "No audio recorded"
+            recordingOverlay.dismiss()
             return
         }
 
@@ -182,6 +202,7 @@ class AppState: ObservableObject {
         Task {
             let result = await transcriber.transcribe(audioURL: audioURL)
             isTranscribing = false
+            recordingOverlay.dismiss()
 
             if result.text.isEmpty {
                 lastError = "Empty transcription"
