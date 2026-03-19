@@ -16,6 +16,7 @@ struct SettingsView: View {
         Form {
             Section("General") {
                 Toggle("Launch at login", isOn: $appState.launchAtLogin)
+                Toggle("Sound feedback", isOn: $appState.soundEnabled)
             }
 
             Section("Shortcut") {

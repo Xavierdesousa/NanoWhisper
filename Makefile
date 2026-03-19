@@ -19,6 +19,10 @@ app: build
 	@cp $(BUILD_DIR)/$(APP_NAME) $(APP_BUNDLE)/Contents/MacOS/
 	@# Copy Info.plist
 	@cp Resources/Info.plist $(APP_BUNDLE)/Contents/
+	@# Copy sounds
+	@cp Resources/start.m4a $(APP_BUNDLE)/Contents/Resources/
+	@cp Resources/stop.m4a $(APP_BUNDLE)/Contents/Resources/
+	@cp Resources/noResult.m4a $(APP_BUNDLE)/Contents/Resources/
 	@# Copy scripts
 	@cp scripts/transcribe.py $(APP_BUNDLE)/Contents/Resources/scripts/
 	@cp scripts/setup.sh $(APP_BUNDLE)/Contents/Resources/scripts/
@@ -26,8 +30,9 @@ app: build
 	@# Sign with local certificate (permissions persist across rebuilds)
 	@codesign --force --deep --sign "$(SIGN_IDENTITY)" $(APP_BUNDLE) 2>/dev/null || \
 		(echo "Signing with '$(SIGN_IDENTITY)' failed, falling back to ad-hoc"; codesign --force --deep --sign - $(APP_BUNDLE))
-	@echo "Done! $(APP_BUNDLE) is ready."
-	@echo "Run: open $(APP_BUNDLE)"
+	@# Restart app if it was running
+	@pkill -x $(APP_NAME) 2>/dev/null; sleep 0.3; open $(APP_BUNDLE)
+	@echo "Done! $(APP_BUNDLE) launched."
 
 # Run in development (without .app bundle)
 run: build

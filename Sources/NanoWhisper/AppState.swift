@@ -15,6 +15,10 @@ class AppState: ObservableObject {
         didSet { updateLaunchAtLogin() }
     }
 
+    @Published var soundEnabled: Bool = true {
+        didSet { sound.isEnabled = soundEnabled }
+    }
+
     let audioRecorder = AudioRecorder()
     let transcriber = Transcriber()
     let hotkeyManager = HotkeyManager()
@@ -22,6 +26,7 @@ class AppState: ObservableObject {
     let setupManager = SetupManager()
     let settingsWindow = SettingsWindowController()
     let historyWindow = HistoryWindowController()
+    let sound = SoundManager()
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -46,6 +51,9 @@ class AppState: ObservableObject {
         if #available(macOS 13.0, *) {
             launchAtLogin = SMAppService.mainApp.status == .enabled
         }
+
+        // Sync sound setting
+        soundEnabled = sound.isEnabled
 
         // Check accessibility on launch (prompts user)
         _ = PasteManager.checkAccessibility()
@@ -90,6 +98,7 @@ class AppState: ObservableObject {
     func startRecording() {
         lastError = nil
         do {
+            sound.playStart()
             try audioRecorder.startRecording()
             isRecording = true
         } catch {
@@ -98,6 +107,7 @@ class AppState: ObservableObject {
     }
 
     func stopRecording() {
+        sound.playStop()
         isRecording = false
         guard let audioURL = audioRecorder.stopRecording() else {
             lastError = "No audio recorded"
@@ -112,6 +122,7 @@ class AppState: ObservableObject {
 
             if text.isEmpty {
                 lastError = "Empty transcription"
+                sound.playNoResult()
                 return
             }
 
