@@ -1,9 +1,10 @@
-.PHONY: build app clean run
+.PHONY: build app clean run notarize
 
 APP_NAME = NanoWhisper
 BUILD_DIR = .build/release
 APP_BUNDLE = $(APP_NAME).app
-SIGN_IDENTITY = Moonji Dev
+SIGN_IDENTITY ?= Moonji Dev
+ENTITLEMENTS = Resources/NanoWhisper.entitlements
 
 # Build the Swift executable (release mode)
 build:
@@ -28,12 +29,34 @@ app: build
 	@cp Resources/start.m4a $(APP_BUNDLE)/Contents/Resources/
 	@cp Resources/stop.m4a $(APP_BUNDLE)/Contents/Resources/
 	@cp Resources/noResult.m4a $(APP_BUNDLE)/Contents/Resources/
-	@# Sign with local certificate (permissions persist across rebuilds)
-	@codesign --force --deep --sign "$(SIGN_IDENTITY)" $(APP_BUNDLE) 2>/dev/null || \
-		(echo "Signing with '$(SIGN_IDENTITY)' failed, falling back to ad-hoc"; codesign --force --deep --sign - $(APP_BUNDLE))
+	@# Sign with entitlements and hardened runtime
+	@if [ -n "$(SIGN_IDENTITY)" ]; then \
+		codesign --force --deep --options runtime \
+			--entitlements $(ENTITLEMENTS) \
+			--sign "$(SIGN_IDENTITY)" $(APP_BUNDLE); \
+	else \
+		echo "Warning: No signing identity set. Using ad-hoc signing (not suitable for distribution)."; \
+		echo "Set NANOWHISPER_SIGN_IDENTITY env var for proper signing."; \
+		codesign --force --deep --options runtime \
+			--entitlements $(ENTITLEMENTS) \
+			--sign - $(APP_BUNDLE); \
+	fi
 	@# Restart app if it was running
 	@pkill -x $(APP_NAME) 2>/dev/null; sleep 0.3; open $(APP_BUNDLE)
 	@echo "Done! $(APP_BUNDLE) launched."
+
+# Notarize the app for distribution (requires Developer ID certificate)
+notarize: app
+	@echo "Creating zip for notarization..."
+	@ditto -c -k --keepParent $(APP_BUNDLE) $(APP_NAME).zip
+	@echo "Submitting to Apple notary service..."
+	xcrun notarytool submit $(APP_NAME).zip \
+		--keychain-profile "$(NOTARY_PROFILE)" \
+		--wait
+	@echo "Stapling notarization ticket..."
+	xcrun stapler staple $(APP_BUNDLE)
+	@rm -f $(APP_NAME).zip
+	@echo "Notarization complete!"
 
 # Run in development (without .app bundle)
 run: build

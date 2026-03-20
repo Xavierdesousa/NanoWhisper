@@ -39,7 +39,7 @@ class SetupManager: ObservableObject {
                 self.isSettingUp = false
                 self.setupProgress = "Setup complete!"
             } catch {
-                self.setupError = "Setup failed: \(error.localizedDescription)"
+                self.setupError = "Model setup failed. Please check your internet connection and try again."
                 self.isSettingUp = false
             }
         }

@@ -1,16 +1,23 @@
 import Carbon
 import AppKit
+import os
 
-// Global reference for the C callback
-nonisolated(unsafe) private var hotkeyManagerInstance: HotkeyManager?
+// Thread-safe storage for the C callback reference.
+// Stores the pointer as an Int bit-pattern (Sendable) protected by an unfair lock.
+private let hotkeyManagerPtr = OSAllocatedUnfairLock(initialState: Int(0))
 
-// C-compatible callback
+// C-compatible callback — lock-protected read, dispatched to main thread
 private func hotkeyHandler(
     nextHandler: EventHandlerCallRef?,
     event: EventRef?,
     userData: UnsafeMutableRawPointer?
 ) -> OSStatus {
-    hotkeyManagerInstance?.onHotkeyPressed?()
+    let bits = hotkeyManagerPtr.withLock { $0 }
+    guard bits != 0 else { return noErr }
+    DispatchQueue.main.async {
+        let manager = Unmanaged<HotkeyManager>.fromOpaque(UnsafeMutableRawPointer(bitPattern: bits)!).takeUnretainedValue()
+        manager.onHotkeyPressed?()
+    }
     return noErr
 }
 
@@ -66,7 +73,8 @@ class HotkeyManager {
 
     init() {
         currentShortcut = Shortcut.load()
-        hotkeyManagerInstance = self
+        let bits = Int(bitPattern: Unmanaged.passUnretained(self).toOpaque())
+        hotkeyManagerPtr.withLock { $0 = bits }
         registerHotkey(currentShortcut)
     }
 
@@ -155,8 +163,9 @@ private func keyCodeToString(_ keyCode: UInt32) -> String {
         guard let layoutData = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else {
             return "?"
         }
-        let layout = unsafeBitCast(layoutData, to: CFData.self)
-        let keyboardLayout = unsafeBitCast(CFDataGetBytePtr(layout), to: UnsafePointer<UCKeyboardLayout>.self)
+        let layout = Unmanaged<CFData>.fromOpaque(layoutData).takeUnretainedValue()
+        guard let bytePtr = CFDataGetBytePtr(layout) else { return "?" }
+        let keyboardLayout = bytePtr.withMemoryRebound(to: UCKeyboardLayout.self, capacity: 1) { $0 }
 
         var deadKeyState: UInt32 = 0
         var chars = [UniChar](repeating: 0, count: 4)

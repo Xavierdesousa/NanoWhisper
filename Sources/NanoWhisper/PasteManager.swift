@@ -2,18 +2,41 @@ import AppKit
 import Carbon
 
 class PasteManager {
-    func pasteText(_ text: String) {
-        // 1. Copy to clipboard
+    /// Time in seconds before the clipboard is cleared after pasting
+    private static let clipboardClearDelay: TimeInterval = 3.0
+
+    /// Paste transcribed text into the active application
+    /// Returns false if no suitable target app was found
+    @discardableResult
+    func pasteText(_ text: String) -> Bool {
+        // Verify there's a frontmost app that can receive paste (not us)
+        guard let frontApp = NSWorkspace.shared.frontmostApplication,
+              frontApp.bundleIdentifier != Bundle.main.bundleIdentifier else {
+            return false
+        }
+
         let pasteboard = NSPasteboard.general
+
+        // Save current clipboard contents to restore later
+        let previousContents = pasteboard.string(forType: .string)
+
+        // Set transcribed text
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
 
-        // 2. Simulate Cmd+V to paste into active app
+        let changeCountAfterSet = pasteboard.changeCount
+
+        // Simulate Cmd+V, then restore/clear clipboard after delay
         simulatePaste()
+        scheduleClipboardCleanup(
+            previousContents: previousContents,
+            changeCountAfterSet: changeCountAfterSet
+        )
+        return true
     }
 
     private func simulatePaste() {
-        // Small delay to ensure pasteboard is ready and we paste into the right app
+        // Small delay to ensure pasteboard is ready
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             let source = CGEventSource(stateID: .hidSystemState)
 
@@ -26,6 +49,25 @@ class PasteManager {
             let keyUp = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: false)
             keyUp?.flags = .maskCommand
             keyUp?.post(tap: .cghidEventTap)
+        }
+    }
+
+    private func scheduleClipboardCleanup(
+        previousContents: String?,
+        changeCountAfterSet: Int
+    ) {
+        let delay = Self.clipboardClearDelay
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            let pasteboard = NSPasteboard.general
+
+            // Only restore/clear if the clipboard hasn't been modified by the user or another app
+            guard pasteboard.changeCount == changeCountAfterSet else { return }
+
+            pasteboard.clearContents()
+            // Restore previous clipboard content if it existed
+            if let previous = previousContents {
+                pasteboard.setString(previous, forType: .string)
+            }
         }
     }
 

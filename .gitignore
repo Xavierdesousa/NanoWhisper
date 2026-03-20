@@ -21,3 +21,20 @@ __pycache__/
 *.pyo
 venv/
 .venv/
+
+# Audio files (outside of Resources/)
+*.wav
+*.mp3
+*.m4a
+!Resources/*.m4a
+
+# Certificates and secrets
+*.p12
+*.cer
+*.key
+*.pem
+.env
+.env.*
+
+# Notarization artifacts
+*.zip

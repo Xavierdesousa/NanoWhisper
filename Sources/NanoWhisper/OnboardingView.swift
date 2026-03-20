@@ -147,6 +147,7 @@ struct OnboardingView: View {
                     Toggle("Launch at login", isOn: $appState.launchAtLogin)
                     Toggle("Sound feedback", isOn: $appState.soundEnabled)
                     Toggle("Save transcription history", isOn: $appState.historyEnabled)
+                        .disabled(appState.historyUnavailable)
                 }
             }
             .formStyle(.grouped)

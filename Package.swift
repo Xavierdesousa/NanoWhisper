@@ -5,7 +5,7 @@ let package = Package(
     name: "NanoWhisper",
     platforms: [.macOS(.v14)],
     dependencies: [
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.12.4"),
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.12.4"),
     ],
     targets: [
         .executableTarget(
