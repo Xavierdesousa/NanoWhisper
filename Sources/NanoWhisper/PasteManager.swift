@@ -30,10 +30,11 @@ class PasteManager {
     }
 
     /// Check if we have accessibility permissions (needed for CGEvent posting)
+    /// When `prompt` is true, shows the system dialog asking the user to grant access.
     @MainActor
-    static func checkAccessibility() -> Bool {
+    static func checkAccessibility(prompt: Bool = true) -> Bool {
         let key: CFString = "AXTrustedCheckOptionPrompt" as CFString
-        let options = [key: true] as CFDictionary
+        let options = [key: prompt] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
     }
 }

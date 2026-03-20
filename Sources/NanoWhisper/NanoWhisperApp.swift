@@ -4,9 +4,16 @@ import SwiftUI
 struct NanoWhisperApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var appState = AppState()
+    @State private var onboardingShown = false
 
     var body: some Scene {
         MenuBarExtra {
+            if !onboardingShown && appState.isFirstLaunch {
+                Button("Show Setup...") {
+                    showOnboarding()
+                }
+                Divider()
+            }
             Text("NanoWhisper")
                 .font(.headline)
             Divider()
@@ -94,10 +101,21 @@ struct NanoWhisperApp: App {
     private var menuBarLabel: some View {
         if let sfIcon = menuBarSFIcon {
             Image(systemName: sfIcon)
+                .onAppear { triggerOnboardingIfNeeded() }
         } else if let nsImage = loadMenuBarIcon() {
             Image(nsImage: nsImage)
+                .onAppear { triggerOnboardingIfNeeded() }
         } else {
             Image(systemName: "mic")
+                .onAppear { triggerOnboardingIfNeeded() }
+        }
+    }
+
+    private func triggerOnboardingIfNeeded() {
+        guard appState.isFirstLaunch && !onboardingShown else { return }
+        // Small delay to let the app finish launching
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            showOnboarding()
         }
     }
 
@@ -118,10 +136,23 @@ struct NanoWhisperApp: App {
         image.size = NSSize(width: 18, height: 18)
         return image
     }
+
+    private func showOnboarding() {
+        onboardingShown = true
+        appState.onboardingWindow.show(appState: appState) {
+            appState.completeOnboarding()
+        }
+    }
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
+        let isFirstLaunch = !UserDefaults.standard.bool(forKey: "onboardingComplete")
+        if isFirstLaunch {
+            // Show dock icon during onboarding
+            NSApp.setActivationPolicy(.regular)
+        } else {
+            NSApp.setActivationPolicy(.accessory)
+        }
     }
 }

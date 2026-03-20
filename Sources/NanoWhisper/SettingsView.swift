@@ -23,6 +23,19 @@ struct SettingsView: View {
                 HStack {
                     Text("Record toggle:")
                     Spacer()
+                    if appState.hotkeyManager.currentShortcut != .default {
+                        Button(action: {
+                            let def = Shortcut.default
+                            appState.hotkeyManager.updateShortcut(def)
+                            shortcutDisplay = def.displayString
+                        }) {
+                            Image(systemName: "arrow.counterclockwise")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Reset to default (\(Shortcut.default.displayString))")
+                    }
                     Button(action: {
                         isRecordingShortcut = true
                     }) {
