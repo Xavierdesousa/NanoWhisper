@@ -81,6 +81,10 @@ class AppState: ObservableObject {
     let historyWindow = HistoryWindowController()
     let sound = SoundManager()
     let recordingOverlay = RecordingOverlayController()
+    let onboardingWindow = OnboardingWindowController()
+
+    private static let onboardingCompleteKey = "onboardingComplete"
+    var isFirstLaunch: Bool { !UserDefaults.standard.bool(forKey: Self.onboardingCompleteKey) }
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -134,8 +138,10 @@ class AppState: ObservableObject {
         maxHistoryCount = storedMax > 0 ? storedMax : 15
         debugMode = UserDefaults.standard.bool(forKey: "debugMode")
 
-        // Check accessibility on launch (prompts user)
-        _ = PasteManager.checkAccessibility()
+        // Only auto-prompt accessibility on subsequent launches
+        if !isFirstLaunch {
+            _ = PasteManager.checkAccessibility(prompt: false)
+        }
 
         // Begin: either setup or start engine directly
         setupManager.runSetup()
@@ -228,6 +234,12 @@ class AppState: ObservableObject {
 
     func showSettings() {
         settingsWindow.show(appState: self)
+    }
+
+    func completeOnboarding() {
+        UserDefaults.standard.set(true, forKey: Self.onboardingCompleteKey)
+        onboardingWindow.close()
+        NSApp.setActivationPolicy(.accessory)
     }
 
     private func saveHistory() {
