@@ -33,64 +33,27 @@ struct HistoryEntry: Codable, Identifiable {
 // MARK: - Encrypted history storage
 
 private enum HistoryCrypto {
-    private static let keychainService = "com.moonji.nanowhisper.history"
-    private static let keychainAccount = "encryption-key"
     private static let logger = Logger(subsystem: "com.moonji.nanowhisper", category: "HistoryCrypto")
+    private static let salt = "com.moonji.nanowhisper.history.v1".data(using: .utf8)!
 
-    /// Retrieve or create the AES-256 key stored in the Keychain
+    /// Derive a stable AES-256 key from the machine's hardware UUID via HKDF.
+    /// No Keychain needed — the key is deterministic and machine-bound.
     static func symmetricKey() -> SymmetricKey? {
-        // Try to load existing key
-        if let key = loadKey(service: keychainService) {
-            return key
+        guard let uuid = hardwareUUID() else {
+            logger.error("Could not read hardware UUID")
+            return nil
         }
-
-        // Generate a new key
-        let newKey = SymmetricKey(size: .bits256)
-        let keyData = newKey.withUnsafeBytes { Data($0) }
-
-        guard storeKey(keyData, service: keychainService) else { return nil }
-        return newKey
+        let ikm = SymmetricKey(data: Data(uuid.utf8))
+        return HKDF<SHA256>.deriveKey(inputKeyMaterial: ikm, salt: salt, outputByteCount: 32)
     }
 
-    private static func loadKey(service: String) -> SymmetricKey? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: keychainAccount,
-            kSecUseDataProtectionKeychain as String: true,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
-
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-
-        if status == errSecSuccess, let data = result as? Data {
-            return SymmetricKey(data: data)
-        }
-        if status != errSecItemNotFound {
-            logger.error("Keychain read failed for service \(service) with status \(status)")
-        }
-        return nil
-    }
-
-    @discardableResult
-    private static func storeKey(_ keyData: Data, service: String) -> Bool {
-        let addQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: keychainAccount,
-            kSecUseDataProtectionKeychain as String: true,
-            kSecValueData as String: keyData,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        ]
-
-        let status = SecItemAdd(addQuery as CFDictionary, nil)
-        if status != errSecSuccess {
-            logger.error("Keychain write failed for service \(service) with status \(status)")
-            return false
-        }
-        return true
+    /// Read the IOPlatformUUID (stable across reboots, unique per machine)
+    private static func hardwareUUID() -> String? {
+        let service = IOServiceGetMatchingService(kIOMasterPortDefault, IOServiceMatching("IOPlatformExpertDevice"))
+        defer { IOObjectRelease(service) }
+        guard let uuid = IORegistryEntryCreateCFProperty(service, "IOPlatformUUID" as CFString, kCFAllocatorDefault, 0)?
+                .takeRetainedValue() as? String else { return nil }
+        return uuid
     }
 
 
@@ -228,7 +191,6 @@ class AppState: ObservableObject {
         historyLoaded = true
         if loaded.cryptoFailed {
             historyUnavailable = true
-            historyEnabled = false
         }
 
         // Sync settings
@@ -319,7 +281,7 @@ class AppState: ObservableObject {
                 return
             }
 
-            if historyEnabled {
+            if historyEnabled && !historyUnavailable {
                 let entry = HistoryEntry(text: result.text, debugInfo: result.debugInfo)
                 history.insert(entry, at: 0)
                 if history.count > maxHistoryCount {
@@ -351,9 +313,8 @@ class AppState: ObservableObject {
         if let encrypted = HistoryCrypto.encrypt(json) {
             try? encrypted.write(to: Self.historyFileURL)
         } else {
-            // Encryption failed — do NOT write plaintext. Disable history.
+            // Encryption failed — do NOT write plaintext.
             historyUnavailable = true
-            historyEnabled = false
         }
     }
 
