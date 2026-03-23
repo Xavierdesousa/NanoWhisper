@@ -64,6 +64,12 @@ struct SettingsView: View {
 
             Section("History") {
                 Toggle("History", isOn: $appState.historyEnabled)
+                    .disabled(appState.historyUnavailable)
+                if appState.historyUnavailable {
+                    Label("History is unavailable — encryption key could not be accessed.", systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
                 if appState.historyEnabled {
                     Picker("Max transcriptions", selection: $appState.maxHistoryCount) {
                         ForEach([5, 10, 15, 25, 50, 100], id: \.self) { n in

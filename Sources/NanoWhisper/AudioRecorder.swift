@@ -1,9 +1,11 @@
 import AVFoundation
 import Combine
+import os
 
 class AudioRecorder {
     private var audioEngine: AVAudioEngine?
     private var audioFile: AVAudioFile?
+    private let audioFileLock = NSLock()
     private var outputURL: URL?
 
     /// Current audio level (0.0 – 1.0), updated from the recording tap.
@@ -61,7 +63,9 @@ class AudioRecorder {
             }
 
             if error == nil && convertedBuffer.frameLength > 0 {
+                self.audioFileLock.lock()
                 try? self.audioFile?.write(from: convertedBuffer)
+                self.audioFileLock.unlock()
 
                 // Compute RMS level for the visualizer
                 if let channelData = convertedBuffer.floatChannelData?[0] {
@@ -88,7 +92,9 @@ class AudioRecorder {
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine?.stop()
         audioEngine = nil
+        audioFileLock.lock()
         audioFile = nil
+        audioFileLock.unlock()
         return outputURL
     }
 

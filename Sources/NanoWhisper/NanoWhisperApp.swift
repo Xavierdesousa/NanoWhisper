@@ -70,10 +70,10 @@ struct NanoWhisperApp: App {
 
             Divider()
 
-            Button(appState.historyEnabled ? "History" : "History (disabled)") {
+            Button(appState.historyUnavailable ? "History (unavailable)" : appState.historyEnabled ? "History" : "History (disabled)") {
                 appState.showHistory()
             }
-            .disabled(!appState.historyEnabled)
+            .disabled(!appState.historyEnabled || appState.historyUnavailable)
             .keyboardShortcut("h", modifiers: .command)
 
             Button("Settings...") {

@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>com.nanowhisper.app</string>
+    <string>com.moonji.nanowhisper</string>
     <key>CFBundleName</key>
     <string>NanoWhisper</string>
     <key>CFBundleDisplayName</key>
@@ -26,5 +26,7 @@
     <string>NanoWhisper needs microphone access to record speech for transcription.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSAccessibilityUsageDescription</key>
+    <string>NanoWhisper needs accessibility access to paste transcribed text into your active application.</string>
 </dict>
 </plist>
