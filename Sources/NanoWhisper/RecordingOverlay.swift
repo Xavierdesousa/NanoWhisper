@@ -15,7 +15,47 @@ class RecordingOverlayController {
     private var window: NSWindow?
     private var viewModel = RecordingOverlayViewModel()
     private var levelCancellable: AnyCancellable?
+    nonisolated(unsafe) private var screenObserver: Any?
     var onStop: (() -> Void)?
+
+    init() {
+        // Watch for display configuration changes (plug/unplug monitor, arrangement change)
+        screenObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.handleScreenChange()
+            }
+        }
+    }
+
+    deinit {
+        if let obs = screenObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+    }
+
+    /// Re-validate and reposition the overlay when screens change
+    private func handleScreenChange() {
+        guard let window = window, window.isVisible else { return }
+
+        // Check if the window's current screen still exists
+        let windowCenter = NSPoint(
+            x: window.frame.midX,
+            y: window.frame.midY
+        )
+        let stillOnScreen = NSScreen.screens.contains { NSMouseInRect(windowCenter, $0.frame, false) }
+
+        if !stillOnScreen {
+            // Window is stranded on a disappeared screen — reposition to mouse's current screen
+            positionWindow()
+        }
+
+        // Ensure the overlay is still ordered front (macOS can demote it during display reconfiguration)
+        window.orderFrontRegardless()
+    }
 
     func show(audioLevelPublisher: PassthroughSubject<Float, Never>) {
         viewModel.state = .recording
@@ -88,6 +128,8 @@ class RecordingOverlayController {
                 self?.window?.animator().alphaValue = 0
             }, completionHandler: { [weak self] in
                 self?.window?.orderOut(nil)
+                // Release the window so it is recreated fresh on the correct screen next time
+                self?.window = nil
                 self?.viewModel.state = .idle
                 self?.viewModel.audioLevel = 0
             })
