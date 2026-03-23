@@ -121,6 +121,25 @@ class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(debugMode, forKey: "debugMode") }
     }
 
+    private static let selectedModelKey = "selectedModelType"
+    private static let whisperSettingsKey = "whisperSettings"
+
+    @Published var selectedModelType: TranscriptionModelType = .parakeet {
+        didSet {
+            UserDefaults.standard.set(selectedModelType.rawValue, forKey: Self.selectedModelKey)
+        }
+    }
+
+    @Published var whisperSettings: WhisperSettings = WhisperSettings() {
+        didSet {
+            if let data = try? JSONEncoder().encode(whisperSettings) {
+                UserDefaults.standard.set(data, forKey: Self.whisperSettingsKey)
+            }
+            // Update transcriber settings live
+            transcriber.updateWhisperSettings(whisperSettings)
+        }
+    }
+
     @Published var maxHistoryCount: Int = 15 {
         didSet {
             UserDefaults.standard.set(maxHistoryCount, forKey: Self.maxHistoryKey)
@@ -209,27 +228,53 @@ class AppState: ObservableObject {
             _ = PasteManager.checkAccessibility(prompt: false)
         }
 
+        // Load persisted model selection
+        if let raw = UserDefaults.standard.string(forKey: Self.selectedModelKey),
+           let model = TranscriptionModelType(rawValue: raw) {
+            selectedModelType = model
+        }
+        if let data = UserDefaults.standard.data(forKey: Self.whisperSettingsKey),
+           let settings = try? JSONDecoder().decode(WhisperSettings.self, from: data) {
+            whisperSettings = settings
+        }
+
         // Begin: either setup or start engine directly
-        setupManager.runSetup()
+        setupManager.runSetup(modelType: selectedModelType, whisperSettings: whisperSettings)
     }
 
     func startEngine() {
-        guard let models = setupManager.models else {
-            lastError = "Models not loaded"
-            return
-        }
-
         lastError = nil
 
-        Task {
-            do {
-                try await transcriber.initialize(models: models)
-                isEngineReady = true
-                lastError = nil
-            } catch {
-                lastError = "Failed to initialize the transcription engine. Please restart the app."
+        switch selectedModelType {
+        case .parakeet:
+            guard let models = setupManager.parakeetModels else {
+                lastError = "Models not loaded"
+                return
             }
+            Task {
+                do {
+                    try await transcriber.initializeParakeet(models: models)
+                    isEngineReady = true
+                } catch {
+                    lastError = "Failed to initialize the transcription engine. Please restart the app."
+                }
+            }
+        case .whisper:
+            guard let kit = setupManager.whisperKit else {
+                lastError = "Whisper model not loaded"
+                return
+            }
+            transcriber.initializeWhisper(kit: kit, settings: whisperSettings)
+            isEngineReady = true
         }
+    }
+
+    /// Switch to a different model type, triggering re-download and re-init
+    func switchModel(to modelType: TranscriptionModelType) {
+        isEngineReady = false
+        selectedModelType = modelType
+        setupManager.resetForModelSwitch()
+        setupManager.runSetup(modelType: modelType, whisperSettings: whisperSettings)
     }
 
     func toggleRecording() {

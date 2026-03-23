@@ -1,5 +1,6 @@
 import Foundation
 import FluidAudio
+import WhisperKit
 
 @MainActor
 class SetupManager: ObservableObject {
@@ -8,16 +9,24 @@ class SetupManager: ObservableObject {
     @Published var setupComplete = false
     @Published var setupError: String?
 
-    private(set) var models: AsrModels?
+    private(set) var parakeetModels: AsrModels?
+    private(set) var whisperKit: WhisperKit?
 
     var needsSetup: Bool {
-        models == nil
+        parakeetModels == nil && whisperKit == nil
     }
 
-    func runSetup() {
-        guard models == nil else {
+    func runSetup(modelType: TranscriptionModelType, whisperSettings: WhisperSettings = WhisperSettings()) {
+        // If already set up for this model type, skip
+        switch modelType {
+        case .parakeet where parakeetModels != nil:
             setupComplete = true
             return
+        case .whisper where whisperKit != nil:
+            setupComplete = true
+            return
+        default:
+            break
         }
 
         isSettingUp = true
@@ -26,15 +35,12 @@ class SetupManager: ObservableObject {
 
         Task {
             do {
-                let loadedModels = try await AsrModels.downloadAndLoad(
-                    version: .v3,
-                    progressHandler: { [weak self] progress in
-                        Task { @MainActor in
-                            self?.handleProgress(progress)
-                        }
-                    }
-                )
-                self.models = loadedModels
+                switch modelType {
+                case .parakeet:
+                    try await setupParakeet()
+                case .whisper:
+                    try await setupWhisper(settings: whisperSettings)
+                }
                 self.setupComplete = true
                 self.isSettingUp = false
                 self.setupProgress = "Setup complete!"
@@ -45,7 +51,31 @@ class SetupManager: ObservableObject {
         }
     }
 
-    private func handleProgress(_ progress: DownloadUtils.DownloadProgress) {
+    /// Reset state to allow switching models
+    func resetForModelSwitch() {
+        parakeetModels = nil
+        whisperKit = nil
+        setupComplete = false
+        setupError = nil
+        isSettingUp = false
+        setupProgress = ""
+    }
+
+    // MARK: - Parakeet setup
+
+    private func setupParakeet() async throws {
+        let loadedModels = try await AsrModels.downloadAndLoad(
+            version: .v3,
+            progressHandler: { [weak self] progress in
+                Task { @MainActor in
+                    self?.handleParakeetProgress(progress)
+                }
+            }
+        )
+        self.parakeetModels = loadedModels
+    }
+
+    private func handleParakeetProgress(_ progress: DownloadUtils.DownloadProgress) {
         switch progress.phase {
         case .listing:
             setupProgress = "Preparing download..."
@@ -55,5 +85,25 @@ class SetupManager: ObservableObject {
         case .compiling:
             setupProgress = "Compiling model..."
         }
+    }
+
+    // MARK: - Whisper setup
+
+    private func setupWhisper(settings: WhisperSettings) async throws {
+        self.setupProgress = "Downloading Whisper \(settings.modelSize.displayName)..."
+
+        let config = WhisperKitConfig(
+            model: settings.modelSize.whisperKitModel,
+            verbose: false,
+            logLevel: .error,
+            prewarm: true,
+            load: true,
+            download: true
+        )
+
+        let kit = try await WhisperKit(config)
+
+        self.whisperKit = kit
+        self.setupProgress = "Whisper ready!"
     }
 }
