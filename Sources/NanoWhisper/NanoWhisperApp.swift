@@ -81,6 +81,15 @@ struct NanoWhisperApp: App {
             }
             .keyboardShortcut(",", modifiers: .command)
 
+            if appState.autoUpdater.updateAvailable, let version = appState.autoUpdater.latestVersion {
+                Button("Update available: v\(version)") {
+                    Task { await appState.autoUpdater.downloadAndInstall() }
+                }
+            } else if appState.autoUpdater.isDownloading {
+                Label("Downloading update...", systemImage: "arrow.down.circle")
+                    .foregroundColor(.blue)
+            }
+
             Divider()
 
             Button("Quit") {

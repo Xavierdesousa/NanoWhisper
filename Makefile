@@ -1,4 +1,4 @@
-.PHONY: build app clean run notarize
+.PHONY: build app clean run notarize release
 
 APP_NAME = NanoWhisper
 BUILD_DIR = .build/release
@@ -61,6 +61,13 @@ notarize: app
 # Run in development (without .app bundle)
 run: build
 	$(BUILD_DIR)/$(APP_NAME)
+
+# Create a release zip for GitHub (run after `make app` or `make notarize`)
+release: app
+	@VERSION=$$(defaults read "$$(pwd)/$(APP_BUNDLE)/Contents/Info" CFBundleShortVersionString) && \
+	echo "Creating release zip for v$$VERSION..." && \
+	ditto -c -k --keepParent $(APP_BUNDLE) "$(APP_NAME)-v$$VERSION.zip" && \
+	echo "Done! Upload $(APP_NAME)-v$$VERSION.zip to GitHub Releases with tag v$$VERSION"
 
 # Clean build artifacts
 clean:

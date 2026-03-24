@@ -5,7 +5,7 @@
 <h1 align="center">NanoWhisper</h1>
 
 <p align="center">
-  Local, offline speech-to-text for macOS. Lives in your menubar, transcribes with <a href="https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3">NVIDIA Parakeet</a>, and pastes the result wherever your cursor is.
+  Local, offline speech-to-text for macOS. Lives in your menubar, transcribes with <a href="https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3">NVIDIA Parakeet</a> or <a href="https://github.com/argmaxinc/WhisperKit">OpenAI Whisper</a>, and pastes the result wherever your cursor is.
 </p>
 
 <p align="center">
@@ -19,25 +19,34 @@
 3. Press **⌥ Space** again (or click the stop button on the overlay)
 4. Text appears in your active text field + clipboard
 
-Transcription runs entirely on-device using CoreML with the Parakeet TDT 0.6B v3 model — 100% Swift, no Python, no daemon. Supports 25 languages with automatic detection.
+Transcription runs entirely on-device using CoreML — 100% Swift, no Python, no daemon.
 
 ## Features
 
-- **100% Swift** — CoreML inference via [FluidAudio](https://github.com/FluidAudio/FluidAudio), no Python or external dependencies
+- **Dual engine** — choose between [Parakeet](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) (fastest, auto-multilingual) and [WhisperKit](https://github.com/argmaxinc/WhisperKit) (most accurate, 99 languages)
 - **Menubar app** — no dock icon, stays out of your way
 - **Recording overlay** — floating visualizer with live audio bars, elapsed timer, and stop button on hover
 - **Global hotkey** — customizable shortcut (default ⌥ Space) with reset to default
 - **Sound feedback** — audio cues on record start, stop, and empty transcription (toggleable)
-- **History** — transcriptions with timestamps, persisted across restarts (⌘H to open)
+- **Encrypted history** — transcriptions encrypted with AES-256-GCM using a hardware-bound key (⌘H to open)
 - **Auto-paste** — transcribed text goes to clipboard and is pasted into the active field
+- **Auto-updater** — checks GitHub releases hourly, one-click install from the menubar or settings
 - **First-launch onboarding** — guided setup with model download progress, permission grants, and preferences
 - **Launch at login** — optional, configurable in settings
+- **Debug mode** — show transcription timing metrics (audio duration, RTF) in history
+
+### Whisper options
+
+When using the Whisper engine, you can configure:
+- **Model size** — Tiny (~75MB), Base (~150MB), Small (~500MB), Medium (~1.5GB), Large-v3 (~3GB)
+- **Language** — auto-detect or pick from 99 languages
+- **Vocabulary hint** — words or phrases to improve recognition of technical terms
 
 ## Requirements
 
 - macOS 13+ (Ventura or later)
 - Apple Silicon (M1/M2/M3/M4)
-- ~1GB disk space (CoreML model)
+- ~1GB disk space (varies by model)
 
 ## Install
 
@@ -74,6 +83,9 @@ The app needs two permissions (requested during onboarding):
 # Build release binary + .app bundle
 make app
 
+# Create a release zip for GitHub
+make release
+
 # Run in development (without .app bundle)
 make run
 
@@ -86,10 +98,13 @@ make clean
 ```
 ├── Sources/NanoWhisper/
 │   ├── NanoWhisperApp.swift      # Menubar UI + app delegate
-│   ├── AppState.swift            # App state + recording flow
+│   ├── AppState.swift            # App state + recording flow + encrypted history
 │   ├── AudioRecorder.swift       # Microphone capture + audio levels (AVAudioEngine)
-│   ├── Transcriber.swift         # CoreML transcription (FluidAudio)
+│   ├── TranscriptionEngine.swift # Model type definitions (Parakeet / Whisper)
+│   ├── Transcriber.swift         # CoreML transcription (FluidAudio + WhisperKit)
+│   ├── AutoUpdater.swift         # GitHub-based auto-updater
 │   ├── RecordingOverlay.swift    # Floating overlay with visualizer
+│   ├── ModelComparisonView.swift # Engine speed/accuracy comparison bars
 │   ├── OnboardingView.swift      # First-launch onboarding window
 │   ├── HotkeyManager.swift       # Global shortcut (Carbon API)
 │   ├── PasteManager.swift        # Clipboard + ⌘V simulation
@@ -100,6 +115,7 @@ make clean
 │   └── WindowUtils.swift         # Multi-screen window positioning
 ├── Resources/
 │   ├── Info.plist
+│   ├── NanoWhisper.entitlements
 │   ├── AppIcon.icns
 │   ├── menubar_icon.png          # Custom menubar icon
 │   ├── start.m4a                 # Record start sound
@@ -119,4 +135,4 @@ No Python, no Apple Developer account, no code signing required — the app is a
 
 ## License
 
-MIT
+[GPL v3](LICENSE) — free to use, modify, and redistribute. Any fork or derivative must also be open-source under the same license.

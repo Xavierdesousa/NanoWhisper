@@ -212,12 +212,57 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Updates") {
+                HStack {
+                    Text("Current version:")
+                    Spacer()
+                    Text("v\(appState.autoUpdater.currentVersion)")
+                        .foregroundColor(.secondary)
+                }
+
+                if appState.autoUpdater.isChecking {
+                    Label("Checking for updates...", systemImage: "arrow.clockwise")
+                        .foregroundColor(.secondary)
+                } else if appState.autoUpdater.isDownloading {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("Downloading update...", systemImage: "arrow.down.circle")
+                            .foregroundColor(.blue)
+                        ProgressView(value: appState.autoUpdater.downloadProgress)
+                    }
+                } else if appState.autoUpdater.updateAvailable, let version = appState.autoUpdater.latestVersion {
+                    HStack {
+                        Label("v\(version) available", systemImage: "arrow.up.circle.fill")
+                            .foregroundColor(.green)
+                        Spacer()
+                        Button("Install Update") {
+                            Task { await appState.autoUpdater.downloadAndInstall() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                } else {
+                    HStack {
+                        Label("Up to date", systemImage: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Spacer()
+                        Button("Check Now") {
+                            Task { await appState.autoUpdater.checkForUpdates() }
+                        }
+                    }
+                }
+
+                if let err = appState.autoUpdater.error {
+                    Text(err)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+            }
+
             Section("Debug") {
                 Toggle("Show debug info in history", isOn: $appState.debugMode)
             }
         }
         .formStyle(.grouped)
-        .frame(width: 420, height: draftModelType == .whisper ? 680 : 560)
+        .frame(width: 420, height: draftModelType == .whisper ? 780 : 660)
         .background(ShortcutRecorder(
             isRecording: $isRecordingShortcut,
             onShortcutCaptured: { keyCode, modifiers in

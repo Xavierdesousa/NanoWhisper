@@ -159,6 +159,7 @@ class AppState: ObservableObject {
     let sound = SoundManager()
     let recordingOverlay = RecordingOverlayController()
     let onboardingWindow = OnboardingWindowController()
+    let autoUpdater = AutoUpdater.shared
 
     private static let onboardingCompleteKey = "onboardingComplete"
     var isFirstLaunch: Bool { !UserDefaults.standard.bool(forKey: Self.onboardingCompleteKey) }
@@ -183,6 +184,14 @@ class AppState: ObservableObject {
 
         // Forward setupManager changes so SwiftUI re-renders menu bar
         setupManager.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
+        // Forward autoUpdater changes so SwiftUI re-renders menu bar
+        autoUpdater.objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
@@ -240,6 +249,9 @@ class AppState: ObservableObject {
 
         // Begin: either setup or start engine directly
         setupManager.runSetup(modelType: selectedModelType, whisperSettings: whisperSettings)
+
+        // Start auto-update checks (every hour)
+        autoUpdater.startPeriodicChecks()
     }
 
     func startEngine() {
