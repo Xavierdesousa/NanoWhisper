@@ -1,4 +1,4 @@
-.PHONY: build app clean run notarize release
+.PHONY: build app ci clean run notarize release
 
 APP_NAME = NanoWhisper
 BUILD_DIR = .build/release
@@ -44,6 +44,25 @@ app: build
 	@# Restart app if it was running
 	@pkill -x $(APP_NAME) 2>/dev/null; sleep 0.3; open $(APP_BUNDLE)
 	@echo "Done! $(APP_BUNDLE) launched."
+
+# CI build: same as `app` but without launching (for GitHub Actions)
+ci: build
+	@echo "Creating $(APP_BUNDLE)..."
+	@rm -rf $(APP_BUNDLE)
+	@mkdir -p $(APP_BUNDLE)/Contents/MacOS
+	@mkdir -p $(APP_BUNDLE)/Contents/Resources
+	@cp $(BUILD_DIR)/$(APP_NAME) $(APP_BUNDLE)/Contents/MacOS/
+	@cp Resources/Info.plist $(APP_BUNDLE)/Contents/
+	@cp Resources/AppIcon.icns $(APP_BUNDLE)/Contents/Resources/
+	@cp Resources/menubar_icon.png $(APP_BUNDLE)/Contents/Resources/
+	@cp Resources/menubar_icon@2x.png $(APP_BUNDLE)/Contents/Resources/
+	@cp Resources/start.m4a $(APP_BUNDLE)/Contents/Resources/
+	@cp Resources/stop.m4a $(APP_BUNDLE)/Contents/Resources/
+	@cp Resources/noResult.m4a $(APP_BUNDLE)/Contents/Resources/
+	@codesign --force --deep --options runtime \
+		--entitlements $(ENTITLEMENTS) \
+		--sign "$(SIGN_IDENTITY)" $(APP_BUNDLE)
+	@echo "Done! $(APP_BUNDLE) created."
 
 # Notarize the app for distribution (requires Developer ID certificate)
 notarize: app
