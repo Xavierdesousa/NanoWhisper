@@ -7,9 +7,20 @@ struct SettingsView: View {
     @State private var isRecordingShortcut = false
     @State private var shortcutDisplay: String
 
+    // Local draft state for engine settings (applied on Save)
+    @State private var draftModelType: TranscriptionModelType
+    @State private var draftWhisperSettings: WhisperSettings
+
+    private var engineDirty: Bool {
+        draftModelType != appState.selectedModelType
+        || draftWhisperSettings != appState.whisperSettings
+    }
+
     init(appState: AppState) {
         self.appState = appState
         _shortcutDisplay = State(initialValue: appState.hotkeyManager.currentShortcut.displayString)
+        _draftModelType = State(initialValue: appState.selectedModelType)
+        _draftWhisperSettings = State(initialValue: appState.whisperSettings)
     }
 
     var body: some View {
@@ -79,18 +90,103 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Engine") {
-                HStack {
-                    Text("Model:")
-                    Spacer()
-                    Text("Parakeet TDT 0.6B v3 (CoreML)")
-                        .foregroundColor(.secondary)
+            // MARK: - Engine section (draft state)
+            Section {
+                Picker("Model", selection: $draftModelType) {
+                    ForEach(TranscriptionModelType.allCases, id: \.self) { model in
+                        Text(model.displayName).tag(model)
+                    }
                 }
+
+                // Comparison bars for selected model
+                ModelComparisonView(modelType: draftModelType)
+
+                // Status
                 HStack {
                     Text("Status:")
                     Spacer()
-                    Text(appState.isEngineReady ? "Ready" : "Loading...")
-                        .foregroundColor(appState.isEngineReady ? .green : .orange)
+                    if appState.isEngineReady && !engineDirty {
+                        Text("Ready")
+                            .foregroundColor(.green)
+                    } else if appState.setupManager.isSettingUp {
+                        Text(appState.setupManager.setupProgress)
+                            .foregroundColor(.orange)
+                            .lineLimit(1)
+                    } else if engineDirty {
+                        Text("Unsaved changes")
+                            .foregroundColor(.orange)
+                    } else {
+                        Text("Loading...")
+                            .foregroundColor(.orange)
+                    }
+                }
+
+                if let err = appState.setupManager.setupError, !engineDirty {
+                    Text(err)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                    Button("Retry") {
+                        appState.switchModel(to: appState.selectedModelType)
+                    }
+                }
+
+                // Save / Revert buttons
+                if engineDirty {
+                    HStack {
+                        Button("Revert") {
+                            draftModelType = appState.selectedModelType
+                            draftWhisperSettings = appState.whisperSettings
+                        }
+                        Spacer()
+                        Button("Save & Apply") {
+                            appState.whisperSettings = draftWhisperSettings
+                            appState.switchModel(to: draftModelType)
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
+            } header: {
+                HStack {
+                    Text("Engine")
+                    Spacer()
+                    Text(draftModelType == .parakeet
+                         ? "Nvidia's Parakeet — fastest, auto-multilingual"
+                         : "OpenAI's Whisper — most accurate, 99 languages")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            // MARK: - Whisper options (draft state)
+            if draftModelType == .whisper {
+                Section("Whisper Options") {
+                    Picker("Model size", selection: $draftWhisperSettings.modelSize) {
+                        ForEach(WhisperModelSize.allCases, id: \.self) { size in
+                            Text("\(size.displayName) (\(size.sizeDescription))").tag(size)
+                        }
+                    }
+
+                    Picker("Language", selection: draftLanguageBinding) {
+                        Text("Auto-detect").tag("")
+                        Divider()
+                        ForEach(WhisperLanguage.supported, id: \.code) { lang in
+                            Text(lang.name).tag(lang.code)
+                        }
+                    }
+
+                    if draftWhisperSettings.language == nil {
+                        Label("Auto-detect works best on longer audio. For short clips, setting a language improves accuracy.", systemImage: "info.circle")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        TextField("Vocabulary hint", text: $draftWhisperSettings.promptText)
+                            .textFieldStyle(.roundedBorder)
+                        Text("Words or phrases to improve recognition")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
 
@@ -121,7 +217,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 400, height: 440)
+        .frame(width: 420, height: draftModelType == .whisper ? 680 : 560)
         .background(ShortcutRecorder(
             isRecording: $isRecordingShortcut,
             onShortcutCaptured: { keyCode, modifiers in
@@ -133,6 +229,15 @@ struct SettingsView: View {
                 shortcutDisplay = shortcut.displayString
             }
         ))
+    }
+
+    // MARK: - Bindings
+
+    private var draftLanguageBinding: Binding<String> {
+        Binding(
+            get: { draftWhisperSettings.language ?? "" },
+            set: { draftWhisperSettings.language = $0.isEmpty ? nil : $0 }
+        )
     }
 }
 
@@ -204,7 +309,7 @@ class SettingsWindowController {
         let hostingView = NSHostingView(rootView: settingsView)
 
         let w = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 440),
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 560),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false

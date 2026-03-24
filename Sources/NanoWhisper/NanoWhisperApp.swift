@@ -31,7 +31,7 @@ struct NanoWhisperApp: App {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Button("Retry Setup") {
-                    appState.setupManager.runSetup()
+                    appState.switchModel(to: appState.selectedModelType)
                 }
             }
             // Engine loading

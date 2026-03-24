@@ -39,9 +39,30 @@ struct OnboardingView: View {
             .padding(.bottom, 12)
 
             Form {
-                Section("Model") {
+                // MARK: - Model Selection
+                Section {
+                    Picker("Engine", selection: $appState.selectedModelType) {
+                        ForEach(TranscriptionModelType.allCases, id: \.self) { model in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(model.displayName)
+                                Text(model.subtitle)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .tag(model)
+                        }
+                    }
+                    .pickerStyle(.radioGroup)
+                    .onChange(of: appState.selectedModelType) { _, newValue in
+                        appState.switchModel(to: newValue)
+                    }
+
+                    // Comparison bars
+                    ModelComparisonView(modelType: appState.selectedModelType)
+
+                    // Model status
                     HStack {
-                        Text("Parakeet TDT 0.6B v3 (CoreML)")
+                        Text("Status:")
                         Spacer()
                         if appState.isEngineReady {
                             Text("Ready")
@@ -68,7 +89,57 @@ struct OnboardingView: View {
                             .font(.caption)
                             .foregroundColor(.red)
                         Button("Retry") {
-                            appState.setupManager.runSetup()
+                            appState.switchModel(to: appState.selectedModelType)
+                        }
+                    }
+                } header: {
+                    HStack {
+                        Text("Model")
+                        Spacer()
+                        Text(appState.selectedModelType == .parakeet
+                             ? "Fastest, auto-multilingual"
+                             : "Most accurate, 99 languages")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                // MARK: - Whisper Options (conditional)
+                if appState.selectedModelType == .whisper {
+                    Section("Whisper Options") {
+                        Picker("Model size", selection: $appState.whisperSettings.modelSize) {
+                            ForEach(WhisperModelSize.allCases, id: \.self) { size in
+                                HStack {
+                                    Text(size.displayName)
+                                    Spacer()
+                                    Text(size.sizeDescription)
+                                        .foregroundColor(.secondary)
+                                        .font(.caption)
+                                }
+                                .tag(size)
+                            }
+                        }
+
+                        Picker("Language", selection: languageBinding) {
+                            Text("Auto-detect").tag("")
+                            Divider()
+                            ForEach(WhisperLanguage.supported, id: \.code) { lang in
+                                Text(lang.name).tag(lang.code)
+                            }
+                        }
+
+                        if appState.whisperSettings.language == nil {
+                            Label("Auto-detect works best on longer audio. For short clips, setting a language improves accuracy.", systemImage: "info.circle")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            TextField("Vocabulary hint", text: $appState.whisperSettings.promptText)
+                                .textFieldStyle(.roundedBorder)
+                            Text("Words or phrases to help recognition (e.g. technical terms, names)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
                     }
                 }
@@ -180,7 +251,7 @@ struct OnboardingView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }
-        .frame(width: 440, height: 580)
+        .frame(width: 440, height: appState.selectedModelType == .whisper ? 780 : 640)
         .background(ShortcutRecorder(
             isRecording: $isRecordingShortcut,
             onShortcutCaptured: { keyCode, modifiers in
@@ -192,6 +263,15 @@ struct OnboardingView: View {
                 shortcutDisplay = shortcut.displayString
             }
         ))
+    }
+
+    // MARK: - Bindings
+
+    private var languageBinding: Binding<String> {
+        Binding(
+            get: { appState.whisperSettings.language ?? "" },
+            set: { appState.whisperSettings.language = $0.isEmpty ? nil : $0 }
+        )
     }
 
     // MARK: - Model helpers
@@ -258,7 +338,7 @@ class OnboardingWindowController {
         let hosting = NSHostingView(rootView: view)
 
         let w = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 440, height: 580),
+            contentRect: NSRect(x: 0, y: 0, width: 440, height: 640),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
