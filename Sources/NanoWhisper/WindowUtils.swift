@@ -1,6 +1,7 @@
 import AppKit
 
 /// Centers a window on the screen where the mouse cursor currently is.
+@MainActor
 func centerOnCurrentScreen(_ window: NSWindow) {
     // Disable state restoration so macOS doesn't override our position
     window.restorationClass = nil

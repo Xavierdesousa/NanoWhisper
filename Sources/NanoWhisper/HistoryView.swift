@@ -194,6 +194,7 @@ struct ActionButton: View {
     }
 }
 
+@MainActor
 class HistoryWindowController {
     private var window: NSWindow?
 

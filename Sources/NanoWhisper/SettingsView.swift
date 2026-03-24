@@ -338,6 +338,7 @@ class ShortcutRecorderView: NSView {
 }
 
 // Manage a standalone NSWindow for settings
+@MainActor
 class SettingsWindowController {
     private var window: NSWindow?
 
