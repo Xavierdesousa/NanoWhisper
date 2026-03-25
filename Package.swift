@@ -16,6 +16,10 @@ let package = Package(
                 .product(name: "WhisperKit", package: "WhisperKit"),
             ],
             path: "Sources/NanoWhisper"
-        )
+        ),
+        .testTarget(
+            name: "NanoWhisperTests",
+            dependencies: ["NanoWhisper"]
+        ),
     ]
 )

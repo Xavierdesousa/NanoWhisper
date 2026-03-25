@@ -5,6 +5,14 @@
 <h1 align="center">NanoWhisper</h1>
 
 <p align="center">
+  <a href="https://github.com/Xavierdesousa/NanoWhisper/actions/workflows/ci.yml"><img src="https://github.com/Xavierdesousa/NanoWhisper/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://github.com/Xavierdesousa/NanoWhisper/releases/latest"><img src="https://img.shields.io/github/v/release/Xavierdesousa/NanoWhisper" alt="Release"></a>
+  <img src="https://img.shields.io/badge/platform-macOS%2014%2B-blue" alt="Platform">
+  <img src="https://img.shields.io/badge/swift-6.2-orange" alt="Swift">
+  <a href="https://github.com/Xavierdesousa/NanoWhisper/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Xavierdesousa/NanoWhisper" alt="License"></a>
+</p>
+
+<p align="center">
   Local, offline speech-to-text for macOS. Lives in your menubar, transcribes with <a href="https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3">NVIDIA Parakeet</a> or <a href="https://github.com/argmaxinc/WhisperKit">OpenAI Whisper</a>, and pastes the result wherever your cursor is.
 </p>
 

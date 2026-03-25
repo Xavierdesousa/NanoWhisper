@@ -2,7 +2,7 @@ import Foundation
 import AppKit
 import os
 
-private struct GitHubRelease: Codable {
+struct GitHubRelease: Codable {
     let tagName: String
     let assets: [Asset]
 
@@ -94,7 +94,7 @@ class AutoUpdater: ObservableObject {
                 .first { $0.name.hasSuffix(".zip") }
                 .flatMap { URL(string: $0.browserDownloadUrl) }
 
-            let newer = isNewerVersion(remoteVersion, than: currentVersion)
+            let newer = AutoUpdater.isNewerVersion(remoteVersion, than: currentVersion)
             if updateAvailable != newer {
                 updateAvailable = newer
             }
@@ -193,7 +193,7 @@ class AutoUpdater: ObservableObject {
 
     // MARK: - Version comparison
 
-    private func isNewerVersion(_ remote: String, than current: String) -> Bool {
+    nonisolated static func isNewerVersion(_ remote: String, than current: String) -> Bool {
         let remoteParts = remote.split(separator: ".").compactMap { Int($0) }
         let currentParts = current.split(separator: ".").compactMap { Int($0) }
 
