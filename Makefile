@@ -1,4 +1,4 @@
-.PHONY: build app ci clean run notarize release
+.PHONY: build app ci clean run notarize release test
 
 APP_NAME = NanoWhisper
 BUILD_DIR = .build/release
@@ -70,6 +70,10 @@ release: app
 	echo "Creating release zip for v$$VERSION..." && \
 	ditto -c -k --keepParent $(APP_BUNDLE) "$(APP_NAME)-v$$VERSION.zip" && \
 	echo "Done! Upload $(APP_NAME)-v$$VERSION.zip to GitHub Releases with tag v$$VERSION"
+
+# Run unit tests
+test:
+	swift test
 
 # Clean build artifacts
 clean:
