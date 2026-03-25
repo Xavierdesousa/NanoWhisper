@@ -29,4 +29,4 @@ jobs:
         run: swift test
 
       - name: Build release app bundle
-        run: make ci
+        run: make ci SIGN_IDENTITY=
