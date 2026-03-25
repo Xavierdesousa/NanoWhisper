@@ -28,6 +28,7 @@ struct SettingsView: View {
             Section("General") {
                 Toggle("Launch at login", isOn: $appState.launchAtLogin)
                 Toggle("Sound feedback", isOn: $appState.soundEnabled)
+                Toggle("Pause media during recording", isOn: $appState.pauseMediaEnabled)
             }
 
             Section("Shortcut") {

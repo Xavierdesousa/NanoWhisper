@@ -121,6 +121,10 @@ class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(debugMode, forKey: "debugMode") }
     }
 
+    @Published var pauseMediaEnabled: Bool = false {
+        didSet { UserDefaults.standard.set(pauseMediaEnabled, forKey: "pauseMediaEnabled") }
+    }
+
     private static let selectedModelKey = "selectedModelType"
     private static let whisperSettingsKey = "whisperSettings"
 
@@ -160,6 +164,7 @@ class AppState: ObservableObject {
     let recordingOverlay = RecordingOverlayController()
     let onboardingWindow = OnboardingWindowController()
     let autoUpdater = AutoUpdater.shared
+    let mediaController = MediaController()
 
     private static let onboardingCompleteKey = "onboardingComplete"
     var isFirstLaunch: Bool { !UserDefaults.standard.bool(forKey: Self.onboardingCompleteKey) }
@@ -231,6 +236,7 @@ class AppState: ObservableObject {
         let storedMax = UserDefaults.standard.integer(forKey: Self.maxHistoryKey)
         maxHistoryCount = storedMax > 0 ? storedMax : 15
         debugMode = UserDefaults.standard.bool(forKey: "debugMode")
+        pauseMediaEnabled = UserDefaults.standard.bool(forKey: "pauseMediaEnabled")
 
         // Only auto-prompt accessibility on subsequent launches
         if !isFirstLaunch {
@@ -303,13 +309,19 @@ class AppState: ObservableObject {
 
     func startRecording() {
         lastError = nil
-        do {
-            sound.playStart()
-            try audioRecorder.startRecording()
-            isRecording = true
-            recordingOverlay.show(audioLevelPublisher: audioRecorder.audioLevelSubject)
-        } catch {
-            lastError = "Could not access the microphone. Check System Settings > Privacy > Microphone."
+        sound.playStart()
+
+        Task {
+            if pauseMediaEnabled {
+                await mediaController.pauseIfPlaying()
+            }
+            do {
+                try audioRecorder.startRecording()
+                isRecording = true
+                recordingOverlay.show(audioLevelPublisher: audioRecorder.audioLevelSubject)
+            } catch {
+                lastError = "Could not access the microphone. Check System Settings > Privacy > Microphone."
+            }
         }
     }
 
@@ -326,7 +338,12 @@ class AppState: ObservableObject {
         isTranscribing = true
 
         Task {
-            defer { Self.securelyDeleteFile(at: audioURL) }
+            defer {
+                Self.securelyDeleteFile(at: audioURL)
+                if pauseMediaEnabled {
+                    mediaController.resumeIfPaused()
+                }
+            }
 
             let result = await transcriber.transcribe(audioURL: audioURL)
             isTranscribing = false
