@@ -1,5 +1,6 @@
 import AVFoundation
 
+@MainActor
 class SoundManager {
     private var audioEngine: AVAudioEngine?
     private var playerNode: AVAudioPlayerNode?
@@ -78,7 +79,7 @@ class SoundManager {
         }
     }
 
-    // MARK: - Load MP3 from bundle
+    // MARK: - Load audio from bundle
 
     private func loadSound(named name: String, ext: String = "m4a") -> (AVAudioPCMBuffer, AVAudioFormat)? {
         let bundle = Bundle.main

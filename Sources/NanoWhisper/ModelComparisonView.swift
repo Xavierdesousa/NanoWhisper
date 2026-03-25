@@ -94,31 +94,3 @@ private struct MetricBar: View {
     }
 }
 
-// MARK: - Info tooltip for model selection
-
-struct ModelInfoTooltip: View {
-    let modelType: TranscriptionModelType
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(modelType.displayName)
-                .font(.caption)
-                .fontWeight(.semibold)
-            Text(tooltipText)
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(8)
-        .frame(width: 220)
-    }
-
-    private var tooltipText: String {
-        switch modelType {
-        case .parakeet:
-            return "Nvidia's Parakeet is optimized for speed. It handles all languages automatically without configuration. Ideal for fast dictation where speed matters more than perfect accuracy."
-        case .whisper:
-            return "OpenAI's Whisper delivers near-perfect accuracy when the language is specified. Supports 99 languages with vocabulary hints. Slower than Parakeet but significantly more accurate."
-        }
-    }
-}

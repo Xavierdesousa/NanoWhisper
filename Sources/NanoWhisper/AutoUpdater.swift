@@ -2,6 +2,26 @@ import Foundation
 import AppKit
 import os
 
+private struct GitHubRelease: Codable {
+    let tagName: String
+    let assets: [Asset]
+
+    struct Asset: Codable {
+        let name: String
+        let browserDownloadUrl: String
+
+        enum CodingKeys: String, CodingKey {
+            case name
+            case browserDownloadUrl = "browser_download_url"
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case tagName = "tag_name"
+        case assets
+    }
+}
+
 @MainActor
 class AutoUpdater: ObservableObject {
     static let shared = AutoUpdater()
@@ -25,12 +45,13 @@ class AutoUpdater: ObservableObject {
     }
 
     func startPeriodicChecks(interval: TimeInterval = 3600) {
-        // Check on launch after a short delay
+        checkTimer?.invalidate()
+
         Task {
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             await checkForUpdates(silent: true)
         }
-        // Then check periodically
+
         checkTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 await self?.checkForUpdates(silent: true)
@@ -60,29 +81,28 @@ class AutoUpdater: ObservableObject {
                 return
             }
 
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let tagName = json["tag_name"] as? String else {
-                if !silent { self.error = "Invalid response from GitHub" }
-                return
+            let release = try JSONDecoder().decode(GitHubRelease.self, from: data)
+
+            let remoteVersion = release.tagName.hasPrefix("v") ? String(release.tagName.dropFirst()) : release.tagName
+
+            // Only update @Published properties when values actually change
+            if latestVersion != remoteVersion {
+                latestVersion = remoteVersion
             }
 
-            let remoteVersion = tagName.hasPrefix("v") ? String(tagName.dropFirst()) : tagName
-            latestVersion = remoteVersion
+            releaseAssetURL = release.assets
+                .first { $0.name.hasSuffix(".zip") }
+                .flatMap { URL(string: $0.browserDownloadUrl) }
 
-            // Find the .zip asset
-            if let assets = json["assets"] as? [[String: Any]] {
-                releaseAssetURL = assets
-                    .first { ($0["name"] as? String)?.hasSuffix(".zip") == true }
-                    .flatMap { $0["browser_download_url"] as? String }
-                    .flatMap { URL(string: $0) }
+            let newer = isNewerVersion(remoteVersion, than: currentVersion)
+            if updateAvailable != newer {
+                updateAvailable = newer
             }
 
-            if isNewerVersion(remoteVersion, than: currentVersion) {
-                updateAvailable = true
+            if newer {
                 logger.info("Update available: \(remoteVersion) (current: \(self.currentVersion))")
-            } else {
-                updateAvailable = false
-                if !silent { logger.info("Already up to date (\(self.currentVersion))") }
+            } else if !silent {
+                logger.info("Already up to date (\(self.currentVersion))")
             }
         } catch {
             if !silent { self.error = "Network error: \(error.localizedDescription)" }
@@ -100,13 +120,13 @@ class AutoUpdater: ObservableObject {
         downloadProgress = 0
         error = nil
 
+        defer { isDownloading = false }
+
         do {
-            // Download to temp
             let (tempURL, response) = try await URLSession.shared.download(from: assetURL)
 
             guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
                 error = "Download failed"
-                isDownloading = false
                 return
             }
 
@@ -116,37 +136,32 @@ class AutoUpdater: ObservableObject {
             let tempDir = fm.temporaryDirectory.appendingPathComponent("nanowhisper_update_\(UUID().uuidString)")
             try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
 
-            // Unzip
-            let unzipProcess = Process()
-            unzipProcess.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-            unzipProcess.arguments = ["-o", tempURL.path, "-d", tempDir.path]
-            unzipProcess.standardOutput = FileHandle.nullDevice
-            unzipProcess.standardError = FileHandle.nullDevice
-            try unzipProcess.run()
-            unzipProcess.waitUntilExit()
+            // Unzip on a background thread to avoid blocking the UI
+            let unzipResult = await Task.detached {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+                process.arguments = ["-o", tempURL.path, "-d", tempDir.path]
+                process.standardOutput = FileHandle.nullDevice
+                process.standardError = FileHandle.nullDevice
+                try process.run()
+                process.waitUntilExit()
+                return process.terminationStatus
+            }.result
 
-            guard unzipProcess.terminationStatus == 0 else {
+            guard case .success(let status) = unzipResult, status == 0 else {
                 error = "Failed to extract update"
-                isDownloading = false
                 return
             }
 
             downloadProgress = 0.75
 
-            // Find the .app in the extracted contents
             let contents = try fm.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil)
             guard let newApp = contents.first(where: { $0.pathExtension == "app" }) else {
                 error = "No .app found in download"
-                isDownloading = false
                 return
             }
 
-            // Replace current app bundle
-            guard let currentAppURL = Bundle.main.bundleURL as URL? else {
-                error = "Cannot locate current app"
-                isDownloading = false
-                return
-            }
+            let currentAppURL = Bundle.main.bundleURL
 
             let backupURL = currentAppURL.deletingLastPathComponent()
                 .appendingPathComponent("NanoWhisper_backup.app")
@@ -156,28 +171,22 @@ class AutoUpdater: ObservableObject {
             do {
                 try fm.moveItem(at: newApp, to: currentAppURL)
             } catch {
-                // Restore backup on failure
                 try? fm.moveItem(at: backupURL, to: currentAppURL)
                 self.error = "Failed to install update: \(error.localizedDescription)"
-                isDownloading = false
                 return
             }
 
-            // Clean up backup and temp
             try? fm.removeItem(at: backupURL)
             try? fm.removeItem(at: tempDir)
             try? fm.removeItem(at: tempURL)
 
             downloadProgress = 1.0
-
             logger.info("Update installed, relaunching...")
 
-            // Relaunch
             relaunch(at: currentAppURL)
 
         } catch {
             self.error = "Update failed: \(error.localizedDescription)"
-            isDownloading = false
             logger.error("Update failed: \(error.localizedDescription)")
         }
     }

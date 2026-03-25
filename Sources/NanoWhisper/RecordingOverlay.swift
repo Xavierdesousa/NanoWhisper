@@ -122,16 +122,19 @@ class RecordingOverlayController {
         viewModel.state = .done
 
         // Hold the checkmark, then fade out
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            guard let self else { return }
             NSAnimationContext.runAnimationGroup({ ctx in
                 ctx.duration = 0.25
-                self?.window?.animator().alphaValue = 0
+                self.window?.animator().alphaValue = 0
             }, completionHandler: { [weak self] in
-                self?.window?.orderOut(nil)
-                // Release the window so it is recreated fresh on the correct screen next time
-                self?.window = nil
-                self?.viewModel.state = .idle
-                self?.viewModel.audioLevel = 0
+                Task { @MainActor in
+                    self?.window?.orderOut(nil)
+                    self?.window = nil
+                    self?.viewModel.state = .idle
+                    self?.viewModel.audioLevel = 0
+                }
             })
         }
     }
@@ -294,15 +297,11 @@ struct BarView: View {
 
     private var barHeight: CGFloat {
         switch state {
-        case .idle, .done:
-            return minHeight
-        case .loading:
+        case .idle, .done, .loading:
             return minHeight
         case .recording:
             let level = CGFloat(audioLevel) * barWeight
             return minHeight + (maxHeight - minHeight) * level
-        case .loading:
-            return minHeight
         }
     }
 
@@ -353,31 +352,3 @@ struct PulsingDot: View {
     }
 }
 
-// MARK: - Loading Pulse Modifier
-
-struct LoadingPulse: ViewModifier, Animatable {
-    let isActive: Bool
-    let index: Int
-    let minHeight: CGFloat
-    let maxHeight: CGFloat
-
-    @State private var animating = false
-
-    func body(content: Content) -> some View {
-        if isActive {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(Color.orange)
-                .frame(width: 4, height: animating ? maxHeight * 0.6 : minHeight)
-                .animation(
-                    .easeInOut(duration: 0.45)
-                        .repeatForever(autoreverses: true)
-                        .delay(Double(index) * 0.1),
-                    value: animating
-                )
-                .onAppear { animating = true }
-                .onDisappear { animating = false }
-        } else {
-            content
-        }
-    }
-}
