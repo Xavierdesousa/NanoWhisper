@@ -3,8 +3,6 @@ name: CodeQL
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
   schedule:
     - cron: '0 6 * * 1'
 
@@ -22,6 +20,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Cache SPM dependencies
+        if: matrix.language == 'swift'
+        uses: actions/cache@v4
+        with:
+          path: .build/checkouts
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
