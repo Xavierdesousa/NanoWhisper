@@ -121,7 +121,7 @@ class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(debugMode, forKey: "debugMode") }
     }
 
-    @Published var pauseMediaEnabled: Bool = false {
+    @Published var pauseMediaEnabled: Bool = true {
         didSet { UserDefaults.standard.set(pauseMediaEnabled, forKey: "pauseMediaEnabled") }
     }
 
@@ -236,7 +236,11 @@ class AppState: ObservableObject {
         let storedMax = UserDefaults.standard.integer(forKey: Self.maxHistoryKey)
         maxHistoryCount = storedMax > 0 ? storedMax : 15
         debugMode = UserDefaults.standard.bool(forKey: "debugMode")
-        pauseMediaEnabled = UserDefaults.standard.bool(forKey: "pauseMediaEnabled")
+        if UserDefaults.standard.object(forKey: "pauseMediaEnabled") == nil {
+            pauseMediaEnabled = true
+        } else {
+            pauseMediaEnabled = UserDefaults.standard.bool(forKey: "pauseMediaEnabled")
+        }
 
         // Only auto-prompt accessibility on subsequent launches
         if !isFirstLaunch {

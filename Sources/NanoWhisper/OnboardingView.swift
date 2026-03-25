@@ -217,6 +217,7 @@ struct OnboardingView: View {
 
                     Toggle("Launch at login", isOn: $appState.launchAtLogin)
                     Toggle("Sound feedback", isOn: $appState.soundEnabled)
+                    Toggle("Pause media during recording", isOn: $appState.pauseMediaEnabled)
                     Toggle("Save transcription history", isOn: $appState.historyEnabled)
                         .disabled(appState.historyUnavailable)
                 }
