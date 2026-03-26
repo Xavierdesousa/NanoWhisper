@@ -28,5 +28,7 @@
     <true/>
     <key>NSAccessibilityUsageDescription</key>
     <string>NanoWhisper needs accessibility access to paste transcribed text into your active application.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>NanoWhisper checks if media is playing so it can pause during recording and resume after.</string>
 </dict>
 </plist>

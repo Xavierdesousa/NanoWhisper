@@ -171,6 +171,22 @@ struct OnboardingView: View {
                             }
                         }
                     }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("System Audio Recording (for media auto-pause)")
+                            Spacer()
+                            Button("Open Settings") {
+                                if let url = URL(string: MediaController.audioPrivacySettingsURL) {
+                                    NSWorkspace.shared.open(url)
+                                }
+                            }
+                            .font(.caption)
+                        }
+                        Text("Cannot detect this permission. If media auto-pause isn't working, verify it's enabled in System Settings.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
 
                 Section("General") {
@@ -218,6 +234,12 @@ struct OnboardingView: View {
                     Toggle("Launch at login", isOn: $appState.launchAtLogin)
                     Toggle("Sound feedback", isOn: $appState.soundEnabled)
                     Toggle("Pause media during recording", isOn: $appState.pauseMediaEnabled)
+                    if appState.pauseMediaEnabled {
+                        Text("Requires System Audio Recording permission.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
                     Toggle("Save transcription history", isOn: $appState.historyEnabled)
                         .disabled(appState.historyUnavailable)
                 }
@@ -317,6 +339,7 @@ struct OnboardingView: View {
             }
         }
     }
+
 }
 
 // MARK: - Window Controller
