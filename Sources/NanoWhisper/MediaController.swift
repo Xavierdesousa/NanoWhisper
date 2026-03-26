@@ -220,9 +220,10 @@ final class MediaController {
 
         Thread.sleep(forTimeInterval: 0.05)
 
+        AudioDeviceStop(aggID, procID)
+        queue.sync {} // drain pending callbacks before reading/deallocating
         let result = detectedAudio.pointee
 
-        AudioDeviceStop(aggID, procID)
         AudioDeviceDestroyIOProcID(aggID, procID)
         detectedAudio.deallocate()
         destroyTapPipeline(tapID: tapID, aggID: aggID)
