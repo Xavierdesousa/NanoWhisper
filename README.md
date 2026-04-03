@@ -48,8 +48,8 @@ On first launch, an onboarding window walks you through model download, permissi
 |---|---|
 | Start/stop recording | **⌥ Space** (default) or menubar button |
 | Stop via overlay | Hover the overlay → click stop |
-| Open history | **⌘H** or Menubar → History |
-| Open settings | **⌘,** or Menubar → Settings |
+| Open history | Menubar → History |
+| Open settings | Menubar → Settings |
 | Quit | Menubar → Quit |
 
 ## Permissions
@@ -71,7 +71,7 @@ When using the Whisper engine:
 ## Requirements
 
 - macOS 14+ (Sonoma)
-- Apple Silicon (M1/M2/M3/M4)
+- Apple Silicon
 - ~1 GB disk (varies by model)
 
 ## Build from Source
