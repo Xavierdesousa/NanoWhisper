@@ -45,7 +45,12 @@ Agents have **no screen capture**. These worked on 2026-11-19:
    the debug app, and only when the maintainer is not testing in it.
 4. **Process and bundle checks**: `codesign -dv`, `codesign --verify --deep --strict`,
    `lsappinfo`, `pgrep -x`, sha256/mtime of production data to prove it was not touched (PR #14).
-5. **Makefile dry runs**: `make -n <target>`; guards of `make publish` were run by hand from the
+5. **Whether a view contains an element, in a unit test:** `dump(view.body, to: &string)` and
+   search the string for the label (with a positive control on another label of the same view).
+   An offscreen `NSHostingView` exposes **no accessibility tree** to a test process (no
+   assistive client is attached), so walking `accessibilityChildren()` finds nothing (tried
+   2026-11-20, `LiveTranscriptionFlavorTests`).
+6. **Makefile dry runs**: `make -n <target>`; guards of `make publish` were run by hand from the
    `make -n` output, never calling `gh` (PR #14). Workflow steps were run against a fake `gh`/`make`
    on `PATH`.
 

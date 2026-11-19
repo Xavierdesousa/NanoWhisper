@@ -86,6 +86,11 @@ enum BuildFlavor: String, CaseIterable, Sendable {
     /// The updater installs the latest GitHub release over the running bundle, which would
     /// turn a debug build into the production app, so it only runs in production.
     var autoUpdatesEnabled: Bool { self == .production }
+
+    /// Live transcription (beta) still has open design problems, so production does not offer
+    /// it: the toggle is hidden and no live session starts, even when the stored setting is on
+    /// (the stored value is kept). The debug build keeps it so it can be worked on.
+    var supportsLiveTranscription: Bool { self == .debug }
 }
 
 /// Version information embedded in the bundle's Info.plist.

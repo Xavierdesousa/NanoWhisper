@@ -35,6 +35,7 @@ Everything that could collide is derived from it.
 | History folder | `Application Support/NanoWhisper` | `Application Support/NanoWhisper Debug` |
 | Temp recordings | `nanowhisper_*.wav` | `nanowhisper-debug_*.wav` |
 | Auto-updater | on | off (`BuildFlavor.autoUpdatesEnabled`) |
+| Live transcription (beta) | not offered: toggle hidden, forced off | offered (`BuildFlavor.supportsLiveTranscription`, [live-transcription.md](live-transcription.md#debug-build-only)) |
 | Log subsystem | bundle id | bundle id |
 | Markers | none | "DEBUG" icon banner, orange dot on the menu bar icon (`MenuBarIcon`), `v<version> · <commit>` in the menu (`BuildInfo`, Info.plist key `NWGitCommit`) |
 
