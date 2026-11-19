@@ -221,20 +221,63 @@ struct TranscriptionEngineTests {
         #expect(!FileManager.default.fileExists(atPath: current.path))
     }
 
-    @Test("When the new folder already exists, the legacy folder is deleted and the new one kept")
+    /// A load-ready FluidAudio 0.18 v3 layout: every required bundle has `coremldata.bin`.
+    private func makeCompleteV3Cache(at current: URL) throws {
+        let fm = FileManager.default
+        for bundle in ["Preprocessor", "Encoder", "Decoder", "JointDecisionv3"] {
+            let dir = current.appendingPathComponent("\(bundle).mlmodelc")
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: dir.appendingPathComponent("coremldata.bin"))
+        }
+        try Data("{}".utf8).write(to: current.appendingPathComponent("parakeet_vocab.json"))
+    }
+
+    @Test("Fake complete layout passes FluidAudio's load-ready check; a .partial file fails it")
+    func completenessCheckMatchesFluidAudio() throws {
+        let models = try makeModelsDirectory()
+        defer { try? FileManager.default.removeItem(at: models) }
+        let current = models.appendingPathComponent("parakeet-tdt-0.6b-v3")
+        try makeCompleteV3Cache(at: current)
+        #expect(AsrModels.modelsExist(at: current, version: .v3))
+
+        let weights = current.appendingPathComponent("Encoder.mlmodelc/weights")
+        try FileManager.default.createDirectory(at: weights, withIntermediateDirectories: true)
+        try Data().write(to: weights.appendingPathComponent("weight.bin.partial"))
+        #expect(!AsrModels.modelsExist(at: current, version: .v3))
+    }
+
+    @Test("When the new folder is complete, the legacy folder is deleted and the new one kept")
     func migrateLegacyCacheRemovesDuplicate() throws {
         let models = try makeModelsDirectory()
         defer { try? FileManager.default.removeItem(at: models) }
         let legacy = try makeLegacyCache(in: models)
         let current = models.appendingPathComponent("parakeet-tdt-0.6b-v3")
-        try FileManager.default.createDirectory(at: current, withIntermediateDirectories: true)
-        let marker = current.appendingPathComponent("config.json")
-        try Data("{}".utf8).write(to: marker)
+        try makeCompleteV3Cache(at: current)
 
         #expect(SetupManager.migrateLegacyParakeetV3Cache(currentDirectory: current) == .removedDuplicate)
         #expect(!FileManager.default.fileExists(atPath: legacy.path))
-        #expect(FileManager.default.fileExists(atPath: marker.path))
-        #expect(!FileManager.default.fileExists(atPath: current.appendingPathComponent("Encoder.mlmodelc").path))
+        #expect(AsrModels.modelsExist(at: current, version: .v3))
+        #expect(!FileManager.default.fileExists(
+            atPath: current.appendingPathComponent("Encoder.mlmodelc/weight.bin").path))
+    }
+
+    @Test("When the new folder is an interrupted download, it is replaced by the legacy cache")
+    func migrateLegacyCacheReplacesIncomplete() throws {
+        let models = try makeModelsDirectory()
+        defer { try? FileManager.default.removeItem(at: models) }
+        let legacy = try makeLegacyCache(in: models)
+        let current = models.appendingPathComponent("parakeet-tdt-0.6b-v3")
+        // Interrupted download: only a partial encoder weight, no coremldata.bin.
+        let partialWeights = current.appendingPathComponent("Encoder.mlmodelc/weights")
+        try FileManager.default.createDirectory(at: partialWeights, withIntermediateDirectories: true)
+        try Data("half".utf8).write(to: partialWeights.appendingPathComponent("weight.bin.partial"))
+        #expect(!AsrModels.modelsExist(at: current, version: .v3))
+
+        #expect(SetupManager.migrateLegacyParakeetV3Cache(currentDirectory: current) == .replacedIncomplete)
+        #expect(!FileManager.default.fileExists(atPath: legacy.path))
+        let moved = current.appendingPathComponent("Encoder.mlmodelc/weight.bin")
+        #expect(try Data(contentsOf: moved) == Data("weights".utf8))
+        #expect(!FileManager.default.fileExists(atPath: partialWeights.appendingPathComponent("weight.bin.partial").path))
     }
 
     @Test("A failed move does not crash and leaves no folder at the new path")

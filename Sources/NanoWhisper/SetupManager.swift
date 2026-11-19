@@ -116,20 +116,28 @@ class SetupManager: ObservableObject {
         case notNeeded
         /// The legacy folder was moved to the current location.
         case moved
-        /// The current location already existed; the legacy folder was deleted.
+        /// The current location held an incomplete download; it was replaced by the legacy folder.
+        case replacedIncomplete
+        /// The current location already held a complete cache; the legacy folder was deleted.
         case removedDuplicate
-        /// The move failed; both folders were cleaned up so FluidAudio downloads normally.
+        /// The move failed; leftovers were cleaned up best effort and FluidAudio downloads normally.
         case failed
     }
 
     /// Move a Parakeet v3 cache downloaded by FluidAudio <= 0.12 to the folder FluidAudio 0.18
     /// uses, so the update does not re-download ~480 MB and nothing is left at the old path.
     ///
+    /// - Current folder missing: the legacy folder is moved in.
+    /// - Current folder complete (`AsrModels.modelsExist(at:version:)`, the load-ready check
+    ///   FluidAudio's own `download` uses: every required `.mlmodelc` has `coremldata.bin` and
+    ///   no `*.partial` file, and the vocabulary is present): the legacy folder is deleted.
+    /// - Current folder incomplete (e.g. an interrupted download): it is removed and the legacy
+    ///   folder is moved in, rather than throwing away the complete legacy weights.
+    ///
     /// FluidAudio then only fetches the files that changed (the ~12 MB JointDecisionv3 model).
     /// Never throws: on any failure the app falls back to a normal download. A failed move
-    /// never leaves a partial folder at the current location (which would make FluidAudio
-    /// treat the cache as present); the legacy folder is removed too, best effort.
-    /// Synchronous and called on the main actor, so two setups cannot race on it.
+    /// never leaves a partial folder at the current location; the legacy folder is removed
+    /// too, best effort. Synchronous and called on the main actor, so setups cannot race on it.
     @discardableResult
     nonisolated static func migrateLegacyParakeetV3Cache(
         currentDirectory: URL = AsrModels.defaultCacheDirectory(for: .v3)
@@ -140,24 +148,32 @@ class SetupManager: ObservableObject {
         guard legacyDirectory.standardizedFileURL != currentDirectory.standardizedFileURL,
               fm.fileExists(atPath: legacyDirectory.path) else { return .notNeeded }
 
+        var replacingIncomplete = false
         if fm.fileExists(atPath: currentDirectory.path) {
-            do {
-                try fm.removeItem(at: legacyDirectory)
-                logger.info("Removed legacy Parakeet v3 cache (already migrated)")
-            } catch {
-                logger.error("Could not remove legacy Parakeet v3 cache: \(error.localizedDescription, privacy: .public)")
+            if AsrModels.modelsExist(at: currentDirectory, version: .v3) {
+                do {
+                    try fm.removeItem(at: legacyDirectory)
+                    logger.info("Removed legacy Parakeet v3 cache (already migrated)")
+                } catch {
+                    logger.error("Could not remove legacy Parakeet v3 cache: \(error.localizedDescription, privacy: .public)")
+                }
+                return .removedDuplicate
             }
-            return .removedDuplicate
+            replacingIncomplete = true
+            logger.info("Current Parakeet v3 cache is incomplete; replacing it with the legacy cache")
         }
 
         do {
+            if replacingIncomplete {
+                try fm.removeItem(at: currentDirectory)
+            }
             try fm.createDirectory(
                 at: currentDirectory.deletingLastPathComponent(), withIntermediateDirectories: true
             )
             // Same parent directory, so this is an atomic rename.
             try fm.moveItem(at: legacyDirectory, to: currentDirectory)
             logger.info("Moved legacy Parakeet v3 cache to \(currentDirectory.path, privacy: .public)")
-            return .moved
+            return replacingIncomplete ? .replacedIncomplete : .moved
         } catch {
             logger.error("Could not move legacy Parakeet v3 cache: \(error.localizedDescription, privacy: .public)")
             try? fm.removeItem(at: currentDirectory)
