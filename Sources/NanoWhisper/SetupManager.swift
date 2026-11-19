@@ -110,41 +110,65 @@ class SetupManager: ObservableObject {
     /// files in `parakeet-tdt-0.6b-v3` instead, so without this an update would re-download v3.
     nonisolated static let legacyParakeetV3FolderName = "parakeet-tdt-0.6b-v3-coreml"
 
-    /// Reuse a Parakeet v3 cache downloaded by FluidAudio <= 0.12.
+    /// Result of `migrateLegacyParakeetV3Cache(currentDirectory:)`.
+    enum LegacyCacheMigration: Equatable {
+        /// No legacy folder: nothing to do.
+        case notNeeded
+        /// The legacy folder was moved to the current location.
+        case moved
+        /// The current location already existed; the legacy folder was deleted.
+        case removedDuplicate
+        /// The move failed; both folders were cleaned up so FluidAudio downloads normally.
+        case failed
+    }
+
+    /// Move a Parakeet v3 cache downloaded by FluidAudio <= 0.12 to the folder FluidAudio 0.18
+    /// uses, so the update does not re-download ~480 MB and nothing is left at the old path.
     ///
-    /// When the current v3 folder is missing and the legacy one exists, the legacy folder is
-    /// copied (APFS clones the files, so no extra disk space is used) to the current location;
-    /// FluidAudio then only fetches the files that changed (the ~13 MB JointDecisionv3 model).
-    /// The legacy folder is left in place because other apps may share FluidAudio's cache.
-    /// - Returns: `true` when a legacy cache was adopted.
+    /// FluidAudio then only fetches the files that changed (the ~12 MB JointDecisionv3 model).
+    /// Never throws: on any failure the app falls back to a normal download. A failed move
+    /// never leaves a partial folder at the current location (which would make FluidAudio
+    /// treat the cache as present); the legacy folder is removed too, best effort.
+    /// Synchronous and called on the main actor, so two setups cannot race on it.
     @discardableResult
-    nonisolated static func adoptLegacyParakeetV3Cache(
+    nonisolated static func migrateLegacyParakeetV3Cache(
         currentDirectory: URL = AsrModels.defaultCacheDirectory(for: .v3)
-    ) -> Bool {
+    ) -> LegacyCacheMigration {
         let fm = FileManager.default
         let legacyDirectory = currentDirectory.deletingLastPathComponent()
             .appendingPathComponent(legacyParakeetV3FolderName, isDirectory: true)
         guard legacyDirectory.standardizedFileURL != currentDirectory.standardizedFileURL,
-              !fm.fileExists(atPath: currentDirectory.path),
-              fm.fileExists(atPath: legacyDirectory.path) else { return false }
+              fm.fileExists(atPath: legacyDirectory.path) else { return .notNeeded }
+
+        if fm.fileExists(atPath: currentDirectory.path) {
+            do {
+                try fm.removeItem(at: legacyDirectory)
+                logger.info("Removed legacy Parakeet v3 cache (already migrated)")
+            } catch {
+                logger.error("Could not remove legacy Parakeet v3 cache: \(error.localizedDescription, privacy: .public)")
+            }
+            return .removedDuplicate
+        }
+
         do {
-            try fm.copyItem(at: legacyDirectory, to: currentDirectory)
-            logger.info("Adopted legacy Parakeet v3 cache from \(legacyDirectory.path, privacy: .public)")
-            return true
+            try fm.createDirectory(
+                at: currentDirectory.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+            // Same parent directory, so this is an atomic rename.
+            try fm.moveItem(at: legacyDirectory, to: currentDirectory)
+            logger.info("Moved legacy Parakeet v3 cache to \(currentDirectory.path, privacy: .public)")
+            return .moved
         } catch {
-            // Not fatal: FluidAudio downloads the model instead. Drop any partial copy.
-            logger.error("Could not adopt legacy Parakeet v3 cache: \(error.localizedDescription, privacy: .public)")
+            logger.error("Could not move legacy Parakeet v3 cache: \(error.localizedDescription, privacy: .public)")
             try? fm.removeItem(at: currentDirectory)
-            return false
+            try? fm.removeItem(at: legacyDirectory)
+            return .failed
         }
     }
 
     private func loadParakeet(_ variant: ParakeetVariant, generation: Int) async throws -> AsrModels {
-        if variant == .v3 {
-            _ = await Task.detached(priority: .userInitiated) {
-                Self.adoptLegacyParakeetV3Cache()
-            }.value
-        }
+        // Run for either variant so the old folder never lingers; a moved v3 cache stays usable.
+        Self.migrateLegacyParakeetV3Cache()
         return try await AsrModels.downloadAndLoad(
             version: variant.asrModelVersion,
             progressHandler: { [weak self] progress in

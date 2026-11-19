@@ -178,7 +178,7 @@ struct TranscriptionEngineTests {
         #expect(v3.lastPathComponent != SetupManager.legacyParakeetV3FolderName)
     }
 
-    // MARK: - Legacy Parakeet v3 cache adoption
+    // MARK: - Legacy Parakeet v3 cache migration
 
     private func makeModelsDirectory() throws -> URL {
         let dir = FileManager.default.temporaryDirectory
@@ -187,35 +187,73 @@ struct TranscriptionEngineTests {
         return dir
     }
 
-    @Test("Legacy v3 cache is copied to the current folder and kept in place")
-    func adoptLegacyCache() throws {
-        let models = try makeModelsDirectory()
-        defer { try? FileManager.default.removeItem(at: models) }
+    /// Legacy folder with one fake model file, as FluidAudio 0.12 laid it out.
+    private func makeLegacyCache(in models: URL) throws -> URL {
         let legacy = models.appendingPathComponent(SetupManager.legacyParakeetV3FolderName)
         let encoder = legacy.appendingPathComponent("Encoder.mlmodelc")
         try FileManager.default.createDirectory(at: encoder, withIntermediateDirectories: true)
         try Data("weights".utf8).write(to: encoder.appendingPathComponent("weight.bin"))
-        let current = models.appendingPathComponent("parakeet-tdt-0.6b-v3")
-
-        #expect(SetupManager.adoptLegacyParakeetV3Cache(currentDirectory: current))
-        let copied = current.appendingPathComponent("Encoder.mlmodelc/weight.bin")
-        #expect(try Data(contentsOf: copied) == Data("weights".utf8))
-        #expect(FileManager.default.fileExists(atPath: encoder.path))
+        return legacy
     }
 
-    @Test("Legacy adoption is a no-op when the current cache exists or no legacy cache exists")
-    func adoptLegacyCacheNoOp() throws {
+    @Test("Legacy v3 cache is moved: contents at the new path, nothing left at the old one")
+    func migrateLegacyCacheMoves() throws {
+        let models = try makeModelsDirectory()
+        defer { try? FileManager.default.removeItem(at: models) }
+        let legacy = try makeLegacyCache(in: models)
+        let current = models.appendingPathComponent("parakeet-tdt-0.6b-v3")
+
+        #expect(SetupManager.migrateLegacyParakeetV3Cache(currentDirectory: current) == .moved)
+        let moved = current.appendingPathComponent("Encoder.mlmodelc/weight.bin")
+        #expect(try Data(contentsOf: moved) == Data("weights".utf8))
+        #expect(!FileManager.default.fileExists(atPath: legacy.path))
+        // Idempotent.
+        #expect(SetupManager.migrateLegacyParakeetV3Cache(currentDirectory: current) == .notNeeded)
+    }
+
+    @Test("Legacy migration without a legacy folder does nothing")
+    func migrateLegacyCacheNotNeeded() throws {
         let models = try makeModelsDirectory()
         defer { try? FileManager.default.removeItem(at: models) }
         let current = models.appendingPathComponent("parakeet-tdt-0.6b-v3")
 
-        #expect(!SetupManager.adoptLegacyParakeetV3Cache(currentDirectory: current))
+        #expect(SetupManager.migrateLegacyParakeetV3Cache(currentDirectory: current) == .notNeeded)
         #expect(!FileManager.default.fileExists(atPath: current.path))
+    }
 
-        let legacy = models.appendingPathComponent(SetupManager.legacyParakeetV3FolderName)
-        try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
+    @Test("When the new folder already exists, the legacy folder is deleted and the new one kept")
+    func migrateLegacyCacheRemovesDuplicate() throws {
+        let models = try makeModelsDirectory()
+        defer { try? FileManager.default.removeItem(at: models) }
+        let legacy = try makeLegacyCache(in: models)
+        let current = models.appendingPathComponent("parakeet-tdt-0.6b-v3")
         try FileManager.default.createDirectory(at: current, withIntermediateDirectories: true)
-        #expect(!SetupManager.adoptLegacyParakeetV3Cache(currentDirectory: current))
+        let marker = current.appendingPathComponent("config.json")
+        try Data("{}".utf8).write(to: marker)
+
+        #expect(SetupManager.migrateLegacyParakeetV3Cache(currentDirectory: current) == .removedDuplicate)
+        #expect(!FileManager.default.fileExists(atPath: legacy.path))
+        #expect(FileManager.default.fileExists(atPath: marker.path))
+        #expect(!FileManager.default.fileExists(atPath: current.appendingPathComponent("Encoder.mlmodelc").path))
+    }
+
+    @Test("A failed move does not crash and leaves no folder at the new path")
+    func migrateLegacyCacheFailure() throws {
+        let models = try makeModelsDirectory()
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: models.path)
+            try? FileManager.default.removeItem(at: models)
+        }
+        let legacy = try makeLegacyCache(in: models)
+        let current = models.appendingPathComponent("parakeet-tdt-0.6b-v3")
+        // A read-only models directory makes the rename fail (and the cleanup too).
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: models.path)
+
+        #expect(SetupManager.migrateLegacyParakeetV3Cache(currentDirectory: current) == .failed)
+        // FluidAudio will see no cache at the new path and download normally.
+        #expect(!FileManager.default.fileExists(atPath: current.path))
+        // Cleanup of the old folder is best effort; here the directory is read-only.
+        #expect(FileManager.default.fileExists(atPath: legacy.path))
     }
 
     @Test("New installs default to Ultra, existing installs stay on v3")
