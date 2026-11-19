@@ -114,6 +114,62 @@ struct TranscriberConcurrencyTests {
         #expect(transcriber.currentAsrManager == nil)
     }
 
+    // MARK: - Configuration snapshot
+
+    @Test("A queued recording uses the engine and settings in effect when it was submitted")
+    @MainActor func queuedRecordingKeepsSubmittedConfiguration() async throws {
+        let transcriber = Transcriber()
+        let oldEngine = AsrManager()
+        let newEngine = AsrManager()
+        var oldSettings = WhisperSettings()
+        oldSettings.language = "fr"
+        oldSettings.promptText = "old hint"
+        var newSettings = WhisperSettings()
+        newSettings.language = "de"
+        newSettings.promptText = "new hint"
+
+        #expect(try await transcriber.installParakeet { oldEngine })
+        transcriber.updateWhisperSettings(oldSettings)
+
+        let urls = (0...2).map { URL(fileURLWithPath: "/tmp/recording-\($0).wav") }
+        var seen: [URL: Transcriber.Configuration] = [:]
+        let (started, startedContinuation) = AsyncStream<Void>.makeStream()
+        let (release, releaseContinuation) = AsyncStream<Void>.makeStream()
+        transcriber.transcriptionHandler = { configuration, url in
+            seen[url] = configuration
+            if url == urls[0] {
+                startedContinuation.yield()
+                for await _ in release { break } // recording #0 is still being transcribed
+            }
+            return Transcriber.TranscriptionResult(text: url.lastPathComponent, debugInfo: nil)
+        }
+
+        // #0 occupies the engine.
+        let first = Task { @MainActor in await transcriber.transcribe(audioURL: urls[0]) }
+        for await _ in started { break }
+
+        // #1 is submitted with the old configuration and waits in the queue.
+        let second = Task { @MainActor in await transcriber.transcribe(audioURL: urls[1]) }
+        while await transcriber.queuedTranscriptionCount < 1 { await Task.yield() }
+
+        // The user switches engine and settings while #1 is queued, then records #2.
+        #expect(try await transcriber.installParakeet { newEngine })
+        transcriber.updateWhisperSettings(newSettings)
+        let third = Task { @MainActor in await transcriber.transcribe(audioURL: urls[2]) }
+        while await transcriber.queuedTranscriptionCount < 2 { await Task.yield() }
+
+        releaseContinuation.yield()
+        #expect(await first.value.text == "recording-0.wav")
+        #expect(await second.value.text == "recording-1.wav")
+        #expect(await third.value.text == "recording-2.wav")
+
+        #expect(seen[urls[0]]?.asrManager === oldEngine)
+        #expect(seen[urls[1]]?.asrManager === oldEngine)
+        #expect(seen[urls[1]]?.whisperSettings == oldSettings)
+        #expect(seen[urls[2]]?.asrManager === newEngine)
+        #expect(seen[urls[2]]?.whisperSettings == newSettings)
+    }
+
     @Test("An initialization that is not overtaken installs its engine")
     @MainActor func parakeetInitInstalls() async throws {
         let transcriber = Transcriber()
