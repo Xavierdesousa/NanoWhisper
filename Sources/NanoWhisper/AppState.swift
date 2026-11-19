@@ -124,15 +124,7 @@ class AppState: ObservableObject {
     }
 
     @Published var pauseMediaEnabled: Bool = false {
-        didSet {
-            UserDefaults.standard.set(pauseMediaEnabled, forKey: "pauseMediaEnabled")
-            if pauseMediaEnabled {
-                if #available(macOS 14.2, *) {
-                    let controller = mediaController
-                    Task.detached { controller.requestAudioCaptureAccess() }
-                }
-            }
-        }
+        didSet { UserDefaults.standard.set(pauseMediaEnabled, forKey: "pauseMediaEnabled") }
     }
 
     /// Show the text in the overlay while recording (see AppState+LiveTranscription.swift).
@@ -189,7 +181,11 @@ class AppState: ObservableObject {
     let recordingOverlay = RecordingOverlayController()
     let onboardingWindow = OnboardingWindowController()
     let autoUpdater = AutoUpdater.shared
-    let mediaController = MediaController()
+    let mediaController = MediaController(
+        playback: NowPlayingPlaybackController(source: MediaRemoteJXA())
+    )
+    /// Media session of the recording in progress; handed to its transcription when it stops.
+    private var recordingMediaSession: MediaController.Session?
 
     private static let onboardingCompleteKey = "onboardingComplete"
     var isFirstLaunch: Bool { !UserDefaults.standard.bool(forKey: Self.onboardingCompleteKey) }
@@ -377,19 +373,19 @@ class AppState: ObservableObject {
     func startRecording() {
         lastError = nil
 
-        // Check audio BEFORE playing the start sound to avoid CoreAudio false positive
-        if pauseMediaEnabled {
-            mediaController.pauseIfPlaying()
-        }
+        // The session spans this recording and its transcription. Media detection runs in
+        // the background, so the mic starts right away.
+        let mediaSession = mediaController.beginSession(pauseMedia: pauseMediaEnabled)
         sound.playStart()
         let live = beginLiveTranscription() // nil unless enabled
         do {
             try audioRecorder.startRecording(onSamples: live?.sampleSink)
+            recordingMediaSession = mediaSession
             isRecording = true
             recordingOverlay.show(audioLevelPublisher: audioRecorder.audioLevelSubject, transcriptID: live?.id)
         } catch {
             cancelLiveTranscription()
-            mediaController.resumeIfPaused()
+            mediaController.endSession(mediaSession)
             lastError = "Could not access the microphone. Check System Settings > Privacy > Microphone."
         }
     }
@@ -397,12 +393,15 @@ class AppState: ObservableObject {
     func stopRecording() {
         sound.playStop()
         isRecording = false
+        let mediaSession = recordingMediaSession
+        recordingMediaSession = nil
         // Abandon the live preview's decode in flight; its text stays until the final text.
         let live = liveSession
         liveSession = nil
         live?.stop()
         recordingOverlay.transitionToLoading()
         guard let audioURL = audioRecorder.stopRecording() else {
+            if let mediaSession { mediaController.endSession(mediaSession) }
             lastError = "No audio recorded"
             recordingOverlay.dismiss()
             return
@@ -413,7 +412,8 @@ class AppState: ObservableObject {
         Task {
             defer {
                 Self.securelyDeleteFile(at: audioURL)
-                mediaController.resumeIfPaused()
+                // Resumes media only if no other recording session is open by now.
+                if let mediaSession { mediaController.endSession(mediaSession) }
             }
 
             let result = await transcriber.transcribe(audioURL: audioURL)
