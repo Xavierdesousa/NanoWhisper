@@ -269,13 +269,44 @@ struct LivePreviewWindowTests {
         #expect(shown.hasSuffix("release"))
     }
 
-    @Test("The join guard compares words without case or punctuation, up to three")
-    func repeatedAtJoin() {
-        #expect(LivePreviewWindow.repeatedAtJoin(frozen: "add Julian and Martin to the", window: ["the", "release"]) == 1)
-        #expect(LivePreviewWindow.repeatedAtJoin(frozen: "I looked at", window: ["At", "the"]) == 1)
-        #expect(LivePreviewWindow.repeatedAtJoin(frozen: "on the migration.", window: ["the", "migration", "I"]) == 2)
-        #expect(LivePreviewWindow.repeatedAtJoin(frozen: "release notes", window: ["they", "did"]) == 0)
-        #expect(LivePreviewWindow.repeatedAtJoin(frozen: "", window: ["they"]) == 0)
+    @Test("The join guard compares letters, and drops the repeat from the side it covers whole words of")
+    func overlapAtJoin() {
+        typealias W = LivePreviewWindow
+        #expect(W.overlapAtJoin(frozen: "add Julian and Martin to the", window: ["the", "release"]) == (0, 1))
+        #expect(W.overlapAtJoin(frozen: "I looked at", window: ["At", "the"]) == (0, 1))
+        #expect(W.overlapAtJoin(frozen: "on the migration.", window: ["the", "migration", "I"]) == (0, 2))
+        // Measured on a 77 s recording: "could you double double-check the retry logic".
+        #expect(W.overlapAtJoin(frozen: "could you double", window: ["double-check", "the"]) == (1, 0))
+        #expect(W.overlapAtJoin(frozen: "release notes", window: ["they", "did"]) == (0, 0))
+        #expect(W.overlapAtJoin(frozen: "", window: ["they"]) == (0, 0))
+        #expect(W.overlapAtJoin(frozen: "at 10.30.", window: ["Hi", "Sarah"]) == (0, 0))
+    }
+
+    @Test("A hyphenated respelling at the join replaces the frozen word")
+    func hyphenatedRespelling() {
+        var window = LivePreviewWindow(schedule: .default)
+        // "… could you double | check the retry logic …", with the longest pause after "double".
+        var pieces = (0..<28).map { Transcriber.TimedText(text: "w\($0)", start: Double($0) * 0.7, end: Double($0) * 0.7 + 0.5) }
+        pieces += [
+            .init(text: "could", start: 19.6, end: 20.1),
+            .init(text: "you", start: 20.3, end: 20.8),
+            .init(text: "double", start: 21.0, end: 21.5),
+            .init(text: "check", start: 22.1, end: 22.6),
+            .init(text: "the", start: 22.8, end: 23.3),
+            .init(text: "retry", start: 23.5, end: 24.0),
+            .init(text: "logic", start: 24.2, end: 24.7),
+        ]
+        _ = window.decodeStart(forDuration: 30)
+        _ = window.text(for: .init(text: "", pieces: pieces), decodedFrom: 0)
+        let start = window.decodeStart(forDuration: 31)
+        #expect(window.frozenText.hasSuffix("could you double"))
+
+        // The window decode spells "double check" as one word.
+        let shown = window.text(for: .init(text: "", pieces: [
+            .init(text: "double-check", start: 21.85 - start, end: 22.6 - start),
+            .init(text: "the", start: 22.8 - start, end: 23.3 - start),
+        ]), decodedFrom: start)
+        #expect(shown.hasSuffix("could you double-check the"))
     }
 
     @Test("Silence past the limit moves the window on without freezing anything")

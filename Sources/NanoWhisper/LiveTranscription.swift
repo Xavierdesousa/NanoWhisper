@@ -112,26 +112,51 @@ struct LivePreviewWindow: Sendable {
             return result.text
         }
         pieces = decoded.filter { ($0.start + $0.end) / 2 >= boundary }
-        // A decoder can place a short word right at the join later than the decode it was
-        // frozen from ("to the | the release"): never show the same words twice in a row.
-        pieces.removeFirst(Self.repeatedAtJoin(frozen: frozenText, window: pieces.map(\.text)))
+        // A decoder can place a word right at the join later than the decode it was frozen
+        // from, or spell it differently ("to the | the release", "you double | double-check"):
+        // never show the same words twice in a row.
+        let overlap = Self.overlapAtJoin(frozen: frozenText, window: pieces.map(\.text))
+        pieces.removeFirst(overlap.windowWords)
+        if overlap.frozenWords > 0 {
+            frozenText = frozenText.split(separator: " ").dropLast(overlap.frozenWords).joined(separator: " ")
+        }
         let windowText = pieces.map(\.text).joined(separator: " ")
         return [frozenText, windowText].filter { !$0.isEmpty }.joined(separator: " ")
     }
 
-    /// How many leading `window` words repeat the last words of `frozen` (up to 3; compared
-    /// without case or punctuation).
-    static func repeatedAtJoin(frozen: String, window: [String]) -> Int {
-        func core<S: StringProtocol>(_ word: S) -> String {
-            word.lowercased().trimmingCharacters(in: .punctuationCharacters.union(.symbols))
+    /// Words the window repeats from the end of the frozen text, compared on their letters
+    /// (case, punctuation and hyphens ignored; up to 3 words each side). The repeat is dropped
+    /// from whichever side it covers whole words of: leading window words when it does
+    /// ("the" | "the release"), else trailing frozen words ("double" | "double-check").
+    static func overlapAtJoin(frozen: String, window: [String]) -> (frozenWords: Int, windowWords: Int) {
+        func letters<S: StringProtocol>(_ word: S) -> [String] {
+            word.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "'" }).map(String.init)
         }
-        let tail = frozen.split(separator: " ").suffix(3).map { core($0) }
-        let head = window.prefix(3).map { core($0) }
+        let tailWords = frozen.split(separator: " ").suffix(3).map(letters)
+        let headWords = window.prefix(3).map(letters)
+        let tail = tailWords.flatMap { $0 }
+        let head = headWords.flatMap { $0 }
         for count in stride(from: min(tail.count, head.count), through: 1, by: -1)
-        where Array(tail.suffix(count)) == Array(head.prefix(count)) && !head.prefix(count).contains("") {
-            return count
+        where Array(tail.suffix(count)) == Array(head.prefix(count)) {
+            if let words = Self.wordCount(covering: count, in: headWords) {
+                return (0, words)
+            }
+            if let words = Self.wordCount(covering: count, in: tailWords.reversed()) {
+                return (words, 0)
+            }
         }
-        return 0
+        return (0, 0)
+    }
+
+    /// How many leading words together hold exactly `tokens` tokens, if any.
+    private static func wordCount(covering tokens: Int, in words: [[String]]) -> Int? {
+        var total = 0
+        for (index, word) in words.enumerated() {
+            total += word.count
+            if total == tokens { return index + 1 }
+            if total > tokens { return nil }
+        }
+        return nil
     }
 
     /// Freeze the last decode's text up to a new boundary.
