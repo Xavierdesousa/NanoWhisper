@@ -22,6 +22,31 @@ struct TranscriptionEngineTests {
         #expect(model.displayName == "Parakeet")
     }
 
+    // MARK: - Whisper vocabulary hint
+
+    @Test("Prompt tokens: leading space, special tokens dropped")
+    func promptTokenEncoding() {
+        var encodedInput: String?
+        let tokens = WhisperEngine.promptTokens(
+            for: "  NanoWhisper CoreML \n",
+            encode: { text in
+                encodedInput = text
+                return [50258, 11, 22, 50359, 33]
+            },
+            specialTokenBegin: 50257
+        )
+        #expect(encodedInput == " NanoWhisper CoreML")
+        #expect(tokens == [11, 22, 33])
+    }
+
+    @Test("Prompt tokens: blank or all-special hints are ignored")
+    func promptTokenEmpty() {
+        let encode: (String) -> [Int] = { _ in [50258] }
+        #expect(WhisperEngine.promptTokens(for: "", encode: encode, specialTokenBegin: 50257) == nil)
+        #expect(WhisperEngine.promptTokens(for: "   ", encode: encode, specialTokenBegin: 50257) == nil)
+        #expect(WhisperEngine.promptTokens(for: "word", encode: encode, specialTokenBegin: 50257) == nil)
+    }
+
     @Test("Whisper display values")
     func whisperDisplay() {
         let model = TranscriptionModelType.whisper

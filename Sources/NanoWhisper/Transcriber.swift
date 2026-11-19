@@ -27,9 +27,36 @@ actor WhisperEngine {
     }
 
     /// Transcribe an audio file and return the joined, trimmed text.
-    func transcribe(audioPath: String, options: DecodingOptions) async throws -> String {
+    /// - Parameter prompt: optional vocabulary hint, passed to the decoder as Whisper's
+    ///   previous-context prompt (`<|startofprev|>` + tokens) to bias spelling of names and terms.
+    func transcribe(audioPath: String, options: DecodingOptions, prompt: String? = nil) async throws -> String {
+        var options = options
+        if let prompt, let tokenizer = kit.tokenizer,
+           let tokens = Self.promptTokens(
+               for: prompt,
+               encode: { tokenizer.encode(text: $0) },
+               specialTokenBegin: tokenizer.specialTokens.specialTokenBegin
+           ) {
+            options.promptTokens = tokens
+            options.usePrefillPrompt = true
+        }
         let results = try await kit.transcribe(audioPath: audioPath, decodeOptions: options)
         return results.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Encode a vocabulary hint the way WhisperKit's own CLI does: a leading space (Whisper's
+    /// BPE treats words as space-prefixed), then drop every special token (ids at or above
+    /// `specialTokenBegin`), which must not appear inside the prompt.
+    /// - Returns: `nil` when the hint is blank or encodes to nothing usable.
+    nonisolated static func promptTokens(
+        for prompt: String,
+        encode: (String) -> [Int],
+        specialTokenBegin: Int
+    ) -> [Int]? {
+        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let tokens = encode(" " + trimmed).filter { $0 < specialTokenBegin }
+        return tokens.isEmpty ? nil : tokens
     }
 }
 
@@ -122,12 +149,12 @@ class Transcriber {
                 options.detectLanguage = true
             }
 
-            // Apply prompt text as vocabulary hint
-            if let prompt = whisperSettings?.promptText, !prompt.isEmpty {
-                options.usePrefillPrompt = true
-            }
-
-            let text = try await engine.transcribe(audioPath: audioURL.path, options: options)
+            // The vocabulary hint is tokenized by the engine (it owns the tokenizer).
+            let text = try await engine.transcribe(
+                audioPath: audioURL.path,
+                options: options,
+                prompt: whisperSettings?.promptText
+            )
             let transcribeDuration = CFAbsoluteTimeGetCurrent() - t0
             let rtf = audioDuration > 0 ? transcribeDuration / audioDuration : nil
 
