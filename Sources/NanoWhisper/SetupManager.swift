@@ -1,6 +1,16 @@
 import Foundation
 import FluidAudio
-import WhisperKit
+import os
+
+extension ParakeetVariant {
+    /// FluidAudio model version for this variant.
+    var asrModelVersion: AsrModelVersion {
+        switch self {
+        case .v3: return .v3
+        case .ultra: return .ultra
+        }
+    }
+}
 
 @MainActor
 class SetupManager: ObservableObject {
@@ -10,51 +20,82 @@ class SetupManager: ObservableObject {
     @Published var setupError: String?
 
     private(set) var parakeetModels: AsrModels?
-    private(set) var whisperKit: WhisperKit?
+    private(set) var whisperEngine: WhisperEngine?
+
+    /// Variant held in `parakeetModels`, if any.
+    private(set) var loadedParakeetVariant: ParakeetVariant?
+    /// Size held in `whisperEngine`, if any.
+    private(set) var loadedWhisperModelSize: WhisperModelSize?
+
+    /// Incremented on every new setup or reset so results and progress from a
+    /// superseded download (e.g. the user switched models mid-download) are dropped.
+    private var setupGeneration = 0
+    private var setupTask: Task<Void, Never>?
 
     var needsSetup: Bool {
-        parakeetModels == nil && whisperKit == nil
+        parakeetModels == nil && whisperEngine == nil
     }
 
-    func runSetup(modelType: TranscriptionModelType, whisperSettings: WhisperSettings = WhisperSettings()) {
-        // If already set up for this model type, skip
+    func runSetup(
+        modelType: TranscriptionModelType,
+        parakeetVariant: ParakeetVariant,
+        whisperSettings: WhisperSettings = WhisperSettings()
+    ) {
+        // If the requested model is already loaded, skip
         switch modelType {
-        case .parakeet where parakeetModels != nil:
+        case .parakeet where parakeetModels != nil && loadedParakeetVariant == parakeetVariant:
             setupComplete = true
             return
-        case .whisper where whisperKit != nil:
+        case .whisper where whisperEngine != nil && loadedWhisperModelSize == whisperSettings.modelSize:
             setupComplete = true
             return
         default:
             break
         }
 
+        setupTask?.cancel()
+        setupGeneration += 1
+        let generation = setupGeneration
+
         isSettingUp = true
         setupProgress = "Preparing download..."
         setupError = nil
 
-        Task {
+        setupTask = Task {
             do {
                 switch modelType {
                 case .parakeet:
-                    try await setupParakeet()
+                    let models = try await loadParakeet(parakeetVariant, generation: generation)
+                    guard generation == setupGeneration else { return }
+                    parakeetModels = models
+                    loadedParakeetVariant = parakeetVariant
                 case .whisper:
-                    try await setupWhisper(settings: whisperSettings)
+                    setupProgress = "Downloading Whisper \(whisperSettings.modelSize.displayName)..."
+                    let engine = try await WhisperEngine(model: whisperSettings.modelSize.whisperKitModel)
+                    guard generation == setupGeneration else { return }
+                    whisperEngine = engine
+                    loadedWhisperModelSize = whisperSettings.modelSize
                 }
-                self.setupComplete = true
-                self.isSettingUp = false
-                self.setupProgress = "Setup complete!"
+                setupComplete = true
+                isSettingUp = false
+                setupProgress = "Setup complete!"
             } catch {
-                self.setupError = "Model setup failed. Please check your internet connection and try again."
-                self.isSettingUp = false
+                guard generation == setupGeneration else { return }
+                setupError = "Model setup failed. Please check your internet connection and try again."
+                isSettingUp = false
             }
         }
     }
 
     /// Reset state to allow switching models
     func resetForModelSwitch() {
+        setupTask?.cancel()
+        setupTask = nil
+        setupGeneration += 1
         parakeetModels = nil
-        whisperKit = nil
+        loadedParakeetVariant = nil
+        whisperEngine = nil
+        loadedWhisperModelSize = nil
         setupComplete = false
         setupError = nil
         isSettingUp = false
@@ -63,47 +104,109 @@ class SetupManager: ObservableObject {
 
     // MARK: - Parakeet setup
 
-    private func setupParakeet() async throws {
-        let loadedModels = try await AsrModels.downloadAndLoad(
-            version: .v3,
+    nonisolated private static let logger = Logger(subsystem: "com.moonji.nanowhisper", category: "SetupManager")
+
+    /// Folder FluidAudio <= 0.12 used for Parakeet v3. FluidAudio 0.18 looks for the same
+    /// files in `parakeet-tdt-0.6b-v3` instead, so without this an update would re-download v3.
+    nonisolated static let legacyParakeetV3FolderName = "parakeet-tdt-0.6b-v3-coreml"
+
+    /// Result of `migrateLegacyParakeetV3Cache(currentDirectory:)`.
+    enum LegacyCacheMigration: Equatable {
+        /// No legacy folder: nothing to do.
+        case notNeeded
+        /// The legacy folder was moved to the current location.
+        case moved
+        /// The current location held an incomplete download; it was replaced by the legacy folder.
+        case replacedIncomplete
+        /// The current location already held a complete cache; the legacy folder was deleted.
+        case removedDuplicate
+        /// The move failed; leftovers were cleaned up best effort and FluidAudio downloads normally.
+        case failed
+    }
+
+    /// Move a Parakeet v3 cache downloaded by FluidAudio <= 0.12 to the folder FluidAudio 0.18
+    /// uses, so the update does not re-download ~480 MB and nothing is left at the old path.
+    ///
+    /// - Current folder missing: the legacy folder is moved in.
+    /// - Current folder complete (`AsrModels.modelsExist(at:version:)`, the load-ready check
+    ///   FluidAudio's own `download` uses: every required `.mlmodelc` has `coremldata.bin` and
+    ///   no `*.partial` file, and the vocabulary is present): the legacy folder is deleted.
+    /// - Current folder incomplete (e.g. an interrupted download): it is removed and the legacy
+    ///   folder is moved in, rather than throwing away the complete legacy weights.
+    ///
+    /// FluidAudio then only fetches the files that changed (the ~12 MB JointDecisionv3 model).
+    /// Never throws: on any failure the app falls back to a normal download. A failed move
+    /// never leaves a partial folder at the current location; the legacy folder is removed
+    /// too, best effort. Synchronous and called on the main actor, so setups cannot race on it.
+    @discardableResult
+    nonisolated static func migrateLegacyParakeetV3Cache(
+        currentDirectory: URL = AsrModels.defaultCacheDirectory(for: .v3)
+    ) -> LegacyCacheMigration {
+        let fm = FileManager.default
+        let legacyDirectory = currentDirectory.deletingLastPathComponent()
+            .appendingPathComponent(legacyParakeetV3FolderName, isDirectory: true)
+        guard legacyDirectory.standardizedFileURL != currentDirectory.standardizedFileURL,
+              fm.fileExists(atPath: legacyDirectory.path) else { return .notNeeded }
+
+        var replacingIncomplete = false
+        if fm.fileExists(atPath: currentDirectory.path) {
+            if AsrModels.modelsExist(at: currentDirectory, version: .v3) {
+                do {
+                    try fm.removeItem(at: legacyDirectory)
+                    logger.info("Removed legacy Parakeet v3 cache (already migrated)")
+                } catch {
+                    logger.error("Could not remove legacy Parakeet v3 cache: \(error.localizedDescription, privacy: .public)")
+                }
+                return .removedDuplicate
+            }
+            replacingIncomplete = true
+            logger.info("Current Parakeet v3 cache is incomplete; replacing it with the legacy cache")
+        }
+
+        do {
+            if replacingIncomplete {
+                try fm.removeItem(at: currentDirectory)
+            }
+            try fm.createDirectory(
+                at: currentDirectory.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+            // Same parent directory, so this is an atomic rename.
+            try fm.moveItem(at: legacyDirectory, to: currentDirectory)
+            logger.info("Moved legacy Parakeet v3 cache to \(currentDirectory.path, privacy: .public)")
+            return replacingIncomplete ? .replacedIncomplete : .moved
+        } catch {
+            logger.error("Could not move legacy Parakeet v3 cache: \(error.localizedDescription, privacy: .public)")
+            try? fm.removeItem(at: currentDirectory)
+            try? fm.removeItem(at: legacyDirectory)
+            return .failed
+        }
+    }
+
+    private func loadParakeet(_ variant: ParakeetVariant, generation: Int) async throws -> AsrModels {
+        // Run for either variant so the old folder never lingers; a moved v3 cache stays usable.
+        Self.migrateLegacyParakeetV3Cache()
+        return try await AsrModels.downloadAndLoad(
+            version: variant.asrModelVersion,
             progressHandler: { [weak self] progress in
                 Task { @MainActor in
-                    self?.handleParakeetProgress(progress)
+                    guard let self, generation == self.setupGeneration else { return }
+                    self.handleParakeetProgress(progress)
                 }
             }
         )
-        self.parakeetModels = loadedModels
     }
 
-    private func handleParakeetProgress(_ progress: DownloadUtils.DownloadProgress) {
+    private func handleParakeetProgress(_ progress: DownloadProgress) {
         switch progress.phase {
         case .listing:
             setupProgress = "Preparing download..."
         case .downloading:
-            let percent = Int(progress.fractionCompleted * 100)
+            // ModelHub reports each model component as one operation where the download
+            // phase occupies the first half of `fractionCompleted` and compilation the rest.
+            let percent = Int(min(progress.fractionCompleted / 0.5, 1.0) * 100)
             setupProgress = "Downloading model (\(percent)%)..."
         case .compiling:
             setupProgress = "Compiling model..."
         }
-    }
-
-    // MARK: - Whisper setup
-
-    private func setupWhisper(settings: WhisperSettings) async throws {
-        self.setupProgress = "Downloading Whisper \(settings.modelSize.displayName)..."
-
-        let config = WhisperKitConfig(
-            model: settings.modelSize.whisperKitModel,
-            verbose: false,
-            logLevel: .error,
-            prewarm: true,
-            load: true,
-            download: true
-        )
-
-        let kit = try await WhisperKit(config)
-
-        self.whisperKit = kit
-        self.setupProgress = "Whisper ready!"
     }
 }

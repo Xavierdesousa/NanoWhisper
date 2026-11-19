@@ -58,4 +58,114 @@ struct CodableModelTests {
         #expect(decoded.transcribeDuration == nil)
         #expect(decoded.rtf == nil)
     }
+
+    // MARK: - Parakeet variant persistence / migration
+
+    /// Fresh, isolated UserDefaults suite for each test.
+    private func makeDefaults() -> UserDefaults {
+        let suite = "NanoWhisperTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        return defaults
+    }
+
+    @Test("New install (empty defaults) gets Ultra and persists it")
+    func migrationNewInstall() {
+        let defaults = makeDefaults()
+        #expect(ParakeetVariant.loadOrMigrate(from: defaults) == .ultra)
+        #expect(defaults.string(forKey: ParakeetVariant.defaultsKey) == "ultra")
+    }
+
+    @Test("New install that quits mid-onboarding stays on Ultra at next launch")
+    func migrationNewInstallRelaunch() {
+        let defaults = makeDefaults()
+        _ = ParakeetVariant.loadOrMigrate(from: defaults)
+        defaults.set("parakeet", forKey: "selectedModelType")
+        #expect(ParakeetVariant.loadOrMigrate(from: defaults) == .ultra)
+    }
+
+    @Test("Existing installs (any pre-existing setting) stay on v3", arguments: [
+        "onboardingComplete", "selectedModelType", "whisperSettings",
+    ])
+    func migrationExistingInstall(markerKey: String) {
+        let defaults = makeDefaults()
+        switch markerKey {
+        case "onboardingComplete": defaults.set(true, forKey: markerKey)
+        case "selectedModelType": defaults.set("parakeet", forKey: markerKey)
+        default: defaults.set(Data("{}".utf8), forKey: markerKey)
+        }
+        #expect(ParakeetVariant.loadOrMigrate(from: defaults) == .v3)
+        #expect(defaults.string(forKey: ParakeetVariant.defaultsKey) == "v3")
+    }
+
+    @Test("An explicit choice is kept across launches")
+    func migrationKeepsExplicitChoice() {
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: "onboardingComplete")
+        defaults.set("ultra", forKey: ParakeetVariant.defaultsKey)
+        #expect(ParakeetVariant.loadOrMigrate(from: defaults) == .ultra)
+    }
+
+    @Test("ParakeetVariant Codable roundtrip")
+    func parakeetVariantCodable() throws {
+        for variant in ParakeetVariant.allCases {
+            let data = try JSONEncoder().encode(variant)
+            #expect(try JSONDecoder().decode(ParakeetVariant.self, from: data) == variant)
+        }
+    }
+
+    @Test("WhisperSettings with Large v3 Turbo roundtrips; legacy large-v3 still decodes")
+    func whisperSettingsTurboCodable() throws {
+        var settings = WhisperSettings()
+        settings.modelSize = .largev3Turbo
+        let data = try JSONEncoder().encode(settings)
+        #expect(String(data: data, encoding: .utf8)!.contains("large-v3-turbo"))
+        #expect(try JSONDecoder().decode(WhisperSettings.self, from: data) == settings)
+
+        let legacy = Data(#"{"modelSize":"large-v3","promptText":""}"#.utf8)
+        #expect(try JSONDecoder().decode(WhisperSettings.self, from: legacy).modelSize == .largev3)
+    }
+
+    // MARK: - Removed Whisper Medium size
+
+    @Test("Stored Medium settings decode to Large v3 Turbo and keep the other fields")
+    func whisperSettingsMediumDecodes() throws {
+        let stored = Data(#"{"modelSize":"medium","language":"fr","promptText":"Kubernetes"}"#.utf8)
+        let settings = try JSONDecoder().decode(WhisperSettings.self, from: stored)
+        #expect(settings.modelSize == .largev3Turbo)
+        #expect(settings.language == "fr")
+        #expect(settings.promptText == "Kubernetes")
+    }
+
+    @Test("loadOrMigrate rewrites a stored Medium selection in UserDefaults")
+    func whisperSettingsMediumPersistedMigration() throws {
+        let defaults = makeDefaults()
+        let stored = Data(#"{"modelSize":"medium","language":"de","promptText":""}"#.utf8)
+        defaults.set(stored, forKey: WhisperSettings.defaultsKey)
+
+        let loaded = try #require(WhisperSettings.loadOrMigrate(from: defaults))
+        #expect(loaded.modelSize == .largev3Turbo)
+        #expect(loaded.language == "de")
+
+        let rewritten = try #require(defaults.data(forKey: WhisperSettings.defaultsKey))
+        let json = try #require(String(data: rewritten, encoding: .utf8))
+        #expect(json.contains("large-v3-turbo"))
+        #expect(!json.contains("medium"))
+        #expect(try JSONDecoder().decode(WhisperSettings.self, from: rewritten) == loaded)
+    }
+
+    @Test("loadOrMigrate leaves current settings untouched and returns nil when absent or invalid")
+    func whisperSettingsLoadOrMigrateNoOp() throws {
+        let defaults = makeDefaults()
+        #expect(WhisperSettings.loadOrMigrate(from: defaults) == nil)
+
+        let stored = Data(#"{"modelSize":"small","promptText":""}"#.utf8)
+        defaults.set(stored, forKey: WhisperSettings.defaultsKey)
+        #expect(WhisperSettings.loadOrMigrate(from: defaults)?.modelSize == .small)
+        #expect(defaults.data(forKey: WhisperSettings.defaultsKey) == stored)
+
+        let unknown = Data(#"{"modelSize":"gigantic","promptText":""}"#.utf8)
+        defaults.set(unknown, forKey: WhisperSettings.defaultsKey)
+        #expect(WhisperSettings.loadOrMigrate(from: defaults) == nil)
+    }
 }
