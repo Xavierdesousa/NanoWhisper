@@ -69,7 +69,10 @@ struct UpdatesSettingsSection: View {
                     .foregroundStyle(.secondary)
             }
 
-            if autoUpdater.isChecking {
+            if !autoUpdater.isEnabled {
+                Label("Automatic updates are disabled in debug builds", systemImage: "hammer")
+                    .foregroundStyle(.secondary)
+            } else if autoUpdater.isChecking {
                 Label("Checking for updates...", systemImage: "arrow.clockwise")
                     .foregroundStyle(.secondary)
             } else if autoUpdater.isDownloading {
@@ -133,7 +136,7 @@ class SettingsWindowController {
             backing: .buffered,
             defer: false
         )
-        w.title = "NanoWhisper Settings"
+        w.title = "\(BuildFlavor.current.displayName) Settings"
         w.contentView = NSHostingView(rootView: SettingsView(appState: appState))
         w.isReleasedWhenClosed = false
         w.isRestorable = false

@@ -1,5 +1,8 @@
 import SwiftUI
 
+/// User-facing app name of this build ("NanoWhisper" or "NanoWhisper Debug").
+private let appName = BuildFlavor.current.displayName
+
 struct OnboardingView: View {
     @ObservedObject var appState: AppState
     @StateObject private var permissions = PermissionMonitor()
@@ -106,7 +109,7 @@ struct OnboardingContent: View {
         case .permissions:
             OnboardingForm(
                 title: "Allow access",
-                subtitle: "NanoWhisper needs two permissions. Changes made in System Settings show up here automatically."
+                subtitle: "\(appName) needs two permissions. Changes made in System Settings show up here automatically."
             ) {
                 PermissionsSettingsSection(context: context)
             }
@@ -253,7 +256,7 @@ private struct WelcomeStep: View {
             VStack(spacing: 8) {
                 AppIconImage()
                     .frame(width: 72, height: 72)
-                Text("Welcome to NanoWhisper")
+                Text("Welcome to \(appName)")
                     .font(.title)
                     .fontWeight(.semibold)
                 Text("Dictate into any app from your menu bar. Speech is transcribed on this Mac and never sent to a server.")
@@ -321,14 +324,14 @@ private struct DoneStep: View {
         OnboardingForm(
             title: progress.pendingSteps.isEmpty ? "You're all set" : "Almost done",
             subtitle: progress.pendingSteps.isEmpty
-                ? "NanoWhisper is ready. It lives in your menu bar."
-                : "NanoWhisper lives in your menu bar. A few things still need attention."
+                ? "\(appName) is ready. It lives in your menu bar."
+                : "\(appName) lives in your menu bar. A few things still need attention."
         ) {
             Section("How to use it") {
                 HStack(spacing: 12) {
                     MenuBarIconImage()
                         .frame(width: 28)
-                    Text("Click the NanoWhisper icon in the menu bar for your history, settings and status.")
+                    Text("Click the \(appName) icon in the menu bar for your history, settings and status.")
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 HStack(spacing: 12) {
@@ -479,7 +482,7 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        w.title = "NanoWhisper"
+        w.title = appName
         w.contentView = NSHostingView(rootView: OnboardingView(appState: appState, onFinish: onFinish))
         w.isReleasedWhenClosed = false
         w.isRestorable = false

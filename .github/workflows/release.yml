@@ -10,10 +10,10 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-26
+    runs-on: xcode-27
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Import signing certificate
         env:
@@ -34,20 +34,33 @@ jobs:
 
           rm "$CERT_PATH"
 
-      - name: Build, bundle & sign
-        run: make ci
-
-      - name: Create release zip
+      - name: Build, bundle, sign & zip
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
-          ditto -c -k --keepParent NanoWhisper.app "NanoWhisper-v${VERSION}.zip"
+          ZIP=$(make -s release-zip-name)
+          # The zip is named from Resources/Info.plist; it must match the pushed tag, or the
+          # auto-updater would keep offering this release to the version it installs.
+          if [ "$ZIP" != "NanoWhisper-${GITHUB_REF_NAME}.zip" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match the version in Resources/Info.plist ($ZIP)"
+            exit 1
+          fi
+          make release
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
 
+      # The release may already exist, e.g. created locally with `make publish` while
+      # the runner was unavailable: then only attach the zip if it is missing.
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
-          gh release create "$GITHUB_REF_NAME" \
-            "NanoWhisper-v${VERSION}.zip" \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            if gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name' | grep -xF "$ZIP" > /dev/null; then
+              echo "::notice::Release $GITHUB_REF_NAME already has $ZIP; nothing to do."
+            else
+              echo "::notice::Release $GITHUB_REF_NAME already exists; uploading $ZIP."
+              gh release upload "$GITHUB_REF_NAME" "$ZIP"
+            fi
+          else
+            gh release create "$GITHUB_REF_NAME" "$ZIP" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes
+          fi

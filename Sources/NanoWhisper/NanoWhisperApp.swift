@@ -21,8 +21,12 @@ struct NanoWhisperApp: App {
                 }
                 Divider()
             }
-            Text("NanoWhisper")
+            Text(BuildFlavor.current.displayName)
                 .font(.headline)
+            if BuildFlavor.current.isDebug {
+                Text(BuildInfo.current.summary)
+                    .font(.caption)
+            }
             Divider()
 
             // Setup in progress
@@ -115,7 +119,10 @@ struct NanoWhisperApp: App {
 
     @ViewBuilder
     private var menuBarLabel: some View {
-        if let sfIcon = menuBarSFIcon {
+        if BuildFlavor.current.isDebug, let badged = debugMenuBarIcon {
+            Image(nsImage: badged)
+                .onAppear { triggerOnboardingIfNeeded() }
+        } else if let sfIcon = menuBarSFIcon {
             Image(systemName: sfIcon)
                 .onAppear { triggerOnboardingIfNeeded() }
         } else if let nsImage = loadMenuBarIcon() {
@@ -146,6 +153,18 @@ struct NanoWhisperApp: App {
             return "mic.slash"
         } else {
             return nil
+        }
+    }
+
+    /// Debug builds: the same glyph as production, with the orange debug badge.
+    private var debugMenuBarIcon: NSImage? {
+        let sfIcon = menuBarSFIcon
+        return MenuBarIcon.cached(sfIcon ?? "menubar_icon") {
+            if let sfIcon {
+                return MenuBarIcon.badged(systemSymbolName: sfIcon)
+            }
+            return loadMenuBarIcon().map(MenuBarIcon.badged)
+                ?? MenuBarIcon.badged(systemSymbolName: "mic")
         }
     }
 

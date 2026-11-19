@@ -104,7 +104,7 @@ class SetupManager: ObservableObject {
 
     // MARK: - Parakeet setup
 
-    nonisolated private static let logger = Logger(subsystem: "com.moonji.nanowhisper", category: "SetupManager")
+    nonisolated private static let logger = Logger(subsystem: BuildFlavor.current.logSubsystem, category: "SetupManager")
 
     /// Folder FluidAudio <= 0.12 used for Parakeet v3. FluidAudio 0.18 looks for the same
     /// files in `parakeet-tdt-0.6b-v3` instead, so without this an update would re-download v3.
@@ -138,10 +138,20 @@ class SetupManager: ObservableObject {
     /// Never throws: on any failure the app falls back to a normal download. A failed move
     /// never leaves a partial folder at the current location; the legacy folder is removed
     /// too, best effort. Synchronous and called on the main actor, so setups cannot race on it.
+    /// Production and debug builds share this cache and can launch together, so the whole
+    /// check-and-move also holds an exclusive `flock` on a lock file next to the cache:
+    /// otherwise the process that loses the rename would delete the winner's moved folder in
+    /// its failure path. If the lock file cannot be opened, it migrates unlocked.
     @discardableResult
     nonisolated static func migrateLegacyParakeetV3Cache(
         currentDirectory: URL = AsrModels.defaultCacheDirectory(for: .v3)
     ) -> LegacyCacheMigration {
+        let lockPath = currentDirectory.deletingLastPathComponent()
+            .appendingPathComponent(".parakeet-v3-migration.lock").path
+        let lock = open(lockPath, O_CREAT | O_RDWR | O_CLOEXEC, 0o644)
+        if lock >= 0 { flock(lock, LOCK_EX) }
+        defer { if lock >= 0 { flock(lock, LOCK_UN); close(lock) } }
+
         let fm = FileManager.default
         let legacyDirectory = currentDirectory.deletingLastPathComponent()
             .appendingPathComponent(legacyParakeetV3FolderName, isDirectory: true)

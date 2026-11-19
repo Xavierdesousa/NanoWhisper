@@ -54,7 +54,7 @@ struct PermissionRow: View {
         case .granted, .notDetermined:
             return permission.reason
         case .denied:
-            return "\(permission.reason) Turn on NanoWhisper in System Settings › Privacy & Security › \(permission.title)."
+            return "\(permission.reason) Turn on \(BuildFlavor.current.displayName) in System Settings › Privacy & Security › \(permission.title)."
         }
     }
 }

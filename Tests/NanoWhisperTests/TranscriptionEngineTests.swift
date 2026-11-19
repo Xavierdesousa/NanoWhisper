@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Testing
 import FluidAudio
 @testable import NanoWhisper
@@ -278,6 +279,31 @@ struct TranscriptionEngineTests {
         let moved = current.appendingPathComponent("Encoder.mlmodelc/weight.bin")
         #expect(try Data(contentsOf: moved) == Data("weights".utf8))
         #expect(!FileManager.default.fileExists(atPath: partialWeights.appendingPathComponent("weight.bin.partial").path))
+    }
+
+    @Test("Two concurrent migrations (production and debug app launching together) keep the moved cache")
+    func migrateLegacyCacheConcurrently() throws {
+        // Each call opens its own lock file description, so two threads contend exactly like
+        // two processes. Repeat to make the unguarded race (one move wins, the other's failure
+        // path deleted the winner's folder) show up reliably.
+        for _ in 0..<40 {
+            let models = try makeModelsDirectory()
+            defer { try? FileManager.default.removeItem(at: models) }
+            _ = try makeLegacyCache(in: models)
+            let current = models.appendingPathComponent("parakeet-tdt-0.6b-v3")
+
+            let results = OSAllocatedUnfairLock(initialState: [SetupManager.LegacyCacheMigration]())
+            DispatchQueue.concurrentPerform(iterations: 2) { _ in
+                let result = SetupManager.migrateLegacyParakeetV3Cache(currentDirectory: current)
+                results.withLock { $0.append(result) }
+            }
+
+            let outcomes = results.withLock { $0 }
+            #expect(outcomes.filter { $0 == .moved }.count == 1)
+            #expect(outcomes.filter { $0 == .notNeeded }.count == 1)
+            let moved = current.appendingPathComponent("Encoder.mlmodelc/weight.bin")
+            #expect(FileManager.default.fileExists(atPath: moved.path))
+        }
     }
 
     @Test("A failed move does not crash and leaves no folder at the new path")

@@ -216,7 +216,7 @@ class HistoryWindowController {
             backing: .buffered,
             defer: false
         )
-        w.title = "NanoWhisper — History"
+        w.title = "\(BuildFlavor.current.displayName) — History"
         w.contentView = hostingView
         w.contentMinSize = NSSize(width: 380, height: 260)
         w.isReleasedWhenClosed = false
