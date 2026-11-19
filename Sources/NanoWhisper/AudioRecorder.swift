@@ -27,7 +27,7 @@ class AudioRecorder {
         }
 
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("nanowhisper_\(UUID().uuidString).wav")
+            .appendingPathComponent(BuildFlavor.current.temporaryAudioFileName())
         outputURL = url
 
         audioFile = try AVAudioFile(forWriting: url, settings: recordingFormat.settings)

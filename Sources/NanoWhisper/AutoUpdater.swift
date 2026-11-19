@@ -26,7 +26,7 @@ struct GitHubRelease: Codable {
 class AutoUpdater: ObservableObject {
     static let shared = AutoUpdater()
 
-    private let logger = Logger(subsystem: "com.moonji.nanowhisper", category: "AutoUpdater")
+    private let logger = Logger(subsystem: BuildFlavor.current.logSubsystem, category: "AutoUpdater")
     private let owner = "Xavierdesousa"
     private let repo = "nanowhisper"
 
@@ -40,12 +40,21 @@ class AutoUpdater: ObservableObject {
     private var releaseAssetURL: URL?
     private var checkTimer: Timer?
 
+    /// False in debug builds: installing the latest release would replace the debug
+    /// bundle with the production app. When disabled, checks and installs are no-ops.
+    let isEnabled: Bool
+
+    init(isEnabled: Bool = BuildFlavor.current.autoUpdatesEnabled) {
+        self.isEnabled = isEnabled
+    }
+
     var currentVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
     }
 
     func startPeriodicChecks(interval: TimeInterval = 3600) {
         checkTimer?.invalidate()
+        guard isEnabled else { return }
 
         Task {
             try? await Task.sleep(nanoseconds: 5_000_000_000)
@@ -60,7 +69,7 @@ class AutoUpdater: ObservableObject {
     }
 
     func checkForUpdates(silent: Bool = false) async {
-        guard !isChecking, !isDownloading else { return }
+        guard isEnabled, !isChecking, !isDownloading else { return }
         isChecking = true
         error = nil
 
@@ -111,6 +120,7 @@ class AutoUpdater: ObservableObject {
     }
 
     func downloadAndInstall() async {
+        guard isEnabled else { return }
         guard let assetURL = releaseAssetURL else {
             error = "No download URL available"
             return
