@@ -17,8 +17,6 @@ final class MediaController {
         fileprivate let id: UInt64
     }
 
-    static let audioPrivacySettingsURL = "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture"
-
     private let playback: MediaPlaybackController
     private var openSessions: Set<UInt64> = []
     private var nextSessionID: UInt64 = 0

@@ -58,7 +58,6 @@ On first launch, an onboarding window walks you through model download, permissi
 |---|---|
 | **Microphone** | Record audio for transcription |
 | **Accessibility** | Paste text into the active field (simulates ⌘V) |
-| **System Audio Recording** | Detect playing media for auto-pause *(optional)* |
 
 ## Whisper Configuration
 
@@ -87,3 +86,5 @@ Other targets: `make run` (dev), `make release` (zip), `make clean`.
 ## License
 
 [GPL v3](LICENSE) — free to use, modify, and redistribute. Forks must remain open-source under the same license.
+
+Media auto-pause uses [mediaremote-adapter](https://github.com/ungive/mediaremote-adapter) (BSD 3-Clause, vendored in [`Vendor/mediaremote-adapter`](Vendor/mediaremote-adapter)).

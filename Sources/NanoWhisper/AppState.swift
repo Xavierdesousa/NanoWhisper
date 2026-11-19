@@ -122,14 +122,7 @@ class AppState: ObservableObject {
     }
 
     @Published var pauseMediaEnabled: Bool = false {
-        didSet {
-            UserDefaults.standard.set(pauseMediaEnabled, forKey: "pauseMediaEnabled")
-            if pauseMediaEnabled {
-                if #available(macOS 14.2, *) {
-                    Task.detached { SystemAudioActivityDetector().requestAudioCaptureAccess() }
-                }
-            }
-        }
+        didSet { UserDefaults.standard.set(pauseMediaEnabled, forKey: "pauseMediaEnabled") }
     }
 
     private static let selectedModelKey = "selectedModelType"
