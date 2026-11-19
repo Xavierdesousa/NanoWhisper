@@ -58,7 +58,6 @@ On first launch, an onboarding window walks you through model download, permissi
 |---|---|
 | **Microphone** | Record audio for transcription |
 | **Accessibility** | Paste text into the active field (simulates ⌘V) |
-| **System Audio Recording** | Detect playing media for auto-pause *(optional)* |
 
 ## Models
 
