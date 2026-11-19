@@ -12,10 +12,17 @@ permissions:
 
 jobs:
   analyze:
-    runs-on: xcode-27
+    runs-on: ${{ matrix.runner }}
     strategy:
+      fail-fast: false
       matrix:
-        language: [actions, swift]
+        include:
+          - language: actions
+            runner: xcode-27
+          # CodeQL's Swift extractor supports Swift 5.4–6.3; the xcode-27
+          # image ships Swift 6.4, so the Swift analysis stays on macos-26.
+          - language: swift
+            runner: macos-26
 
     steps:
       - name: Checkout
