@@ -25,8 +25,8 @@ struct Shortcut: Equatable {
     var keyCode: UInt32
     var modifiers: UInt32 // Carbon modifier mask
 
-    // Default: Option + Space
-    static let `default` = Shortcut(keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey))
+    // Default: ⌥Space in production, ⌃⌥Space in debug (see BuildFlavor.defaultShortcut)
+    static let `default` = BuildFlavor.current.defaultShortcut
 
     var displayString: String {
         var parts: [String] = []

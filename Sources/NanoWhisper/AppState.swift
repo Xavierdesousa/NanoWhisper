@@ -33,7 +33,9 @@ struct HistoryEntry: Codable, Identifiable {
 // MARK: - Encrypted history storage
 
 private enum HistoryCrypto {
-    private static let logger = Logger(subsystem: "com.moonji.nanowhisper", category: "HistoryCrypto")
+    private static let logger = Logger(subsystem: BuildFlavor.current.logSubsystem, category: "HistoryCrypto")
+    /// Key-derivation constant, not an identifier: changing it would make existing
+    /// history unreadable. Both builds keep it; their history files live in separate folders.
     private static let salt = "com.moonji.nanowhisper.history.v1".data(using: .utf8)!
 
     /// Derive a stable AES-256 key from the machine's hardware UUID via HKDF.
@@ -99,8 +101,8 @@ class AppState: ObservableObject {
     private static let historyEnabledKey = "historyEnabled"
     private static let maxHistoryKey = "maxHistoryCount"
     private static let historyFileURL: URL = {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("NanoWhisper", isDirectory: true)
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = BuildFlavor.current.supportDirectory(in: appSupport)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("history.json")
     }()
@@ -281,7 +283,7 @@ class AppState: ObservableObject {
             whisperSettings: whisperSettings
         )
 
-        // Start auto-update checks (every hour)
+        // Start auto-update checks (every hour; a no-op in debug builds)
         autoUpdater.startPeriodicChecks()
     }
 
@@ -472,7 +474,8 @@ class AppState: ObservableObject {
         try? FileManager.default.removeItem(at: url)
     }
 
-    /// Remove any orphaned nanowhisper_*.wav files left by a previous crash
+    /// Remove orphaned recordings left by a previous crash of this build. Only this
+    /// build's prefix is matched, so a recording in progress in the other build survives.
     private static func cleanupOrphanedAudioFiles() {
         let tempDir = FileManager.default.temporaryDirectory
         guard let contents = try? FileManager.default.contentsOfDirectory(
@@ -480,7 +483,7 @@ class AppState: ObservableObject {
             includingPropertiesForKeys: nil
         ) else { return }
 
-        for file in contents where file.lastPathComponent.hasPrefix("nanowhisper_") && file.pathExtension == "wav" {
+        for file in contents where BuildFlavor.current.ownsTemporaryAudioFile(named: file.lastPathComponent) {
             securelyDeleteFile(at: file)
         }
     }
