@@ -113,7 +113,7 @@ struct UpdatesSettingsSection: View {
 
 // Manage a standalone NSWindow for settings
 @MainActor
-class SettingsWindowController {
+final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
 
     func show(appState: AppState) {
@@ -141,6 +141,7 @@ class SettingsWindowController {
         w.isReleasedWhenClosed = false
         w.isRestorable = false
         w.collectionBehavior = [.moveToActiveSpace]
+        w.delegate = self
         centerOnCurrentScreen(w)
         w.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -149,5 +150,11 @@ class SettingsWindowController {
 
     func close() {
         window?.close()
+    }
+
+    /// Tear the SwiftUI view down with the window (a closed window keeps its content view),
+    /// so its permission polling stops.
+    func windowWillClose(_ notification: Notification) {
+        window?.contentView = NSView()
     }
 }

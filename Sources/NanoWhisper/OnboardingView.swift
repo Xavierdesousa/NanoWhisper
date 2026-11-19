@@ -500,6 +500,9 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         guard (notification.object as? NSWindow) === window else { return }
+        // Tear the SwiftUI view down with the window (a closed window keeps its content
+        // view), so its permission polling stops.
+        window?.contentView = NSView()
         let onClose = onClose
         self.onClose = nil
         onClose?()

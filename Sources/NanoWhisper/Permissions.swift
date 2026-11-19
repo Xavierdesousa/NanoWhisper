@@ -105,7 +105,8 @@ final class PermissionMonitor: ObservableObject {
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
-                self?.refresh()
+                guard let self, !Task.isCancelled else { return }
+                self.refresh()
             }
         }
     }

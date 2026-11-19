@@ -45,6 +45,14 @@ struct NanoWhisperApp: App {
                     appState.switchModel(to: appState.selectedModelType)
                 }
             }
+            // First launch: the download waits for the user (see shouldDeferSetupAtLaunch)
+            else if !appState.isEngineReady && !appState.setupManager.setupComplete {
+                Label("Model not downloaded", systemImage: "arrow.down.circle")
+                    .foregroundColor(.secondary)
+                Button("Download \(appState.engineConfiguration.modelName) (\(appState.engineConfiguration.downloadSize))") {
+                    appState.loadSelectedModelIfIdle()
+                }
+            }
             // Engine loading
             else if !appState.isEngineReady {
                 Label("Loading model...", systemImage: "arrow.clockwise")
