@@ -171,7 +171,9 @@ class AppState: ObservableObject {
     let recordingOverlay = RecordingOverlayController()
     let onboardingWindow = OnboardingWindowController()
     let autoUpdater = AutoUpdater.shared
-    let mediaController = MediaController(playback: MediaKeyPlaybackController())
+    let mediaController = MediaController(
+        playback: NowPlayingPlaybackController(source: MediaRemoteAdapter.bundled())
+    )
     /// Media session of the recording in progress; handed to its transcription when it stops.
     private var recordingMediaSession: MediaController.Session?
 
@@ -324,7 +326,7 @@ class AppState: ObservableObject {
         lastError = nil
 
         // The session spans this recording and its transcription. Media detection runs in
-        // the background (our own sounds are excluded from it), so the mic starts right away.
+        // the background, so the mic starts right away.
         let mediaSession = mediaController.beginSession(pauseMedia: pauseMediaEnabled)
         sound.playStart()
         do {
