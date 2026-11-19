@@ -58,7 +58,11 @@ struct OnboardingView: View {
                     }
 
                     // Comparison bars
-                    ModelComparisonView(modelType: appState.selectedModelType)
+                    ModelComparisonView(
+                        modelType: appState.selectedModelType,
+                        parakeetVariant: appState.parakeetVariant,
+                        whisperModelSize: appState.whisperSettings.modelSize
+                    )
 
                     // Model status
                     HStack {
@@ -97,10 +101,31 @@ struct OnboardingView: View {
                         Text("Model")
                         Spacer()
                         Text(appState.selectedModelType == .parakeet
-                             ? "Fastest, auto-multilingual"
-                             : "Most accurate, 99 languages")
+                             ? "Fastest, 25 European languages"
+                             : "99 languages, vocabulary hints")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                    }
+                }
+
+                // MARK: - Parakeet Options (conditional)
+                if appState.selectedModelType == .parakeet {
+                    Section("Parakeet Options") {
+                        Picker("Version", selection: $appState.parakeetVariant) {
+                            ForEach(ParakeetVariant.allCases, id: \.self) { variant in
+                                HStack {
+                                    Text(variant.displayName)
+                                    Spacer()
+                                    Text(variant.sizeDescription)
+                                        .foregroundColor(.secondary)
+                                        .font(.caption)
+                                }
+                                .tag(variant)
+                            }
+                        }
+                        .onChange(of: appState.parakeetVariant) { _, _ in
+                            appState.switchModel(to: .parakeet)
+                        }
                     }
                 }
 
@@ -118,6 +143,9 @@ struct OnboardingView: View {
                                 }
                                 .tag(size)
                             }
+                        }
+                        .onChange(of: appState.whisperSettings.modelSize) { _, _ in
+                            appState.switchModel(to: .whisper)
                         }
 
                         Picker("Language", selection: languageBinding) {
@@ -274,7 +302,7 @@ struct OnboardingView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }
-        .frame(width: 440, height: appState.selectedModelType == .whisper ? 780 : 640)
+        .frame(width: 440, height: appState.selectedModelType == .whisper ? 780 : 700)
         .background(ShortcutRecorder(
             isRecording: $isRecordingShortcut,
             onShortcutCaptured: { keyCode, modifiers in

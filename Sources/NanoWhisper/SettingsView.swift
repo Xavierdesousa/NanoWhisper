@@ -9,10 +9,12 @@ struct SettingsView: View {
 
     // Local draft state for engine settings (applied on Save)
     @State private var draftModelType: TranscriptionModelType
+    @State private var draftParakeetVariant: ParakeetVariant
     @State private var draftWhisperSettings: WhisperSettings
 
     private var engineDirty: Bool {
         draftModelType != appState.selectedModelType
+        || draftParakeetVariant != appState.parakeetVariant
         || draftWhisperSettings != appState.whisperSettings
     }
 
@@ -20,6 +22,7 @@ struct SettingsView: View {
         self.appState = appState
         _shortcutDisplay = State(initialValue: appState.hotkeyManager.currentShortcut.displayString)
         _draftModelType = State(initialValue: appState.selectedModelType)
+        _draftParakeetVariant = State(initialValue: appState.parakeetVariant)
         _draftWhisperSettings = State(initialValue: appState.whisperSettings)
     }
 
@@ -105,7 +108,11 @@ struct SettingsView: View {
                 }
 
                 // Comparison bars for selected model
-                ModelComparisonView(modelType: draftModelType)
+                ModelComparisonView(
+                    modelType: draftModelType,
+                    parakeetVariant: draftParakeetVariant,
+                    whisperModelSize: draftWhisperSettings.modelSize
+                )
 
                 // Status
                 HStack {
@@ -141,12 +148,13 @@ struct SettingsView: View {
                     HStack {
                         Button("Revert") {
                             draftModelType = appState.selectedModelType
+                            draftParakeetVariant = appState.parakeetVariant
                             draftWhisperSettings = appState.whisperSettings
                         }
                         Spacer()
                         Button("Save & Apply") {
                             appState.whisperSettings = draftWhisperSettings
-                            appState.switchModel(to: draftModelType)
+                            appState.switchModel(to: draftModelType, parakeetVariant: draftParakeetVariant)
                         }
                         .buttonStyle(.borderedProminent)
                     }
@@ -156,10 +164,21 @@ struct SettingsView: View {
                     Text("Engine")
                     Spacer()
                     Text(draftModelType == .parakeet
-                         ? "Nvidia's Parakeet — fastest, auto-multilingual"
-                         : "OpenAI's Whisper — most accurate, 99 languages")
+                         ? "NVIDIA Parakeet — fastest, 25 European languages"
+                         : "OpenAI Whisper — 99 languages, vocabulary hints")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                }
+            }
+
+            // MARK: - Parakeet options (draft state)
+            if draftModelType == .parakeet {
+                Section("Parakeet Options") {
+                    Picker("Version", selection: $draftParakeetVariant) {
+                        ForEach(ParakeetVariant.allCases, id: \.self) { variant in
+                            Text("\(variant.displayName) (\(variant.sizeDescription))").tag(variant)
+                        }
+                    }
                 }
             }
 
@@ -284,7 +303,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 420, height: draftModelType == .whisper ? 780 : 660)
+        .frame(width: 420, height: draftModelType == .whisper ? 780 : 720)
         .background(ShortcutRecorder(
             isRecording: $isRecordingShortcut,
             onShortcutCaptured: { keyCode, modifiers in
