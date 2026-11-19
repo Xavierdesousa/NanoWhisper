@@ -219,6 +219,8 @@ struct SettingsContext {
     var soundEnabled: Binding<Bool>
     var pauseMediaEnabled: Binding<Bool>
     var liveTranscriptionEnabled: Binding<Bool>
+    /// Whether the live transcription toggle is shown (`BuildFlavor.supportsLiveTranscription`).
+    var offersLiveTranscription: Bool
     var historyEnabled: Binding<Bool>
     var historyUnavailable: Bool
     var maxHistoryCount: Binding<Int>
@@ -294,6 +296,7 @@ extension AppState {
             soundEnabled: binding(\.soundEnabled),
             pauseMediaEnabled: binding(\.pauseMediaEnabled),
             liveTranscriptionEnabled: binding(\.liveTranscriptionEnabled),
+            offersLiveTranscription: BuildFlavor.current.supportsLiveTranscription,
             historyEnabled: binding(\.historyEnabled),
             historyUnavailable: historyUnavailable,
             maxHistoryCount: binding(\.maxHistoryCount)

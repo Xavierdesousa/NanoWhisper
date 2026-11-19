@@ -50,6 +50,9 @@ struct ViewRenderTests {
 
         try render(onboarding(.shortcut, context: Fixtures.context(applied: parakeet, state: Fixtures.ready)),
                    "onboarding-4-shortcut")
+        try render(onboarding(.shortcut, context: Fixtures.context(
+            applied: parakeet, state: Fixtures.ready, offersLiveTranscription: false
+        )), "onboarding-4-shortcut-production")
 
         try render(onboarding(.done, context: Fixtures.context(
             applied: parakeet, state: Fixtures.ready, microphone: .granted, accessibility: .granted
@@ -150,7 +153,7 @@ struct ViewRenderTests {
 }
 
 @MainActor
-private enum Fixtures {
+enum Fixtures {
     static let parakeetUltra = EngineConfiguration(
         modelType: .parakeet, parakeetVariant: .ultra, whisperSettings: WhisperSettings()
     )
@@ -160,7 +163,9 @@ private enum Fixtures {
         applied: EngineConfiguration,
         state: EngineState,
         microphone: PermissionStatus = .notDetermined,
-        accessibility: PermissionStatus = .notDetermined
+        accessibility: PermissionStatus = .notDetermined,
+        liveTranscriptionEnabled: Binding<Bool> = .constant(false),
+        offersLiveTranscription: Bool = true
     ) -> SettingsContext {
         SettingsContext(
             appliedEngine: applied,
@@ -183,7 +188,8 @@ private enum Fixtures {
             launchAtLogin: .constant(false),
             soundEnabled: .constant(true),
             pauseMediaEnabled: .constant(false),
-            liveTranscriptionEnabled: .constant(false),
+            liveTranscriptionEnabled: liveTranscriptionEnabled,
+            offersLiveTranscription: offersLiveTranscription,
             historyEnabled: .constant(true),
             historyUnavailable: false,
             maxHistoryCount: .constant(15)

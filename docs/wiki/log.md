@@ -3,6 +3,14 @@
 Dated entries, newest first. One entry per change to the project or to this wiki: what changed,
 why if not obvious, and the PR. Older history is summarized from `git log`.
 
+## 2026-11-20
+
+- **Live transcription made debug-only** (`feat/live-debug-only`): the maintainer found design
+  problems in the overlay, so production hides the toggle and never starts a live session, even
+  with `liveTranscriptionEnabled` stored on (the value is kept). One flag:
+  `BuildFlavor.supportsLiveTranscription`. Pages: [live-transcription.md](live-transcription.md#debug-build-only),
+  [build-and-release.md](build-and-release.md) (flavor table), [open-questions.md](open-questions.md).
+
 ## 2026-11-19
 
 - **PR #16 updated** (live transcription):

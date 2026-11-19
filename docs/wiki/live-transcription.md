@@ -1,13 +1,32 @@
 # Live transcription (beta)
 
-Last verified: 2026-11-19, against `feat/live-transcription` (PR #16). Until PR #16 merges,
-nothing on this page exists on `main`.
+Last verified: 2026-11-20, against `feat/live-debug-only` (merged in PR #16, made debug-only
+in the PR that follows it).
+
+## Debug build only
+
+**Decision (maintainer, 2026-11-20):** after trying it, the overlay has design problems, so
+production releases do not expose the feature. It stays in "NanoWhisper Debug" (and unbundled
+`make run`) so it can keep being worked on. No live code was removed.
+
+- One source of truth: `BuildFlavor.supportsLiveTranscription` (true for debug only).
+- **Toggle:** `SettingsContext.offersLiveTranscription` is set from it, and
+  `GeneralSettingsSection` shows the toggle and its caption only when it is true. That covers
+  Settings › General and onboarding's "Shortcut and essentials" step, the only two places.
+- **Forced off at recording start:** `LiveTranscriptionSupport.startsSession(enabled:flavor:configuration:)`,
+  called by `AppState.beginLiveTranscription()`, returns false in production even when
+  `liveTranscriptionEnabled` is stored as true. The stored value is never rewritten (the
+  hidden toggle is the only writer), so it is still there if production offers the feature again.
+- No release ever exposed it (0.0.4 predates PR #16), so a production user can only have it
+  stored on from a self-built production bundle of `main` between #16 and this change.
+- Tests: `LiveTranscriptionFlavorTests` (flag, stored on + production ⇒ no session, and the
+  section's view tree has no toggle when not offered, with a positive control).
 
 ## What it is
 
 An opt-in setting, "Live transcription (beta)" (`UserDefaults` key `liveTranscriptionEnabled`,
 off by default), in `GeneralSettingsSection`, so it shows in Settings › General and in
-onboarding's essentials step. While the user speaks, the recording overlay shows the text
+onboarding's essentials step (debug build only, see above). While the user speaks, the recording overlay shows the text
 recognized so far. Nothing is typed during the recording.
 
 **The maintainer's rule: the overlay text and the delivered text must be identical.** At stop,

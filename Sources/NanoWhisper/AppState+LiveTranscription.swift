@@ -4,6 +4,14 @@ extension LiveTranscriptionSupport {
     static func isAvailable(for configuration: EngineConfiguration) -> Bool {
         isAvailable(modelType: configuration.modelType, whisperModelSize: configuration.whisperSettings.modelSize)
     }
+
+    /// Whether a recording that is about to begin gets a live preview. The build flavor wins
+    /// over the stored setting: production never starts one (`BuildFlavor.supportsLiveTranscription`).
+    static func startsSession(
+        enabled: Bool, flavor: BuildFlavor, configuration: EngineConfiguration
+    ) -> Bool {
+        flavor.supportsLiveTranscription && enabled && isAvailable(for: configuration)
+    }
 }
 
 /// Live transcription (beta): while recording, the overlay shows repeated decodes of the audio
@@ -14,11 +22,12 @@ extension AppState {
 
     /// Start the live preview of a recording that is about to begin.
     /// - Returns: the session to feed with the recording's samples, or `nil` when live
-    ///   transcription is off or no engine is installed.
+    ///   transcription is off, this build does not offer it, or no engine is installed.
     func beginLiveTranscription() -> LiveTranscriptionSession? {
         cancelLiveTranscription()
-        guard liveTranscriptionEnabled,
-              LiveTranscriptionSupport.isAvailable(for: engineConfiguration),
+        guard LiveTranscriptionSupport.startsSession(
+                  enabled: liveTranscriptionEnabled, flavor: .current, configuration: engineConfiguration
+              ),
               let decoder = transcriber.makePreviewDecoder()
         else { return nil }
 
