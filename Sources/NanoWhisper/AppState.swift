@@ -297,9 +297,11 @@ class AppState: ObservableObject {
             }
             Task {
                 do {
-                    try await transcriber.initializeParakeet(models: models)
-                    // Ignore if the user switched models while the engine was initializing.
-                    guard selectedModelType == .parakeet,
+                    // The transcriber discards this engine (returns false) if a newer
+                    // initialization or a model switch happened while it was loading.
+                    let installed = try await transcriber.initializeParakeet(models: models)
+                    guard installed,
+                          selectedModelType == .parakeet,
                           setupManager.loadedParakeetVariant == variant else { return }
                     isEngineReady = true
                 } catch {
@@ -320,6 +322,7 @@ class AppState: ObservableObject {
     /// Uses the current `parakeetVariant` and `whisperSettings` unless a variant is given.
     func switchModel(to modelType: TranscriptionModelType, parakeetVariant variant: ParakeetVariant? = nil) {
         isEngineReady = false
+        transcriber.invalidatePendingInitialization()
         selectedModelType = modelType
         if let variant {
             parakeetVariant = variant
