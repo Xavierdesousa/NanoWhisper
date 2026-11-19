@@ -15,8 +15,8 @@ enum TranscriptionModelType: String, Codable, CaseIterable {
 
     var subtitle: String {
         switch self {
-        case .parakeet: return "Nvidia · English only · Fast"
-        case .whisper: return "OpenAI · Multilingual · Flexible"
+        case .parakeet: return "NVIDIA · 25 European languages · Fastest"
+        case .whisper: return "OpenAI · 99 languages · Vocabulary hints"
         }
     }
 }

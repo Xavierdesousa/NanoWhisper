@@ -108,7 +108,11 @@ struct SettingsView: View {
                 }
 
                 // Comparison bars for selected model
-                ModelComparisonView(modelType: draftModelType)
+                ModelComparisonView(
+                    modelType: draftModelType,
+                    parakeetVariant: draftParakeetVariant,
+                    whisperModelSize: draftWhisperSettings.modelSize
+                )
 
                 // Status
                 HStack {
@@ -160,8 +164,8 @@ struct SettingsView: View {
                     Text("Engine")
                     Spacer()
                     Text(draftModelType == .parakeet
-                         ? "Nvidia's Parakeet — fastest, auto-multilingual"
-                         : "OpenAI's Whisper — most accurate, 99 languages")
+                         ? "NVIDIA Parakeet — fastest, 25 European languages"
+                         : "OpenAI Whisper — 99 languages, vocabulary hints")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }

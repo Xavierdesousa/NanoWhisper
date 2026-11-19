@@ -58,7 +58,11 @@ struct OnboardingView: View {
                     }
 
                     // Comparison bars
-                    ModelComparisonView(modelType: appState.selectedModelType)
+                    ModelComparisonView(
+                        modelType: appState.selectedModelType,
+                        parakeetVariant: appState.parakeetVariant,
+                        whisperModelSize: appState.whisperSettings.modelSize
+                    )
 
                     // Model status
                     HStack {
@@ -97,8 +101,8 @@ struct OnboardingView: View {
                         Text("Model")
                         Spacer()
                         Text(appState.selectedModelType == .parakeet
-                             ? "Fastest, auto-multilingual"
-                             : "Most accurate, 99 languages")
+                             ? "Fastest, 25 European languages"
+                             : "99 languages, vocabulary hints")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }

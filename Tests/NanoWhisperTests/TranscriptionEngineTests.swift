@@ -20,6 +20,45 @@ struct TranscriptionEngineTests {
     func parakeetDisplay() {
         let model = TranscriptionModelType.parakeet
         #expect(model.displayName == "Parakeet")
+        #expect(model.subtitle.contains("NVIDIA"))
+        #expect(model.subtitle.contains("25 European languages"))
+        #expect(!model.subtitle.contains("English only"))
+    }
+
+    // MARK: - ModelComparisonView
+
+    @Test("Comparison view covers every variant and size without invented percentages")
+    @MainActor func comparisonViewContent() {
+        var views = ParakeetVariant.allCases.map {
+            ModelComparisonView(modelType: .parakeet, parakeetVariant: $0)
+        }
+        views += WhisperModelSize.allCases.map {
+            ModelComparisonView(modelType: .whisper, whisperModelSize: $0)
+        }
+        for view in views {
+            #expect(!view.bulletPoints.isEmpty)
+            #expect(!view.bulletPoints.joined().contains("English-optimized"))
+            #expect(!view.bulletPoints.joined().contains("Near-perfect"))
+        }
+    }
+
+    @Test("Ultra ranks above v3 on accuracy and matches it on speed")
+    @MainActor func comparisonParakeetTiers() {
+        let v3 = ModelComparisonView(modelType: .parakeet, parakeetVariant: .v3)
+        let ultra = ModelComparisonView(modelType: .parakeet, parakeetVariant: .ultra)
+        #expect(ultra.accuracy.rawValue > v3.accuracy.rawValue)
+        #expect(ultra.speed == v3.speed)
+    }
+
+    @Test("Whisper tiers: Turbo is faster than Large v3, accuracy grows with size")
+    @MainActor func comparisonWhisperTiers() {
+        func view(_ size: WhisperModelSize) -> ModelComparisonView {
+            ModelComparisonView(modelType: .whisper, whisperModelSize: size)
+        }
+        #expect(view(.largev3Turbo).speed.rawValue > view(.largev3).speed.rawValue)
+        let ordered: [WhisperModelSize] = [.tiny, .base, .small, .medium, .largev3]
+        let accuracies = ordered.map { view($0).accuracy.rawValue }
+        #expect(accuracies == accuracies.sorted())
     }
 
     // MARK: - Whisper vocabulary hint
