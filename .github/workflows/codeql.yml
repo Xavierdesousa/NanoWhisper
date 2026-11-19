@@ -12,18 +12,18 @@ permissions:
 
 jobs:
   analyze:
-    runs-on: macos-26
+    runs-on: xcode-27
     strategy:
       matrix:
         language: [actions, swift]
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Cache SPM dependencies
         if: matrix.language == 'swift'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .build/checkouts
           key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
@@ -31,7 +31,7 @@ jobs:
             spm-${{ runner.os }}-
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.language == 'swift' && 'manual' || 'none' }}
@@ -41,6 +41,6 @@ jobs:
         run: swift build -c release
 
       - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
