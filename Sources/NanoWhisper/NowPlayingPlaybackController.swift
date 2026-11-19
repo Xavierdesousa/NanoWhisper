@@ -4,13 +4,25 @@ struct NowPlayingSession: Sendable, Equatable {
     let bundleIdentifier: String?
     /// Track or page title. Optional: some players publish none.
     let title: String?
+    /// MediaRemote's unique identifier of the item, when the player publishes one (e.g. a
+    /// track id). Many players (browsers, VLC) do not; the title is then the item's identity.
+    let uniqueIdentifier: String?
     let isPlaying: Bool
+
+    init(processIdentifier: Int32, bundleIdentifier: String?, title: String?, uniqueIdentifier: String? = nil, isPlaying: Bool) {
+        self.processIdentifier = processIdentifier
+        self.bundleIdentifier = bundleIdentifier
+        self.title = title
+        self.uniqueIdentifier = uniqueIdentifier
+        self.isPlaying = isPlaying
+    }
 
     /// Same app process showing the same item, whatever its playing state.
     func isSameItem(as other: NowPlayingSession) -> Bool {
         processIdentifier == other.processIdentifier
             && bundleIdentifier == other.bundleIdentifier
             && title == other.title
+            && uniqueIdentifier == other.uniqueIdentifier
     }
 }
 

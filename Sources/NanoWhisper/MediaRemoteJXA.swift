@@ -11,24 +11,27 @@ import os
 /// through `MRMediaRemoteSendCommand` is ours.
 ///
 /// - `get` prints one JSON line on stdout: `null` (no app owns Now Playing) or
-///   `{"processIdentifier","bundleIdentifier","title","playing"}`.
-/// - `send 0|1 PID` sends play (0) or pause (1) only if app PID still owns Now Playing and is
-///   in the opposite state, then prints `sent`; otherwise prints `skipped`. Checking inside the
-///   same process shrinks the window in which the player could quit between our read and the
-///   command (a play with no Now Playing app launches Music).
+///   `{"processIdentifier","bundleIdentifier","title","uniqueIdentifier","playing"}`.
+/// - `send 0|1 PID TITLE ID` sends play (0) or pause (1) only if app PID still owns Now Playing,
+///   still shows the item with that title and unique identifier (each `none` or `some:BASE64`),
+///   and is in the opposite state; it then prints `sent`, otherwise `skipped`. Checking inside
+///   the same process shrinks the window in which another item could take over between our
+///   read and the command (and a play with no Now Playing app launches Music).
 /// - Anything unexpected (a missing class, selector or symbol on another macOS version, a
 ///   value of the wrong type) throws: osascript exits 1 and the answer is `.unknown`.
 ///
 /// An osascript that exits right after sending drops the command, so after `sent` the script
 /// stays alive until the player's state reflects it (20-80 ms measured, at most 1 s). `send`
 /// returns as soon as `sent` is printed; the process finishes in the background, is reaped,
-/// and is killed after `timeout`. The next call waits for it first, so a read never misses
-/// the effect of the previous command.
+/// and is killed after `timeout`. Calls run one at a time, and each first waits for the
+/// previous send's process, so a read never misses the effect of the previous command.
 actor MediaRemoteJXA: NowPlayingSource {
     static let osascriptURL = URL(fileURLWithPath: "/usr/bin/osascript")
     private static let logger = Logger(subsystem: "com.moonji.nanowhisper", category: "NowPlaying")
 
     let timeout: TimeInterval
+    /// Actors are reentrant: without it, a call could start while another awaits its process.
+    private let gate = SerialGate()
     /// The last `send`, possibly still confirming delivery.
     private var pendingSend: BackgroundProcess?
 
@@ -37,6 +40,22 @@ actor MediaRemoteJXA: NowPlayingSource {
     }
 
     func read() async -> NowPlayingReading {
+        await gate.acquire()
+        let reading = await readNow()
+        await gate.release()
+        return reading
+    }
+
+    @discardableResult
+    func send(_ command: NowPlayingCommand, to session: NowPlayingSession) async -> Bool {
+        await gate.acquire()
+        let sent = await sendNow(command, to: session)
+        await gate.release()
+        return sent
+    }
+
+    /// Must only run while holding `gate`.
+    private func readNow() async -> NowPlayingReading {
         await settlePendingSend()
         guard let output = await Subprocess.run(Self.osascriptURL, arguments: Self.arguments("get"), timeout: timeout) else {
             Self.logger.error("get: osascript did not start or timed out")
@@ -49,12 +68,12 @@ actor MediaRemoteJXA: NowPlayingSource {
         return reading
     }
 
-    @discardableResult
-    func send(_ command: NowPlayingCommand, to session: NowPlayingSession) async -> Bool {
+    /// Must only run while holding `gate`.
+    private func sendNow(_ command: NowPlayingCommand, to session: NowPlayingSession) async -> Bool {
         await settlePendingSend()
         let (line, process) = await Subprocess.start(
             Self.osascriptURL,
-            arguments: Self.arguments("send", String(command.rawValue), String(session.processIdentifier)),
+            arguments: Self.sendArguments(command, to: session),
             lineTimeout: timeout,
             killAfter: timeout
         )
@@ -66,18 +85,33 @@ actor MediaRemoteJXA: NowPlayingSource {
         return sent
     }
 
-    /// Waits (at most `timeout`) for the previous send to finish delivering its command.
+    /// Waits (at most `timeout`) for the previous send to finish delivering its command. The
+    /// process stays visible until then, and is forgotten only if no newer send replaced it.
     private func settlePendingSend() async {
         guard let process = pendingSend else { return }
-        pendingSend = nil
         _ = await process.waitForExit(timeout: timeout)
+        if pendingSend === process {
+            pendingSend = nil
+        }
     }
 
     // MARK: - Script I/O
 
-    /// The script travels as one argument (no shell), so it needs no quoting.
+    /// The script and its arguments travel as separate arguments (no shell): no quoting.
     static func arguments(_ arguments: String...) -> [String] {
         ["-l", "JavaScript", "-e", script] + arguments
+    }
+
+    static func sendArguments(_ command: NowPlayingCommand, to session: NowPlayingSession) -> [String] {
+        arguments("send", String(command.rawValue), String(session.processIdentifier),
+                  identityArgument(session.title), identityArgument(session.uniqueIdentifier))
+    }
+
+    /// `none`, or `some:` followed by the value's UTF-8 in base64, so that no title can pass
+    /// for "no title". Base64 because `Process` hands arguments over decomposed (NFD, measured
+    /// on macOS 27.2): a title with an accent would otherwise never match the one read back.
+    static func identityArgument(_ value: String?) -> String {
+        value.map { "some:" + Data($0.utf8).base64EncodedString() } ?? "none"
     }
 
     /// First stdout line of `send`: only `sent` means the command was issued.
@@ -102,6 +136,7 @@ actor MediaRemoteJXA: NowPlayingSource {
             processIdentifier: pid,
             bundleIdentifier: object["bundleIdentifier"] as? String,
             title: object["title"] as? String,
+            uniqueIdentifier: object["uniqueIdentifier"] as? String,
             isPlaying: playing
         ))
     }
@@ -131,6 +166,37 @@ actor MediaRemoteJXA: NowPlayingSource {
         return { pid: pid, playing: playing };
     }
 
+    // { title, uniqueIdentifier } of the Now Playing item, each a string or null.
+    function currentItem(request) {
+        const result = { title: null, uniqueIdentifier: null };
+        const item = need(request.localNowPlayingItem, 'localNowPlayingItem');
+        const info = item.isNil() ? null : need(item.nowPlayingInfo, 'nowPlayingInfo');
+        if (info === null || info.isNil()) return result;
+        const title = info.objectForKey('kMRMediaRemoteNowPlayingInfoTitle');
+        if (!title.isNil()) {
+            const text = ObjC.unwrap(title);
+            if (typeof text === 'string') result.title = text;
+        }
+        // Number or string depending on the player: its description is exact for both.
+        const identifier = info.objectForKey('kMRMediaRemoteNowPlayingInfoUniqueIdentifier');
+        if (!identifier.isNil()) {
+            const text = ObjC.unwrap(identifier.description);
+            if (typeof text === 'string') result.uniqueIdentifier = text;
+        }
+        return result;
+    }
+
+    // `none` -> null, `some:BASE64` -> the UTF-8 string it encodes.
+    function identityArgument(text) {
+        if (text === 'none') return null;
+        if (!text.startsWith('some:')) throw new Error('unsupported arguments');
+        const data = $.NSData.alloc.initWithBase64EncodedStringOptions($(text.slice(5)), 0);
+        if (data.isNil()) throw new Error('unsupported arguments');
+        const string = $.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding);
+        if (string.isNil()) throw new Error('unsupported arguments');
+        return ObjC.unwrap(string);
+    }
+
     function run(argv) {
         const bundle = $.NSBundle.bundleWithPath('/System/Library/PrivateFrameworks/MediaRemote.framework');
         if (bundle.isNil() || bundle.load !== true) throw new Error('MediaRemote not loaded');
@@ -143,23 +209,24 @@ actor MediaRemoteJXA: NowPlayingSource {
             const result = { processIdentifier: state.pid, playing: state.playing };
             const app = $.NSRunningApplication.runningApplicationWithProcessIdentifier(state.pid);
             if (!app.isNil() && !app.bundleIdentifier.isNil()) result.bundleIdentifier = ObjC.unwrap(app.bundleIdentifier);
-            const item = need(request.localNowPlayingItem, 'localNowPlayingItem');
-            const info = item.isNil() ? null : need(item.nowPlayingInfo, 'nowPlayingInfo');
-            if (info !== null && !info.isNil()) {
-                const title = info.objectForKey('kMRMediaRemoteNowPlayingInfoTitle');
-                if (!title.isNil()) {
-                    const text = ObjC.unwrap(title);
-                    if (typeof text === 'string') result.title = text;
-                }
-            }
+            const item = currentItem(request);
+            if (item.title !== null) result.title = item.title;
+            if (item.uniqueIdentifier !== null) result.uniqueIdentifier = item.uniqueIdentifier;
             out(JSON.stringify(result));
             return;
         }
 
-        if (argv.length === 3 && argv[0] === 'send' && (argv[1] === '0' || argv[1] === '1') && /^[1-9][0-9]*$/.test(argv[2])) {
+        if (argv.length === 5 && argv[0] === 'send' && (argv[1] === '0' || argv[1] === '1') && /^[1-9][0-9]*$/.test(argv[2])) {
             const play = argv[1] === '0'; // kMRPlay = 0, kMRPause = 1; never the toggle (2)
+            const expectedTitle = identityArgument(argv[3]);
+            const expectedIdentifier = identityArgument(argv[4]);
             const state = nowPlaying(request);
-            if (state.pid !== Number(argv[2]) || state.playing === play) { out('skipped'); return; }
+            const item = currentItem(request);
+            if (state.pid !== Number(argv[2]) || state.playing === play
+                || item.title !== expectedTitle || item.uniqueIdentifier !== expectedIdentifier) {
+                out('skipped');
+                return;
+            }
             ObjC.bindFunction('MRMediaRemoteSendCommand', ['bool', ['int', 'id']]);
             if ($.MRMediaRemoteSendCommand(play ? 0 : 1, $()) !== true) { out('not-sent'); return; }
             out('sent');

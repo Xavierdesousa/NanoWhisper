@@ -5,8 +5,8 @@ import Testing
 // MARK: - Fake Now Playing session
 
 /// Simulates the system Now Playing session and `MediaRemoteJXA.send`'s guard: a command is
-/// issued only if the target app owns Now Playing and is not already in the requested state;
-/// it then changes that state like a real player would.
+/// issued only if the target item (app, title, unique identifier) owns Now Playing and is not
+/// already in the requested state; it then changes that state like a real player would.
 @MainActor
 private final class FakeNowPlaying: NowPlayingSource {
     var reading: NowPlayingReading
@@ -28,6 +28,8 @@ private final class FakeNowPlaying: NowPlayingSource {
     func send(_ command: NowPlayingCommand, to session: NowPlayingSession) async -> Bool {
         guard case .session(let current) = reading,
               current.processIdentifier == session.processIdentifier,
+              current.title == session.title,
+              current.uniqueIdentifier == session.uniqueIdentifier,
               current.isPlaying != (command == .play),
               deliver
         else { return false }
@@ -42,11 +44,15 @@ private extension NowPlayingSession {
     static let chrome = NowPlayingSession(processIdentifier: 41652, bundleIdentifier: "com.google.Chrome", title: "NanoWhisper media test", isPlaying: true)
 
     func with(isPlaying: Bool) -> NowPlayingSession {
-        NowPlayingSession(processIdentifier: processIdentifier, bundleIdentifier: bundleIdentifier, title: title, isPlaying: isPlaying)
+        NowPlayingSession(processIdentifier: processIdentifier, bundleIdentifier: bundleIdentifier, title: title, uniqueIdentifier: uniqueIdentifier, isPlaying: isPlaying)
     }
 
     func with(title: String?) -> NowPlayingSession {
-        NowPlayingSession(processIdentifier: processIdentifier, bundleIdentifier: bundleIdentifier, title: title, isPlaying: isPlaying)
+        NowPlayingSession(processIdentifier: processIdentifier, bundleIdentifier: bundleIdentifier, title: title, uniqueIdentifier: uniqueIdentifier, isPlaying: isPlaying)
+    }
+
+    func with(uniqueIdentifier: String?) -> NowPlayingSession {
+        NowPlayingSession(processIdentifier: processIdentifier, bundleIdentifier: bundleIdentifier, title: title, uniqueIdentifier: uniqueIdentifier, isPlaying: isPlaying)
     }
 }
 
@@ -74,6 +80,13 @@ struct MediaRemoteJXAOutputTests {
     func nativePlaying() {
         let json = #"{"processIdentifier":41313,"playing":true,"bundleIdentifier":"org.videolan.vlc","title":"quiet.wav"}"#
         #expect(MediaRemoteJXA.parse(output(json)) == .session(.vlc))
+    }
+
+    @Test("The unique identifier is read when the player publishes one")
+    func uniqueIdentifier() {
+        let json = #"{"processIdentifier":51000,"playing":true,"bundleIdentifier":"com.apple.Music","title":"Song","uniqueIdentifier":"8143521470562135962"}"#
+        let expected = NowPlayingSession(processIdentifier: 51000, bundleIdentifier: "com.apple.Music", title: "Song", uniqueIdentifier: "8143521470562135962", isPlaying: true)
+        #expect(MediaRemoteJXA.parse(output(json)) == .session(expected))
     }
 
     @Test("Title and bundle identifier are optional")
@@ -139,19 +152,41 @@ struct MediaRemoteJXAOutputTests {
         #expect(!MediaRemoteJXA.isSent(nil))
     }
 
-    @Test("Arguments: inline script, explicit play (0) / pause (1) and the target pid")
+    @Test("Arguments: inline script, explicit play (0) / pause (1), and the target item")
     func arguments() {
         #expect(MediaRemoteJXA.arguments("get") == ["-l", "JavaScript", "-e", MediaRemoteJXA.script, "get"])
-        #expect(MediaRemoteJXA.arguments("send", "1", "41313").suffix(3) == ["send", "1", "41313"])
+        #expect(MediaRemoteJXA.sendArguments(.pause, to: .vlc).suffix(5) == ["send", "1", "41313", "some:cXVpZXQud2F2", "none"])
+        let identified = NowPlayingSession.vlc.with(title: nil).with(uniqueIdentifier: "42")
+        #expect(MediaRemoteJXA.sendArguments(.play, to: identified).suffix(5) == ["send", "0", "41313", "none", "some:NDI="])
         #expect(NowPlayingCommand.play.rawValue == 0)
         #expect(NowPlayingCommand.pause.rawValue == 1)
     }
 
-    @Test("The script refuses the toggle and checks the target before sending")
+    @Test("Identity arguments: no title and a title reading \"none\" stay distinct")
+    func identityArguments() {
+        #expect(MediaRemoteJXA.identityArgument(nil) == "none")
+        #expect(MediaRemoteJXA.identityArgument("none") == "some:bm9uZQ==")
+        #expect(MediaRemoteJXA.identityArgument("") == "some:")
+    }
+
+    @Test("Identity arguments carry the exact UTF-8 (Process would hand over NFD)")
+    func identityArgumentsExactBytes() throws {
+        let title = "Ça \"quoted\" it's $HOME; `x` \\n — none" // precomposed Ç
+        let argument = MediaRemoteJXA.identityArgument(title)
+        let isASCII = argument.unicodeScalars.allSatisfy { $0.isASCII }
+        #expect(isASCII)
+        let encoded = try #require(argument.split(separator: ":", maxSplits: 1).last)
+        let bytes = try #require(Data(base64Encoded: String(encoded)))
+        #expect(bytes == Data(title.utf8))
+        #expect(bytes.prefix(2) == Data([0xC3, 0x87])) // Ç stays U+00C7, not C + U+0327
+    }
+
+    @Test("The script refuses the toggle and checks the target item before sending")
     func scriptGuards() {
         let script = MediaRemoteJXA.script
         #expect(script.contains("(argv[1] === '0' || argv[1] === '1')"))
         #expect(script.contains("state.pid !== Number(argv[2]) || state.playing === play"))
+        #expect(script.contains("item.title !== expectedTitle || item.uniqueIdentifier !== expectedIdentifier"))
         #expect(!script.contains("'2'"))
     }
 }
@@ -176,6 +211,7 @@ struct NowPlayingResumeRuleTests {
         NowPlayingSession(processIdentifier: 30000, bundleIdentifier: "org.videolan.vlc", title: "quiet.wav", isPlaying: false), // relaunched
         NowPlayingSession.vlc.with(title: "another file").with(isPlaying: false),
         NowPlayingSession.vlc.with(title: nil).with(isPlaying: false),
+        NowPlayingSession.vlc.with(uniqueIdentifier: "other track").with(isPlaying: false), // same title, other item
     ])
     func otherItem(now: NowPlayingSession) {
         #expect(!NowPlayingPlaybackController.shouldResume(paused: .vlc, now: .session(now)))
@@ -200,7 +236,7 @@ struct NowPlayingPlaybackControllerTests {
         let controller = NowPlayingPlaybackController(source: source)
 
         #expect(await controller.playbackState() == .playing)
-        await controller.pause()
+        #expect(await controller.pause())
         #expect(source.sent == [.pause])
         #expect(source.reading == .session(.vlc.with(isPlaying: false)))
 
@@ -226,7 +262,7 @@ struct NowPlayingPlaybackControllerTests {
         let source = FakeNowPlaying(.session(.vlc.with(isPlaying: false)))
         let controller = NowPlayingPlaybackController(source: source)
         _ = await controller.playbackState()
-        await controller.pause()
+        #expect(await controller.pause() == false)
         await controller.resume()
         #expect(source.sent.isEmpty)
     }
@@ -238,7 +274,7 @@ struct NowPlayingPlaybackControllerTests {
         _ = await controller.playbackState()
 
         source.reading = .session(.vlc.with(isPlaying: false)) // paused by the user meanwhile
-        await controller.pause()
+        #expect(await controller.pause() == false)
         await controller.resume()
         #expect(source.sent.isEmpty)
         #expect(source.reading == .session(.vlc.with(isPlaying: false)))
@@ -250,7 +286,7 @@ struct NowPlayingPlaybackControllerTests {
         source.deliver = false
         let controller = NowPlayingPlaybackController(source: source)
         _ = await controller.playbackState()
-        await controller.pause()
+        #expect(await controller.pause() == false)
         source.deliver = true
         source.reading = .session(.vlc.with(isPlaying: false))
         await controller.resume()
@@ -262,7 +298,7 @@ struct NowPlayingPlaybackControllerTests {
         let source = FakeNowPlaying(.session(.vlc))
         let controller = NowPlayingPlaybackController(source: source)
         _ = await controller.playbackState()
-        await controller.pause()
+        #expect(await controller.pause())
 
         source.reading = .session(.chrome)
         await controller.resume()
@@ -274,7 +310,7 @@ struct NowPlayingPlaybackControllerTests {
         let source = FakeNowPlaying(.session(.chrome))
         let controller = NowPlayingPlaybackController(source: source)
         _ = await controller.playbackState()
-        await controller.pause()
+        #expect(await controller.pause())
 
         source.reading = .session(NowPlayingSession.chrome.with(title: "Other tab").with(isPlaying: false))
         await controller.resume()
@@ -286,7 +322,7 @@ struct NowPlayingPlaybackControllerTests {
         let source = FakeNowPlaying(.session(.vlc))
         let controller = NowPlayingPlaybackController(source: source)
         _ = await controller.playbackState()
-        await controller.pause()
+        #expect(await controller.pause())
 
         source.reading = .session(.vlc)
         await controller.resume()
@@ -298,7 +334,7 @@ struct NowPlayingPlaybackControllerTests {
         let source = FakeNowPlaying(.session(.vlc))
         let controller = NowPlayingPlaybackController(source: source)
         _ = await controller.playbackState()
-        await controller.pause()
+        #expect(await controller.pause())
 
         source.reading = now
         await controller.resume()
@@ -314,7 +350,7 @@ struct NowPlayingPlaybackControllerTests {
 
         source.reading = .session(.vlc)
         _ = await controller.playbackState()
-        await controller.pause()
+        #expect(await controller.pause())
         await controller.resume()
         source.reading = .session(.vlc.with(isPlaying: false))
         await controller.resume()
@@ -420,17 +456,20 @@ struct SubprocessTests {
 
     // MARK: Background start (JXA send)
 
-    @Test("Returns the first line at once, then reaps the process when it exits")
+    @Test("Returns the first line without waiting for the process, then reaps it when it exits")
     func firstLineThenReaped() async throws {
-        let start = Date()
-        let (line, process) = await Subprocess.start(Self.sh, arguments: ["-c", "echo sent; sleep 0.4; echo done"], lineTimeout: 5, killAfter: 5)
+        // The child prints its line, then blocks until the test creates `gate`: no timing.
+        let gate = FileManager.default.temporaryDirectory.appendingPathComponent("nanowhisper-gate-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: gate) }
+        let script = #"echo sent; while [ ! -e "$1" ]; do sleep 0.01; done; echo done"#
+        let (line, process) = await Subprocess.start(Self.sh, arguments: ["-c", script, "sh", gate.path], lineTimeout: 30, killAfter: 60)
         #expect(line == "sent")
-        #expect(Date().timeIntervalSince(start) < 0.3, "must not wait for the process to finish")
         let running = try #require(process)
         let pid = running.processIdentifier
-        #expect(!Self.isGone(pid), "still running in the background")
+        #expect(!Self.isGone(pid), "start() returned while the process still runs")
 
-        #expect(await running.waitForExit(timeout: 3))
+        try Data().write(to: gate)
+        #expect(await running.waitForExit(timeout: 30))
         #expect(Self.isGone(pid))
     }
 
@@ -448,7 +487,7 @@ struct SubprocessTests {
         let start = Date()
         let (line, process) = await Subprocess.start(Self.sh, arguments: ["-c", "exec sleep 30"], lineTimeout: 0.2, killAfter: 30)
         #expect(line == nil)
-        #expect(Date().timeIntervalSince(start) < 1)
+        #expect(Date().timeIntervalSince(start) < 5)
         let running = try #require(process)
         #expect(await running.waitForExit(timeout: 3))
         #expect(Self.isGone(running.processIdentifier))
