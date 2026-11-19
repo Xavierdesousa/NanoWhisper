@@ -120,6 +120,8 @@ Downloaded models are shared by both. `make app` only stops a running NanoWhispe
 
 Signing uses `SIGN_IDENTITY` (default `Moonji Dev`; set it empty for ad-hoc signing).
 
+Contributing, with or without a coding agent: start with [`CLAUDE.md`](CLAUDE.md) (commands, rules, source map) and the project wiki in [`docs/wiki/index.md`](docs/wiki/index.md) (design decisions, measurements, untested areas).
+
 ## License
 
 [GPL v3](LICENSE) — free to use, modify, and redistribute. Forks must remain open-source under the same license.
