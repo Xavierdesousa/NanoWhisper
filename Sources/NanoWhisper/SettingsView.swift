@@ -261,7 +261,10 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
                 }
 
-                if appState.autoUpdater.isChecking {
+                if !appState.autoUpdater.isEnabled {
+                    Label("Automatic updates are disabled in debug builds", systemImage: "hammer")
+                        .foregroundColor(.secondary)
+                } else if appState.autoUpdater.isChecking {
                     Label("Checking for updates...", systemImage: "arrow.clockwise")
                         .foregroundColor(.secondary)
                 } else if appState.autoUpdater.isDownloading {
@@ -401,7 +404,7 @@ class SettingsWindowController {
             backing: .buffered,
             defer: false
         )
-        w.title = "NanoWhisper Settings"
+        w.title = "\(BuildFlavor.current.displayName) Settings"
         w.contentView = hostingView
         w.isReleasedWhenClosed = false
         w.isRestorable = false

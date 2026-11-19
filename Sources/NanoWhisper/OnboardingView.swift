@@ -395,7 +395,7 @@ class OnboardingWindowController {
             backing: .buffered,
             defer: false
         )
-        w.title = "NanoWhisper"
+        w.title = BuildFlavor.current.displayName
         w.contentView = hosting
         w.isReleasedWhenClosed = false
         w.isRestorable = false

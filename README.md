@@ -95,7 +95,30 @@ cd NanoWhisper
 make app
 ```
 
-Other targets: `make run` (dev), `make release` (zip), `make clean`.
+`make app` builds, signs and launches **NanoWhisper Debug**, a separate app that can run next to the released NanoWhisper:
+
+| | NanoWhisper (release) | NanoWhisper Debug (local builds) |
+|---|---|---|
+| Bundle | `NanoWhisper.app`, `com.moonji.nanowhisper` | `NanoWhisper Debug.app`, `com.moonji.nanowhisper.debug` |
+| Default shortcut | ⌥ Space | ⌃⌥ Space |
+| Settings, permissions, login item | own | own (granted separately) |
+| History | `~/Library/Application Support/NanoWhisper` | `~/Library/Application Support/NanoWhisper Debug` |
+| Auto-updater | on | off |
+| Markers | — | "DEBUG" banner on the icon, orange dot in the menubar, version and commit in the menu |
+
+Downloaded models are shared by both. `make app` only stops a running NanoWhisper Debug, never the release app.
+
+| Target | Builds | Notes |
+|---|---|---|
+| `make app` | Debug | Launches it |
+| `make run` | Debug | Runs the executable without a bundle |
+| `make ci` | Release | `NanoWhisper.app`, no launch (used by the release workflow) |
+| `make release` | Release | Also creates `NanoWhisper-v<version>.zip`; launches nothing |
+| `make notarize` | Release | Notarizes and staples (`NOTARY_PROFILE=<keychain profile>`) |
+| `make publish` | Release | Creates the GitHub release for tag `v<version>` with `gh` (fallback when CI can't run); needs a clean tree and the tag pushed to `origin` at HEAD |
+| `make test`, `make clean` | | |
+
+Signing uses `SIGN_IDENTITY` (default `Moonji Dev`; set it empty for ad-hoc signing).
 
 ## License
 
