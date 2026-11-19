@@ -4,13 +4,20 @@ import SwiftUI
 struct NanoWhisperApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var appState = AppState()
-    @State private var onboardingShown = false
+    @State private var launchOnboardingTriggered = false
+
+    init() {
+        // Before AppState reads the flag (it decides whether the first download waits).
+        if LaunchOptions.current.resetOnboarding {
+            UserDefaults.standard.removeObject(forKey: AppState.onboardingCompleteKey)
+        }
+    }
 
     var body: some Scene {
         MenuBarExtra {
-            if !onboardingShown && appState.isFirstLaunch {
+            if appState.isFirstLaunch && !appState.isOnboardingVisible {
                 Button("Show Setup...") {
-                    showOnboarding()
+                    appState.showOnboarding()
                 }
                 Divider()
             }
@@ -103,7 +110,7 @@ struct NanoWhisperApp: App {
     }
 
     private var shortcutName: String {
-        appState.hotkeyManager.currentShortcut.displayString
+        appState.shortcut.displayString
     }
 
     @ViewBuilder
@@ -120,11 +127,15 @@ struct NanoWhisperApp: App {
         }
     }
 
+    /// Once per launch: on first launch, or with `--onboarding` / `--reset-onboarding`.
     private func triggerOnboardingIfNeeded() {
-        guard appState.isFirstLaunch && !onboardingShown else { return }
+        guard !launchOnboardingTriggered,
+              LaunchOptions.current.showsOnboardingAtLaunch(onboardingComplete: !appState.isFirstLaunch)
+        else { return }
+        launchOnboardingTriggered = true
         // Small delay to let the app finish launching
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            showOnboarding()
+            appState.showOnboarding()
         }
     }
 
@@ -146,18 +157,12 @@ struct NanoWhisperApp: App {
         return image
     }
 
-    private func showOnboarding() {
-        onboardingShown = true
-        appState.onboardingWindow.show(appState: appState) {
-            appState.completeOnboarding()
-        }
-    }
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let isFirstLaunch = !UserDefaults.standard.bool(forKey: "onboardingComplete")
-        if isFirstLaunch {
+        let onboardingComplete = UserDefaults.standard.bool(forKey: AppState.onboardingCompleteKey)
+        if LaunchOptions.current.showsOnboardingAtLaunch(onboardingComplete: onboardingComplete) {
             // Show dock icon during onboarding
             NSApp.setActivationPolicy(.regular)
         } else {

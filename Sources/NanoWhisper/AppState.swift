@@ -181,8 +181,21 @@ class AppState: ObservableObject {
     let autoUpdater = AutoUpdater.shared
     let mediaController = MediaController()
 
-    private static let onboardingCompleteKey = "onboardingComplete"
+    static let onboardingCompleteKey = "onboardingComplete"
     var isFirstLaunch: Bool { !UserDefaults.standard.bool(forKey: Self.onboardingCompleteKey) }
+    /// Whether the onboarding window is open (first launch, replay or `--onboarding`).
+    @Published private(set) var isOnboardingVisible = false
+
+    /// The record shortcut, mirrored from `hotkeyManager` so views update when it changes.
+    @Published private(set) var shortcut: Shortcut = .default
+
+    /// While true (onboarding's last step is showing) and the app is active, a finished
+    /// dictation goes to `testTranscription` instead of being pasted or saved to history.
+    @Published var capturesTestTranscription = false {
+        didSet { if !capturesTestTranscription { testTranscription = nil } }
+    }
+    /// Text of the last test dictation; empty when nothing was recognized.
+    @Published private(set) var testTranscription: String?
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -196,6 +209,7 @@ class AppState: ObservableObject {
             }
         }
 
+        shortcut = hotkeyManager.currentShortcut
         hotkeyManager.onHotkeyPressed = { [weak self] in
             Task { @MainActor in
                 self?.toggleRecording()
@@ -274,12 +288,20 @@ class AppState: ObservableObject {
         // Existing installs keep Parakeet v3 (already on disk); new installs get Ultra.
         parakeetVariant = ParakeetVariant.loadOrMigrate(from: .standard)
 
-        // Begin: either setup or start engine directly
-        setupManager.runSetup(
+        // Begin: either setup or start engine directly. On first launch a model that is not
+        // on disk yet waits for onboarding, where the user sees its size before downloading.
+        let deferSetup = ModelAvailability.shouldDeferSetupAtLaunch(
+            isFirstLaunch: isFirstLaunch,
             modelType: selectedModelType,
-            parakeetVariant: parakeetVariant,
-            whisperSettings: whisperSettings
+            parakeetOnDisk: ModelAvailability.parakeetIsOnDisk(parakeetVariant)
         )
+        if !deferSetup {
+            setupManager.runSetup(
+                modelType: selectedModelType,
+                parakeetVariant: parakeetVariant,
+                whisperSettings: whisperSettings
+            )
+        }
 
         // Start auto-update checks (every hour)
         autoUpdater.startPeriodicChecks()
@@ -400,6 +422,13 @@ class AppState: ObservableObject {
             isTranscribing = false
             recordingOverlay.dismiss()
 
+            // Only while the onboarding window is in front: there the text could not be
+            // pasted anyway, and a dictation into another app must still paste.
+            if capturesTestTranscription && NSApp.isActive {
+                testTranscription = result.text
+                return
+            }
+
             if result.text.isEmpty {
                 lastError = "Empty transcription"
                 sound.playNoResult()
@@ -425,10 +454,52 @@ class AppState: ObservableObject {
         settingsWindow.show(appState: self)
     }
 
+    func updateShortcut(_ newShortcut: Shortcut) {
+        hotkeyManager.updateShortcut(newShortcut)
+        shortcut = hotkeyManager.currentShortcut
+    }
+
+    // MARK: - Onboarding
+
+    /// Open onboarding (first launch, "Show Onboarding Again…" or `--onboarding`). Settings
+    /// are kept as they are; nothing downloads unless the user applies another model.
+    /// The app shows in the Dock while onboarding is open and returns to menu-bar-only after.
+    func showOnboarding() {
+        settingsWindow.close()
+        NSApp.setActivationPolicy(.regular)
+        isOnboardingVisible = true
+        onboardingWindow.show(
+            appState: self,
+            onFinish: { [weak self] in self?.completeOnboarding() },
+            onClose: { [weak self] in self?.onboardingWindowDidClose() }
+        )
+    }
+
+    /// Finish or Skip Setup: remember onboarding as done and make sure a model loads.
     func completeOnboarding() {
         UserDefaults.standard.set(true, forKey: Self.onboardingCompleteKey)
         onboardingWindow.close()
+        loadSelectedModelIfIdle()
+    }
+
+    /// The window closed by any means (Finish, Skip Setup or its close button). Closing it
+    /// without finishing on first launch keeps the flag unset, so it shows again next launch.
+    private func onboardingWindowDidClose() {
+        isOnboardingVisible = false
+        capturesTestTranscription = false
         NSApp.setActivationPolicy(.accessory)
+    }
+
+    /// Start the selected model's setup if nothing is loaded, loading or failed (the first
+    /// launch defers it; see `ModelAvailability.shouldDeferSetupAtLaunch`).
+    func loadSelectedModelIfIdle() {
+        guard !isEngineReady, !setupManager.isSettingUp, !setupManager.setupComplete,
+              setupManager.setupError == nil else { return }
+        setupManager.runSetup(
+            modelType: selectedModelType,
+            parakeetVariant: parakeetVariant,
+            whisperSettings: whisperSettings
+        )
     }
 
     // MARK: - History persistence (encrypted)
