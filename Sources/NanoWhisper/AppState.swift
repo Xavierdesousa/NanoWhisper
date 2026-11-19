@@ -135,8 +135,7 @@ class AppState: ObservableObject {
         }
     }
 
-    /// Show the transcript in the overlay while recording, then paste that same text
-    /// (Parakeet only; see AppState+LiveTranscription.swift).
+    /// Show the text in the overlay while recording (see AppState+LiveTranscription.swift).
     @Published var liveTranscriptionEnabled: Bool = false {
         didSet { UserDefaults.standard.set(liveTranscriptionEnabled, forKey: Self.liveTranscriptionKey) }
     }
@@ -383,7 +382,7 @@ class AppState: ObservableObject {
             mediaController.pauseIfPlaying()
         }
         sound.playStart()
-        let live = beginLiveTranscription() // nil unless enabled and on Parakeet
+        let live = beginLiveTranscription() // nil unless enabled
         do {
             try audioRecorder.startRecording(onSamples: live?.sampleSink)
             isRecording = true
@@ -398,11 +397,12 @@ class AppState: ObservableObject {
     func stopRecording() {
         sound.playStop()
         isRecording = false
-        let live = liveSession // finished by transcribeRecording, or cancelled below
+        // Abandon the live preview's decode in flight; its text stays until the final text.
+        let live = liveSession
         liveSession = nil
+        live?.stop()
         recordingOverlay.transitionToLoading()
         guard let audioURL = audioRecorder.stopRecording() else {
-            live?.cancel()
             lastError = "No audio recorded"
             recordingOverlay.dismiss()
             return
@@ -416,8 +416,8 @@ class AppState: ObservableObject {
                 mediaController.resumeIfPaused()
             }
 
-            // Live text when it finalized, otherwise the batch pass as before.
-            let result = await transcribeRecording(at: audioURL, live: live)
+            let result = await transcriber.transcribe(audioURL: audioURL)
+            showFinalLiveText(result.text, for: live) // the overlay shows exactly what is pasted
             isTranscribing = false
             recordingOverlay.dismiss()
 

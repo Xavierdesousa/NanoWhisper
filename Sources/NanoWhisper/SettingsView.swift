@@ -38,10 +38,7 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
                 }
                 Toggle("Live transcription (beta)", isOn: $appState.liveTranscriptionEnabled)
-                    .disabled(appState.selectedModelType != .parakeet)
-                Text(appState.selectedModelType == .parakeet
-                     ? "Shows the text while you speak, then pastes that text."
-                     : "Available with Parakeet only.")
+                Text("Shows the text in the overlay while you speak.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

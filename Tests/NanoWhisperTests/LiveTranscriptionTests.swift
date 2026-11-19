@@ -1,5 +1,4 @@
 import AppKit
-import FluidAudio
 import Foundation
 import Testing
 @testable import NanoWhisper
@@ -8,148 +7,113 @@ import Testing
 
 @Suite("Live transcript")
 struct LiveTranscriptTests {
-    typealias Revision = LiveTranscript.Revision
-
-    private func revision(
-        _ transcript: LiveTranscript, retained: Int? = nil, stable: Int, _ pieces: [String], terminal: Bool = false
-    ) -> Revision {
-        Revision(
-            previousCount: transcript.pieces.count,
-            retainedCount: retained ?? transcript.pieces.count,
-            stableCount: stable,
-            pieces: pieces,
-            isTerminal: terminal
-        )
-    }
 
     @Test("An empty transcript has no text and nothing to paste")
     func empty() {
         let transcript = LiveTranscript()
-        #expect(transcript.text.isEmpty)
-        #expect(transcript.stableText.isEmpty && transcript.volatileText.isEmpty)
         #expect(transcript.isEmpty)
+        #expect(transcript.stableText.isEmpty && transcript.volatileText.isEmpty)
         #expect(transcript.finalText == nil)
     }
 
-    @Test("Stable tokens render in the stable part, the rest in the volatile tail")
-    func stableVolatileSplit() throws {
+    @Test("The first decode is all volatile; words confirmed by the next decode become stable")
+    func stableIsCommonWordPrefix() {
         var transcript = LiveTranscript()
-        try transcript.apply(revision(transcript, stable: 1, [" Hello", " world", "."]))
-        #expect(transcript.text == "Hello world.")
-        #expect(transcript.stableText == "Hello")
-        #expect(transcript.volatileText == " world.")
-        #expect(transcript.finalText == nil)
+        transcript.update(partial: "I'll be ten")
+        #expect(transcript.stableText == "")
+        #expect(transcript.volatileText == "I'll be ten")
+
+        transcript.update(partial: "I'll be ten minutes late,")
+        #expect(transcript.text == "I'll be ten minutes late,")
+        #expect(transcript.stableText == "I'll be ten")
+        #expect(transcript.volatileText == " minutes late,")
+
+        // Punctuation is part of the word: "late," -> "late." is a change.
+        transcript.update(partial: "I'll be ten minutes late. Start")
+        #expect(transcript.stableText == "I'll be ten minutes")
+        #expect(transcript.volatileText == " late. Start")
+        #expect(transcript.stableRevisionCount == 0)
     }
 
-    @Test("A revision replaces the tail after the retained tokens")
-    func retainedPrefixAndReplacedTail() throws {
+    @Test("A later decode that rewrites stable words shrinks the stable part and is counted")
+    func stableWordsCanChange() {
         var transcript = LiveTranscript()
-        try transcript.apply(revision(transcript, stable: 2, [" Send", " the", " rep", "or"]))
-        try transcript.apply(revision(transcript, retained: 2, stable: 3, [" report", " today"]))
-        #expect(transcript.text == "Send the report today")
-        #expect(transcript.stableText == "Send the report")
-        #expect(transcript.volatileText == " today")
+        transcript.update(partial: "I'll be ten minutes")
+        transcript.update(partial: "I'll be ten minutes late")
+        #expect(transcript.stableText == "I'll be ten minutes")
+
+        transcript.update(partial: "I'll be 10 minutes late, start")
+        #expect(transcript.text == "I'll be 10 minutes late, start")
+        #expect(transcript.stableText == "I'll be")
+        #expect(transcript.volatileText == " 10 minutes late, start")
+        #expect(transcript.stableRevisionCount == 1)
+
+        // Growing again without touching stable words is not a revision.
+        transcript.update(partial: "I'll be 10 minutes late, start the call")
+        #expect(transcript.stableText == "I'll be 10 minutes late, start")
+        #expect(transcript.stableRevisionCount == 1)
     }
 
     @Test("Once final, the overlay shows exactly the string that is pasted")
     func finalTextEqualsDisplayedText() throws {
         var transcript = LiveTranscript()
-        try transcript.apply(revision(transcript, stable: 1, [" J'ai", " dix", " minutes"]))
-        try transcript.apply(revision(transcript, retained: 2, stable: 2, [" minutes", " de", " retard", "."]))
-        try transcript.apply(revision(transcript, stable: transcript.pieces.count, [], terminal: true))
+        transcript.update(partial: "J'aurai dix minutes")
+        transcript.update(partial: "J'aurai dix minutes de retard")
+        let pasted = "J'aurai 10 minutes de retard, commencez l'appel sans moi."
+        transcript.finalize(pasted)
 
-        let pasted = try #require(transcript.finalText)
-        let displayed = transcript.stableText + transcript.volatileText
-        #expect(displayed == pasted)
-        #expect(pasted == "J'ai dix minutes de retard.")
+        let final = try #require(transcript.finalText)
+        #expect(final == pasted)
+        #expect(transcript.stableText + transcript.volatileText == pasted)
         #expect(transcript.volatileText.isEmpty)
-        // Trimmed exactly like a batch transcription.
-        #expect(pasted == pasted.trimmingCharacters(in: .whitespacesAndNewlines))
+        #expect(Array(final.unicodeScalars) == Array(pasted.unicodeScalars))
+
+        // A late partial decode cannot change the final text.
+        transcript.update(partial: "something else")
+        #expect(transcript.finalText == pasted)
     }
 
-    @Test("stableText + volatileText == text after every revision", arguments: [1, 2, 3, 4, 5])
-    func displayInvariant(seed: Int) throws {
-        // Deterministic pseudo-random revision sequences within the engine's contract.
-        var rng = SplitMix64(seed: UInt64(seed))
-        let words = [" le", " rapport", ",", " demain", " matin", " ?", "é", " café", "\u{301}", " <unk>", "<unk>",
-                     "\u{2581}word", " ", "\n", " 10h30", "."]
+    @Test("An empty final transcription leaves nothing to show")
+    func emptyFinal() {
         var transcript = LiveTranscript()
-        for step in 0..<40 {
-            let count = transcript.pieces.count
-            let retained = Int.random(in: transcript.stableCount...count, using: &rng)
-            let appended = (0..<Int.random(in: 0...4, using: &rng)).map { _ in words.randomElement(using: &rng)! }
-            let total = retained + appended.count
-            let terminal = step == 39
-            let stable = terminal ? total : Int.random(in: transcript.stableCount...max(transcript.stableCount, total), using: &rng)
-            try transcript.apply(Revision(previousCount: count, retainedCount: retained, stableCount: min(stable, total),
-                                          pieces: appended, isTerminal: terminal))
+        transcript.update(partial: "Hello")
+        transcript.finalize("")
+        #expect(transcript.isEmpty)
+        #expect(transcript.finalText == "")
+    }
+
+    @Test("stableText + volatileText == text after every update", arguments: [1, 2, 3, 4, 5])
+    func displayInvariant(seed: Int) {
+        var rng = SplitMix64(seed: UInt64(seed))
+        let vocabulary = ["le", "rapport,", "demain", "matin", "?", "café", "cafe\u{301}", "10h30.", "I'll", "",
+                          "  ", "\n", "Ça"]
+        var transcript = LiveTranscript()
+        var words: [String] = []
+        for _ in 0..<40 {
+            // Mostly grow, sometimes rewrite a few earlier words, like successive decodes.
+            if !words.isEmpty, Int.random(in: 0..<4, using: &rng) == 0 {
+                let index = Int.random(in: 0..<words.count, using: &rng)
+                words[index] = vocabulary.randomElement(using: &rng)!
+            }
+            words += (0..<Int.random(in: 0...3, using: &rng)).map { _ in vocabulary.randomElement(using: &rng)! }
+            let partial = words.joined(separator: Bool.random(using: &rng) ? " " : "  ")
+            transcript.update(partial: partial)
+            #expect(transcript.text == partial)
             #expect(transcript.stableText + transcript.volatileText == transcript.text)
         }
-        #expect(transcript.finalText == transcript.stableText + transcript.volatileText)
+        let final = words.joined(separator: " ")
+        transcript.finalize(final)
+        #expect(transcript.finalText == final)
+        #expect(transcript.stableText + transcript.volatileText == final)
     }
 
-    @Test("Unknown tokens are dropped, word boundaries become spaces, whitespace is trimmed")
-    func renderingMatchesBatchText() throws {
-        var transcript = LiveTranscript()
-        try transcript.apply(revision(transcript, stable: 0, [" ", "<unk>", "\u{2581}Bonjour", "<unk>", " Sarah", ",", " \n"]))
-        #expect(transcript.text == "Bonjour Sarah,")
-        #expect(transcript.volatileText == "Bonjour Sarah,")
-    }
-
-    @Test("A stable boundary inside a grapheme rounds down and keeps the invariant")
-    func boundaryInsideGrapheme() throws {
-        var transcript = LiveTranscript()
-        // "e" + combining acute accent form one character, "é", split across two tokens.
-        try transcript.apply(revision(transcript, stable: 1, [" cafe", "\u{301}"]))
-        #expect(transcript.text == "caf\u{e9}" || transcript.text == "cafe\u{301}")
-        #expect(transcript.stableText == "caf")
-        #expect(transcript.stableText + transcript.volatileText == transcript.text)
-    }
-
-    @Test("Revisions that break the contract are rejected and leave the transcript unchanged")
-    func invalidRevisions() throws {
-        var transcript = LiveTranscript()
-        try transcript.apply(revision(transcript, stable: 2, [" a", " b", " c"]))
-        let before = transcript
-
-        #expect(throws: LiveTranscript.RevisionError.outOfSequence(expected: 3, received: 2)) {
-            try transcript.apply(Revision(previousCount: 2, retainedCount: 2, stableCount: 2, pieces: [], isTerminal: false))
-        }
-        // Retiring a token already declared stable.
-        #expect(throws: LiveTranscript.RevisionError.invalidCounts) {
-            try transcript.apply(Revision(previousCount: 3, retainedCount: 1, stableCount: 2, pieces: [" x"], isTerminal: false))
-        }
-        // The stable prefix shrinking.
-        #expect(throws: LiveTranscript.RevisionError.invalidCounts) {
-            try transcript.apply(Revision(previousCount: 3, retainedCount: 3, stableCount: 1, pieces: [], isTerminal: false))
-        }
-        // A terminal revision must make everything stable.
-        #expect(throws: LiveTranscript.RevisionError.invalidCounts) {
-            try transcript.apply(Revision(previousCount: 3, retainedCount: 3, stableCount: 2, pieces: [], isTerminal: true))
-        }
-        #expect(transcript == before)
-
-        try transcript.apply(Revision(previousCount: 3, retainedCount: 3, stableCount: 3, pieces: [], isTerminal: true))
-        #expect(throws: LiveTranscript.RevisionError.alreadyFinal) {
-            try transcript.apply(Revision(previousCount: 3, retainedCount: 3, stableCount: 3, pieces: [], isTerminal: true))
-        }
-    }
-
-    @Test("FluidAudio token updates map to revisions")
-    func mapsSlidingWindowTokenUpdate() {
-        let update = SlidingWindowTokenUpdate(
-            tokens: [
-                TokenTiming(token: " Bonjour", tokenId: 10, startTime: 0.1, endTime: 0.4, confidence: 0.9),
-                TokenTiming(token: ",", tokenId: 11, startTime: 0.4, endTime: 0.5, confidence: 0.8),
-            ],
-            revision: SlidingWindowTokenRevision(
-                jobID: UUID(), ordinal: 3, previousTokenCount: 7, retainedTokenCount: 5, stableTokenCount: 6,
-                window: 0..<64_000, center: 16_000..<48_000, isTerminal: false
-            )
-        )
-        let revision = LiveTranscript.Revision(update)
-        #expect(revision == LiveTranscript.Revision(
-            previousCount: 7, retainedCount: 5, stableCount: 6, pieces: [" Bonjour", ","], isTerminal: false))
+    @Test("Words are separated by any whitespace; punctuation stays attached")
+    func wordRanges() {
+        let text = " Bonjour  Sarah,\nça va ?"
+        let words = LiveTranscript.wordRanges(in: text).map { String(text[$0]) }
+        #expect(words == ["Bonjour", "Sarah,", "ça", "va", "?"])
+        #expect(LiveTranscript.wordRanges(in: "").isEmpty)
+        #expect(LiveTranscript.wordRanges(in: "   ").isEmpty)
     }
 }
 
@@ -166,72 +130,62 @@ struct SplitMix64: RandomNumberGenerator {
     }
 }
 
-// MARK: - Session lifecycle
+// MARK: - Schedule
 
-/// Scriptable engine: the test publishes revisions and decides how `finish()` behaves.
-private actor FakeLiveEngine: LiveTranscriptionEngine {
-    enum FinishBehavior: Sendable {
-        /// Publish this terminal revision, then end the stream.
-        case finalize(LiveTranscript.Revision)
-        case fail(LiveTestError)
-        /// Never finalize (until cancelled).
-        case hang
-    }
-
-    private(set) var appended: [[Float]] = []
-    private(set) var finishCount = 0
-    private(set) var cancelCount = 0
-    private(set) var isStarted = false
-    private var continuation: AsyncThrowingStream<LiveTranscript.Revision, any Error>.Continuation?
-    private let startError: LiveTestError?
-    private var finishBehavior: FinishBehavior
-
-    init(startError: LiveTestError? = nil, finish: FinishBehavior = .hang) {
-        self.startError = startError
-        self.finishBehavior = finish
-    }
-
-    func setFinish(_ behavior: FinishBehavior) { finishBehavior = behavior }
-
-    func start() async throws -> AsyncThrowingStream<LiveTranscript.Revision, any Error> {
-        if let startError { throw startError }
-        let (stream, continuation) = AsyncThrowingStream<LiveTranscript.Revision, any Error>.makeStream()
-        self.continuation = continuation
-        isStarted = true
-        return stream
-    }
-
-    func append(_ samples: [Float]) { appended.append(samples) }
-
-    func finish() async throws {
-        finishCount += 1
-        switch finishBehavior {
-        case .finalize(let terminal):
-            continuation?.yield(terminal)
-            continuation?.finish()
-        case .fail(let error):
-            continuation?.finish(throwing: error)
-            throw error
-        case .hang:
-            while cancelCount == 0 { try? await Task.sleep(for: .milliseconds(2)) }
+@Suite("Live preview schedule")
+struct LivePreviewScheduleTests {
+    @Test("Decodes are spaced by max(minimum interval, factor × last decode duration)")
+    func spacing() {
+        let schedule = LivePreviewSchedule.default
+        #expect(schedule.minimumAudio == 1.0)
+        #expect(schedule.interval(afterDecodeLasting: 0.05) == 1.0)
+        #expect(schedule.interval(afterDecodeLasting: 0.25) == 1.0)
+        #expect(schedule.interval(afterDecodeLasting: 1.2) == 4.8)
+        // Duty cycle (decode time / spacing) stays at or under 1 / factor.
+        for duration in [0.01, 0.3, 2.0, 10.0] {
+            #expect(duration / schedule.interval(afterDecodeLasting: duration) <= 0.25)
         }
     }
-
-    func cancel() {
-        cancelCount += 1
-        continuation?.finish(throwing: CancellationError())
-    }
-
-    func emit(_ revision: LiveTranscript.Revision) { continuation?.yield(revision) }
-    func failStream(_ error: LiveTestError) { continuation?.finish(throwing: error) }
 }
 
-enum LiveTestError: Error, Equatable { case boom }
+// MARK: - Session
+
+/// Records what the session asks the decoder to do.
+private actor DecodeProbe {
+    private(set) var sampleCounts: [Int] = []
+    private(set) var inFlight = 0
+    private(set) var maxInFlight = 0
+    private(set) var cancelled = 0
+
+    func begin(_ count: Int) {
+        sampleCounts.append(count)
+        inFlight += 1
+        maxInFlight = max(maxInFlight, inFlight)
+    }
+
+    func end(cancelled wasCancelled: Bool) {
+        inFlight -= 1
+        if wasCancelled { cancelled += 1 }
+    }
+}
+
+private enum LiveTestError: Error { case boom }
+
+@MainActor
+private final class PendingFlag {
+    var isPending = true
+}
 
 @MainActor
 @Suite("Live transcription session")
 struct LiveTranscriptionSessionTests {
-    /// Poll until `condition` holds (fails the test after ~2 s).
+    /// Fast schedule: 0.1 s of sound before the first decode, decodes at least 10 ms apart.
+    private let schedule = LivePreviewSchedule(
+        minimumAudio: 0.1, minimumInterval: 0.01, durationFactor: 4, soundThreshold: 0.01, pollInterval: 0.002)
+    private let sound = [Float](repeating: 0.2, count: 800) // 50 ms
+    private let silence = [Float](repeating: 0, count: 800)
+
+    /// Poll until `condition` holds (records an issue after ~2 s).
     private func waitUntil(_ what: String, _ condition: () async -> Bool) async {
         for _ in 0..<1000 {
             if await condition() { return }
@@ -240,161 +194,186 @@ struct LiveTranscriptionSessionTests {
         Issue.record("Timed out waiting until \(what)")
     }
 
-    private func started(_ engine: FakeLiveEngine) -> LiveTranscriptionSession {
-        let session = LiveTranscriptionSession(engine: engine)
-        session.start()
-        return session
+    /// A decoder that returns "w1 … wN" for N = number of 50 ms chunks heard, after `delay`.
+    private func countingDecoder(_ probe: DecodeProbe, delay: Duration = .milliseconds(3)) -> Transcriber.PreviewDecoder {
+        Transcriber.PreviewDecoder { samples in
+            await probe.begin(samples.count)
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                await probe.end(cancelled: true)
+                throw error
+            }
+            await probe.end(cancelled: false)
+            return (1...max(1, samples.count / 800)).map { "w\($0)" }.joined(separator: " ")
+        }
     }
 
-    @Test("Samples reach the engine in order; finish returns the finalized transcript")
-    func finalizesWithTheStreamedText() async throws {
-        let engine = FakeLiveEngine()
-        let session = started(engine)
+    @Test("Nothing is decoded before enough sound; leading silence does not count")
+    func waitsForSound() async {
+        let probe = DecodeProbe()
+        let session = LiveTranscriptionSession(decoder: countingDecoder(probe), schedule: schedule)
+        session.start()
+        for _ in 0..<6 { session.sampleSink(silence) } // 0.3 s of silence
+        session.sampleSink(sound)                       // 0.05 s of sound
+        try? await Task.sleep(for: .milliseconds(60))
+        #expect(await probe.sampleCounts.isEmpty)
+
+        session.sampleSink(sound)                       // 0.1 s of sound
+        await waitUntil("a first decode") { await !probe.sampleCounts.isEmpty }
+        // The decode covers all the audio, leading silence included.
+        #expect(await probe.sampleCounts.first == 8 * 800)
+        session.stop()
+        await session.waitUntilStopped()
+    }
+
+    @Test("Each decode covers all the audio so far, one at a time, and updates the transcript")
+    func decodesGrowingBuffer() async {
+        let probe = DecodeProbe()
+        let session = LiveTranscriptionSession(decoder: countingDecoder(probe), schedule: schedule)
         var updates: [String] = []
         session.onUpdate = { updates.append($0.text) }
-
-        await waitUntil("the engine started") { await engine.isStarted }
-        session.sampleSink([0.1, 0.2])
-        session.sampleSink([0.3])
-        await engine.emit(.init(previousCount: 0, retainedCount: 0, stableCount: 1, pieces: [" Hello", " wor"], isTerminal: false))
-        await waitUntil("the first revision is shown") { session.transcript.text == "Hello wor" }
-
-        await engine.setFinish(.finalize(.init(previousCount: 2, retainedCount: 1, stableCount: 3,
-                                               pieces: [" world", "."], isTerminal: true)))
-        let final = await session.finish()
-
-        #expect(final?.finalText == "Hello world.")
-        #expect(final?.stableText == "Hello world.")
-        #expect(updates == ["Hello wor", "Hello world."])
-        #expect(await engine.appended == [[0.1, 0.2], [0.3]])
-        #expect(await engine.finishCount == 1)
-        #expect(await engine.cancelCount == 0)
-        #expect(session.failure == nil)
-    }
-
-    @Test("An engine error while recording clears the text, stops the engine and falls back")
-    func engineFailureFallsBack() async {
-        let engine = FakeLiveEngine()
-        let session = started(engine)
-        var failures = 0
-        session.onFailure = { _ in failures += 1 }
-
-        await waitUntil("the engine started") { await engine.isStarted }
-        await engine.emit(.init(previousCount: 0, retainedCount: 0, stableCount: 0, pieces: [" Hi"], isTerminal: false))
-        await waitUntil("text is shown") { !session.transcript.isEmpty }
-        await engine.failStream(.boom)
-        await waitUntil("the failure is reported") { failures == 1 }
-
-        #expect(session.transcript.isEmpty)
-        session.sampleSink([0.5]) // dropped: the session is over
-        #expect(await session.finish() == nil)
+        session.start()
+        for _ in 0..<10 {
+            session.sampleSink(sound)
+            try? await Task.sleep(for: .milliseconds(15))
+        }
+        await waitUntil("a decode of all 10 chunks") { await probe.sampleCounts.last == 10 * 800 }
+        await waitUntil("its update") { session.transcript.text.hasSuffix("w10") }
+        session.stop()
         await session.waitUntilStopped()
-        #expect(await engine.cancelCount == 1)
-        #expect(await engine.appended.isEmpty)
-        #expect(failures == 1)
+
+        let counts = await probe.sampleCounts
+        #expect(counts.count >= 2)
+        #expect(counts == counts.sorted())
+        #expect(await probe.maxInFlight == 1)
+        #expect(updates.last == (1...10).map { "w\($0)" }.joined(separator: " "))
+        #expect(session.transcript.stableText.hasPrefix("w1"))
     }
 
-    @Test("A revision out of sequence fails the session")
-    func brokenRevisionSequenceFallsBack() async {
-        let engine = FakeLiveEngine()
-        let session = started(engine)
-        await waitUntil("the engine started") { await engine.isStarted }
-        await engine.emit(.init(previousCount: 5, retainedCount: 0, stableCount: 0, pieces: [" x"], isTerminal: false))
-        await waitUntil("the failure is recorded") { session.failure != nil }
-        #expect(session.failure as? LiveTranscript.RevisionError == .outOfSequence(expected: 0, received: 5))
-        #expect(await session.finish() == nil)
-    }
+    @Test("Decodes are skipped while a final pass is pending, and resume after")
+    func pausesForFinalPass() async {
+        let probe = DecodeProbe()
+        let session = LiveTranscriptionSession(decoder: countingDecoder(probe), schedule: schedule)
+        let finalPass = PendingFlag()
+        session.canDecode = { !finalPass.isPending }
+        session.start()
+        for _ in 0..<4 { session.sampleSink(sound) }
+        try? await Task.sleep(for: .milliseconds(60))
+        #expect(await probe.sampleCounts.isEmpty)
 
-    @Test("A failure while finalizing falls back")
-    func finishFailureFallsBack() async {
-        let engine = FakeLiveEngine(finish: .fail(.boom))
-        let session = started(engine)
-        await waitUntil("the engine started") { await engine.isStarted }
-        await engine.emit(.init(previousCount: 0, retainedCount: 0, stableCount: 1, pieces: [" Hi"], isTerminal: false))
-        await waitUntil("text is shown") { !session.transcript.isEmpty }
-        #expect(await session.finish() == nil)
-        #expect(session.failure as? LiveTestError == .boom)
-    }
-
-    @Test("An engine that does not start falls back")
-    func startFailureFallsBack() async {
-        let engine = FakeLiveEngine(startError: .boom)
-        let session = started(engine)
-        await waitUntil("the failure is recorded") { session.failure != nil }
-        #expect(await session.finish() == nil)
-    }
-
-    @Test("An engine that does not finalize in time is cancelled and falls back")
-    func finishTimesOut() async {
-        let engine = FakeLiveEngine(finish: .hang)
-        let session = started(engine)
-        await waitUntil("the engine started") { await engine.isStarted }
-        await engine.emit(.init(previousCount: 0, retainedCount: 0, stableCount: 0, pieces: [" Hi"], isTerminal: false))
-        await waitUntil("text is shown") { !session.transcript.isEmpty }
-
-        #expect(await session.finish(timeout: .milliseconds(50)) == nil)
-        #expect(session.failure as? LiveTranscriptionError == .timedOut)
+        finalPass.isPending = false
+        await waitUntil("a decode") { await !probe.sampleCounts.isEmpty }
+        session.stop()
         await session.waitUntilStopped()
-        #expect(await engine.cancelCount == 1)
     }
 
-    @Test("A recording that ended before any text was shown is not flushed: batch transcribes it")
-    func nothingShownFallsBackWithoutFlushing() async {
-        let engine = FakeLiveEngine(finish: .finalize(.init(previousCount: 0, retainedCount: 0, stableCount: 1,
-                                                           pieces: [" late"], isTerminal: true)))
-        let session = started(engine)
-        await waitUntil("the engine started") { await engine.isStarted }
-        session.sampleSink([0.1])
-
-        #expect(await session.finish() == nil)
-        await session.waitUntilStopped()
-        #expect(await engine.finishCount == 0)
-        #expect(await engine.cancelCount == 1)
-        #expect(session.failure == nil)
-    }
-
-    @Test("Cancelling stops the engine and ignores anything it publishes afterwards")
-    func cancelStopsEverything() async {
-        let engine = FakeLiveEngine()
-        let session = started(engine)
+    @Test("Stopping abandons the decode in flight and ignores its result")
+    func stopAbandonsDecode() async {
+        let probe = DecodeProbe()
+        let session = LiveTranscriptionSession(decoder: countingDecoder(probe, delay: .seconds(5)), schedule: schedule)
         var updates = 0
-        var failures = 0
         session.onUpdate = { _ in updates += 1 }
-        session.onFailure = { _ in failures += 1 }
-        await waitUntil("the engine started") { await engine.isStarted }
+        session.start()
+        for _ in 0..<3 { session.sampleSink(sound) }
+        await waitUntil("a decode in flight") { await probe.inFlight == 1 }
 
-        session.cancel()
-        session.cancel() // idempotent
-        await engine.emit(.init(previousCount: 0, retainedCount: 0, stableCount: 0, pieces: [" late"], isTerminal: false))
-        session.sampleSink([0.1])
+        session.stop()
+        session.stop() // idempotent
+        session.sampleSink(sound) // dropped
         await session.waitUntilStopped()
 
-        #expect(await session.finish() == nil)
-        #expect(await engine.cancelCount == 1)
-        #expect(await engine.appended.isEmpty)
-        #expect(updates == 0 && failures == 0)
+        #expect(await probe.cancelled == 1)
+        #expect(await probe.inFlight == 0)
+        #expect(updates == 0)
         #expect(session.transcript.isEmpty)
+        #expect(session.failure == nil)
     }
 
-    @Test("Each recording starts from an empty transcript; a previous session cannot leak into it")
-    func noStaleTextBetweenRecordings() async {
-        let first = FakeLiveEngine()
-        let firstSession = started(first)
-        await waitUntil("the first engine started") { await first.isStarted }
-        await first.emit(.init(previousCount: 0, retainedCount: 0, stableCount: 1, pieces: [" first"], isTerminal: false))
-        await waitUntil("the first text is shown") { !firstSession.transcript.isEmpty }
-        firstSession.cancel()
+    @Test("A failed decode stops the preview and clears its text; nothing else is decoded")
+    func failureStopsPreview() async {
+        let probe = DecodeProbe()
+        var calls = 0
+        let decoder = Transcriber.PreviewDecoder { samples in
+            await probe.begin(samples.count)
+            await probe.end(cancelled: false)
+            if samples.count > 3 * 800 { throw LiveTestError.boom }
+            return "Hello there"
+        }
+        let session = LiveTranscriptionSession(decoder: decoder, schedule: schedule)
+        var failures = 0
+        session.onFailure = { _ in failures += 1 }
+        session.onUpdate = { _ in calls += 1 }
+        session.start()
+        for _ in 0..<3 { session.sampleSink(sound) }
+        await waitUntil("text is shown") { !session.transcript.isEmpty }
+        session.sampleSink(sound)
+        await waitUntil("the failure") { failures == 1 }
 
-        let second = FakeLiveEngine()
-        let secondSession = started(second)
-        #expect(secondSession.transcript.isEmpty)
-        #expect(secondSession.id != firstSession.id)
-        await first.emit(.init(previousCount: 1, retainedCount: 1, stableCount: 2, pieces: [" stale"], isTerminal: false))
-        await waitUntil("the second engine started") { await second.isStarted }
-        #expect(secondSession.transcript.isEmpty)
-        secondSession.cancel()
-        await firstSession.waitUntilStopped()
-        await secondSession.waitUntilStopped()
+        let decodes = await probe.sampleCounts.count
+        try? await Task.sleep(for: .milliseconds(40))
+        #expect(await probe.sampleCounts.count == decodes)
+        #expect(session.transcript.isEmpty)
+        #expect(session.isStopped)
+        #expect(session.failure is LiveTestError)
+        #expect(failures == 1)
+        await session.waitUntilStopped()
+    }
+
+    @Test("Each recording starts from an empty transcript; a stopped one cannot leak into it")
+    func noStaleTextBetweenRecordings() async {
+        let firstProbe = DecodeProbe()
+        let first = LiveTranscriptionSession(decoder: countingDecoder(firstProbe), schedule: schedule)
+        first.start()
+        for _ in 0..<3 { first.sampleSink(sound) }
+        await waitUntil("the first session shows text") { !first.transcript.isEmpty }
+        first.stop()
+
+        let second = LiveTranscriptionSession(decoder: countingDecoder(DecodeProbe()), schedule: schedule)
+        second.start()
+        #expect(second.transcript.isEmpty)
+        #expect(second.id != first.id)
+        first.sampleSink(sound)
+        await first.waitUntilStopped()
+        #expect(second.transcript.isEmpty)
+        second.stop()
+        await second.waitUntilStopped()
+    }
+}
+
+// MARK: - Transcriber and final passes
+
+@MainActor
+@Suite("Transcriber and live previews")
+struct TranscriberPreviewTests {
+    @Test("Final passes are counted while queued or running, so previews can pause for them")
+    func countsPendingTranscriptions() async {
+        let transcriber = Transcriber()
+        let (started, startedContinuation) = AsyncStream<Void>.makeStream()
+        let (release, releaseContinuation) = AsyncStream<Void>.makeStream()
+        transcriber.transcriptionHandler = { _, _ in
+            startedContinuation.yield()
+            for await _ in release { break }
+            return Transcriber.TranscriptionResult(text: "done", debugInfo: nil)
+        }
+        #expect(transcriber.pendingTranscriptions == 0)
+        let first = Task { @MainActor in await transcriber.transcribe(audioURL: URL(fileURLWithPath: "/tmp/a.wav")) }
+        for await _ in started { break }
+        let second = Task { @MainActor in await transcriber.transcribe(audioURL: URL(fileURLWithPath: "/tmp/b.wav")) }
+        while await transcriber.queuedTranscriptionCount < 1 { await Task.yield() }
+        #expect(transcriber.pendingTranscriptions == 2)
+
+        releaseContinuation.yield()
+        _ = await first.value
+        for await _ in started { break }
+        releaseContinuation.yield()
+        _ = await second.value
+        #expect(transcriber.pendingTranscriptions == 0)
+    }
+
+    @Test("Without an installed engine there is no live preview")
+    func noEngineNoPreview() {
+        #expect(Transcriber().makePreviewDecoder() == nil)
     }
 }
 
