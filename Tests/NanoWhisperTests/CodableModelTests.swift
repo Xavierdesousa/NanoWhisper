@@ -125,4 +125,47 @@ struct CodableModelTests {
         let legacy = Data(#"{"modelSize":"large-v3","promptText":""}"#.utf8)
         #expect(try JSONDecoder().decode(WhisperSettings.self, from: legacy).modelSize == .largev3)
     }
+
+    // MARK: - Removed Whisper Medium size
+
+    @Test("Stored Medium settings decode to Large v3 Turbo and keep the other fields")
+    func whisperSettingsMediumDecodes() throws {
+        let stored = Data(#"{"modelSize":"medium","language":"fr","promptText":"Kubernetes"}"#.utf8)
+        let settings = try JSONDecoder().decode(WhisperSettings.self, from: stored)
+        #expect(settings.modelSize == .largev3Turbo)
+        #expect(settings.language == "fr")
+        #expect(settings.promptText == "Kubernetes")
+    }
+
+    @Test("loadOrMigrate rewrites a stored Medium selection in UserDefaults")
+    func whisperSettingsMediumPersistedMigration() throws {
+        let defaults = makeDefaults()
+        let stored = Data(#"{"modelSize":"medium","language":"de","promptText":""}"#.utf8)
+        defaults.set(stored, forKey: WhisperSettings.defaultsKey)
+
+        let loaded = try #require(WhisperSettings.loadOrMigrate(from: defaults))
+        #expect(loaded.modelSize == .largev3Turbo)
+        #expect(loaded.language == "de")
+
+        let rewritten = try #require(defaults.data(forKey: WhisperSettings.defaultsKey))
+        let json = try #require(String(data: rewritten, encoding: .utf8))
+        #expect(json.contains("large-v3-turbo"))
+        #expect(!json.contains("medium"))
+        #expect(try JSONDecoder().decode(WhisperSettings.self, from: rewritten) == loaded)
+    }
+
+    @Test("loadOrMigrate leaves current settings untouched and returns nil when absent or invalid")
+    func whisperSettingsLoadOrMigrateNoOp() throws {
+        let defaults = makeDefaults()
+        #expect(WhisperSettings.loadOrMigrate(from: defaults) == nil)
+
+        let stored = Data(#"{"modelSize":"small","promptText":""}"#.utf8)
+        defaults.set(stored, forKey: WhisperSettings.defaultsKey)
+        #expect(WhisperSettings.loadOrMigrate(from: defaults)?.modelSize == .small)
+        #expect(defaults.data(forKey: WhisperSettings.defaultsKey) == stored)
+
+        let unknown = Data(#"{"modelSize":"gigantic","promptText":""}"#.utf8)
+        defaults.set(unknown, forKey: WhisperSettings.defaultsKey)
+        #expect(WhisperSettings.loadOrMigrate(from: defaults) == nil)
+    }
 }

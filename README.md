@@ -75,7 +75,7 @@ Word error rate published by FluidAudio ([benchmarks](https://github.com/FluidIn
 
 ### Whisper
 
-- **Model size** — Tiny (~75 MB), Base (~150 MB), Small (~490 MB), Medium (~1.5 GB), Large v3 (~3.1 GB), Large v3 Turbo (~630 MB, OpenAI's faster large-v3-turbo; good accuracy/speed balance)
+- **Model size** — Tiny (~75 MB), Base (~150 MB), Small (~490 MB), Large v3 Turbo (~630 MB, OpenAI's faster large-v3-turbo; good accuracy/speed balance), Large v3 (~3.1 GB). Medium was removed (no longer in WhisperKit's supported models); a saved Medium selection switches to Large v3 Turbo.
 - **Language** — auto-detect, or pick the spoken language (more reliable on short clips)
 - **Vocabulary hint** — words or names passed to Whisper as a prompt to bias recognition of technical terms or names
 

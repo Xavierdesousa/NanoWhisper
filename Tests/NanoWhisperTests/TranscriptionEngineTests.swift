@@ -56,7 +56,7 @@ struct TranscriptionEngineTests {
             ModelComparisonView(modelType: .whisper, whisperModelSize: size)
         }
         #expect(view(.largev3Turbo).speed.rawValue > view(.largev3).speed.rawValue)
-        let ordered: [WhisperModelSize] = [.tiny, .base, .small, .medium, .largev3]
+        let ordered: [WhisperModelSize] = [.tiny, .base, .small, .largev3Turbo, .largev3]
         let accuracies = ordered.map { view($0).accuracy.rawValue }
         #expect(accuracies == accuracies.sorted())
     }
@@ -109,8 +109,20 @@ struct TranscriptionEngineTests {
         #expect(WhisperModelSize.tiny.whisperKitModel == "openai_whisper-tiny")
         #expect(WhisperModelSize.base.whisperKitModel == "openai_whisper-base")
         #expect(WhisperModelSize.small.whisperKitModel == "openai_whisper-small")
-        #expect(WhisperModelSize.medium.whisperKitModel == "openai_whisper-medium")
         #expect(WhisperModelSize.largev3.whisperKitModel == "openai_whisper-large-v3")
+    }
+
+    @Test("Medium is no longer offered and its stored value maps to Large v3 Turbo")
+    func mediumRemoved() throws {
+        #expect(WhisperModelSize(rawValue: "medium") == nil)
+        #expect(!WhisperModelSize.allCases.map(\.whisperKitModel).contains("openai_whisper-medium"))
+        #expect(WhisperModelSize(persistedValue: "medium") == .largev3Turbo)
+        #expect(WhisperModelSize(persistedValue: "large-v3") == .largev3)
+        #expect(WhisperModelSize(persistedValue: "bogus") == nil)
+        #expect(try JSONDecoder().decode(WhisperModelSize.self, from: Data(#""medium""#.utf8)) == .largev3Turbo)
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(WhisperModelSize.self, from: Data(#""bogus""#.utf8))
+        }
     }
 
     @Test("Large v3 Turbo maps to OpenAI's v20240930 release in WhisperKit")
@@ -125,7 +137,7 @@ struct TranscriptionEngineTests {
     @Test("Model sizes keep their persisted raw values")
     func modelSizeRawValues() {
         #expect(WhisperModelSize.allCases.map(\.rawValue)
-                == ["tiny", "base", "small", "medium", "large-v3", "large-v3-turbo"])
+                == ["tiny", "base", "small", "large-v3", "large-v3-turbo"])
     }
 
     @Test("WhisperKit identifiers are unique")
@@ -229,7 +241,7 @@ struct TranscriptionEngineTests {
     @Test("WhisperSettings Codable roundtrip")
     func settingsCodable() throws {
         var settings = WhisperSettings()
-        settings.modelSize = .medium
+        settings.modelSize = .small
         settings.language = "fr"
         settings.promptText = "NanoWhisper CoreML"
 

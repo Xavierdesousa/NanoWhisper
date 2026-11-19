@@ -99,16 +99,42 @@ enum WhisperModelSize: String, Codable, CaseIterable {
     case tiny
     case base
     case small
-    case medium
     case largev3 = "large-v3"
     case largev3Turbo = "large-v3-turbo"
+
+    /// Sizes that were removed, mapped to their replacement. `medium` is not in WhisperKit's
+    /// supported-model list for any Mac; Large v3 Turbo is smaller (~630 MB vs ~1.5 GB),
+    /// faster and more accurate, and is the only multilingual model in that list between
+    /// Small and Large v3 (distil-large-v3 is English-only).
+    static let removedSizeReplacements: [String: WhisperModelSize] = ["medium": .largev3Turbo]
+
+    /// Parse a persisted raw value, mapping removed sizes to their replacement.
+    init?(persistedValue: String) {
+        if let size = WhisperModelSize(rawValue: persistedValue) {
+            self = size
+        } else if let replacement = Self.removedSizeReplacements[persistedValue] {
+            self = replacement
+        } else {
+            return nil
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+        guard let size = WhisperModelSize(persistedValue: raw) else {
+            throw DecodingError.dataCorruptedError(
+                in: container, debugDescription: "Unknown Whisper model size '\(raw)'"
+            )
+        }
+        self = size
+    }
 
     var displayName: String {
         switch self {
         case .tiny: return "Tiny"
         case .base: return "Base"
         case .small: return "Small"
-        case .medium: return "Medium"
         case .largev3: return "Large v3"
         case .largev3Turbo: return "Large v3 Turbo"
         }
@@ -120,7 +146,6 @@ enum WhisperModelSize: String, Codable, CaseIterable {
         case .tiny: return "~75 MB"
         case .base: return "~150 MB"
         case .small: return "~490 MB"
-        case .medium: return "~1.5 GB"
         case .largev3: return "~3.1 GB"
         case .largev3Turbo: return "~630 MB"
         }
@@ -145,6 +170,24 @@ struct WhisperSettings: Codable, Equatable {
     var modelSize: WhisperModelSize = .base
     var language: String? = nil // nil = auto-detect
     var promptText: String = "" // vocabulary hint / initial prompt
+
+    /// UserDefaults key holding the JSON-encoded settings.
+    static let defaultsKey = "whisperSettings"
+
+    /// Load the persisted settings. Removed model sizes decode to their replacement
+    /// (see `WhisperModelSize.removedSizeReplacements`); when that happens the migrated
+    /// settings are written back so the stored value no longer names the removed size.
+    static func loadOrMigrate(from defaults: UserDefaults) -> WhisperSettings? {
+        guard let data = defaults.data(forKey: defaultsKey),
+              let settings = try? JSONDecoder().decode(WhisperSettings.self, from: data) else { return nil }
+        struct StoredSize: Decodable { let modelSize: String? }
+        if let stored = try? JSONDecoder().decode(StoredSize.self, from: data).modelSize,
+           stored != settings.modelSize.rawValue,
+           let migrated = try? JSONEncoder().encode(settings) {
+            defaults.set(migrated, forKey: defaultsKey)
+        }
+        return settings
+    }
 
     /// Display string for the selected language
     var languageDisplayName: String {

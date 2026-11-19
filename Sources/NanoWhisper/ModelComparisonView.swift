@@ -43,7 +43,6 @@ struct ModelComparisonView: View {
             switch whisperModelSize {
             case .tiny, .base: return .high
             case .small, .largev3Turbo: return .medium
-            case .medium: return .low
             case .largev3: return .lowest
             }
         }
@@ -61,7 +60,7 @@ struct ModelComparisonView: View {
             case .tiny: return .lowest
             case .base: return .low
             case .small: return .medium
-            case .medium, .largev3Turbo: return .high
+            case .largev3Turbo: return .high
             case .largev3: return .highest
             }
         }
@@ -95,8 +94,6 @@ struct ModelComparisonView: View {
                 points.append("Small and fast, but noticeably less accurate than larger sizes")
             case .small:
                 points.append("Balanced size, speed and accuracy")
-            case .medium:
-                points.append("High accuracy, slow on long recordings")
             case .largev3:
                 points.append("Most accurate Whisper size, also the slowest and largest")
             case .largev3Turbo:

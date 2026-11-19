@@ -134,7 +134,7 @@ class AppState: ObservableObject {
     }
 
     private static let selectedModelKey = "selectedModelType"
-    private static let whisperSettingsKey = "whisperSettings"
+    private static let whisperSettingsKey = WhisperSettings.defaultsKey
 
     @Published var selectedModelType: TranscriptionModelType = .parakeet {
         didSet {
@@ -267,8 +267,8 @@ class AppState: ObservableObject {
            let model = TranscriptionModelType(rawValue: raw) {
             selectedModelType = model
         }
-        if let data = UserDefaults.standard.data(forKey: Self.whisperSettingsKey),
-           let settings = try? JSONDecoder().decode(WhisperSettings.self, from: data) {
+        // Also rewrites settings that still name a removed model size (e.g. Medium).
+        if let settings = WhisperSettings.loadOrMigrate(from: .standard) {
             whisperSettings = settings
         }
         // Existing installs keep Parakeet v3 (already on disk); new installs get Ultra.
