@@ -15,18 +15,24 @@ concurrency:
 
 jobs:
   ci:
-    runs-on: macos-26
+    runs-on: xcode-27
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Cache SPM dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .build/checkouts
           key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
           restore-keys: |
             spm-${{ runner.os }}-
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
 
       - name: Run tests
         run: swift test

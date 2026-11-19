@@ -1,6 +1,7 @@
 # Build artifacts
 .build/
 NanoWhisper.app/
+NanoWhisper Debug.app/
 
 # Xcode
 *.xcodeproj/
