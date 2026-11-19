@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 import FluidAudio
 import WhisperKit
+import os
 
 // MARK: - Serial gate
 
@@ -171,6 +172,21 @@ class Transcriber {
     struct TranscriptionResult {
         let text: String
         let debugInfo: TranscriptionDebugInfo?
+        /// Set when no text could be produced because the engine failed (`text` is then
+        /// empty). `nil` with empty text means the engine ran and recognized nothing.
+        var failure: TranscriptionFailure? = nil
+
+        static func failed(_ failure: TranscriptionFailure) -> TranscriptionResult {
+            TranscriptionResult(text: "", debugInfo: nil, failure: failure)
+        }
+    }
+
+    private static let logger = Logger(subsystem: BuildFlavor.current.logSubsystem, category: "Transcriber")
+
+    /// Log an engine error (never the audio or any text) and turn it into a failed result.
+    private static func failedResult(_ engineName: String, _ error: any Error) -> TranscriptionResult {
+        logger.error("\(engineName, privacy: .public) transcription failed: \(String(describing: error), privacy: .public)")
+        return .failed(.engineError)
     }
 
     // MARK: - Initialization
@@ -297,7 +313,8 @@ class Transcriber {
         case .parakeet(let manager):
             return await transcribeWithParakeet(manager: manager, audioURL: audioURL)
         case .none:
-            return TranscriptionResult(text: "", debugInfo: nil)
+            Self.logger.error("Transcription requested with no engine installed")
+            return .failed(.noEngine)
         }
     }
 
@@ -322,7 +339,7 @@ class Transcriber {
             )
             return TranscriptionResult(text: text, debugInfo: debugInfo)
         } catch {
-            return TranscriptionResult(text: "", debugInfo: nil)
+            return Self.failedResult("Parakeet", error)
         }
     }
 
@@ -353,7 +370,7 @@ class Transcriber {
             )
             return TranscriptionResult(text: text, debugInfo: debugInfo)
         } catch {
-            return TranscriptionResult(text: "", debugInfo: nil)
+            return Self.failedResult("Whisper", error)
         }
     }
 

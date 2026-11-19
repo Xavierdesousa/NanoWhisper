@@ -10,7 +10,7 @@ struct SubprocessOutput: Sendable, Equatable {
     }
 }
 
-/// Runs short-lived helper processes (perl, osascript) with an empty environment, off the
+/// Runs short-lived helper processes (`osascript`, for Now Playing) with an empty environment, off the
 /// caller's actor, never letting one hang.
 enum Subprocess {
     /// Runs `executable` to completion. Returns `nil` when it cannot start or does not exit
@@ -46,7 +46,7 @@ enum Subprocess {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
-        // No inherited PERL5LIB / PERL5OPT or locale settings.
+        // Nothing inherited from the app's environment (e.g. OSA_LIBRARY_PATH or locale settings).
         process.environment = [:]
         process.standardInput = FileHandle.nullDevice
         return process

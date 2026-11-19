@@ -17,11 +17,14 @@ Swift Testing (`@Suite`, `@Test`) in `Tests/NanoWhisperTests/`. CI runs `swift t
 | `OnboardingSettingsTests.swift` | Onboarding flow, launch options, permission status, Model section logic, dictation destination |
 | `BuildFlavorTests.swift` | Flavor resolution, paths, prefixes, shortcuts, `BuildInfo`, menu bar badge pixels (light and dark) |
 | `CodableModelTests.swift`, `GitHubReleaseTests.swift`, `VersionComparisonTests.swift` | Persistence formats, updater parsing and version comparison |
+| `TranscriptionFailureTests.swift` | Engine error and missing engine reported as a failure, not as empty text; `DictationOutcome` with a failure |
+| `HistoryStoreTests.swift` | Encrypted round trip (no plain text on disk), trimming, unreadable file ⇒ unavailable and never overwritten, plain-text file never read, pinned key derivation |
+| `LiveTranscriptionTests.swift`, `LiveTranscriptionFlavorTests.swift` | Live preview schedule, window, joins, transcript; availability per engine; debug-only flag and hidden toggle |
 | `ViewRenderTests.swift` | Offscreen renders (below); skipped unless `NANOWHISPER_RENDER_DIR` is set |
 
 Seams used by tests: `Transcriber.transcriptionHandler`, `Transcriber.installParakeet(_:)`,
 `MediaPlaybackController` and `NowPlayingSource` fakes, `SetupManager.migrateLegacyParakeetV3Cache(currentDirectory:)`,
-`SettingsContext` fixtures, `BuildFlavor(bundleIdentifier:)`, `AutoUpdater(isEnabled:)`.
+`SettingsContext` fixtures (`Fixtures` in `ViewRenderTests.swift`), `HistoryStore(fileURL:key:)`, `BuildFlavor(bundleIdentifier:)`, `AutoUpdater(isEnabled:)`.
 
 ## Techniques that work without a screen
 
@@ -30,7 +33,7 @@ Agents have **no screen capture**. These worked on 2026-11-19:
 1. **Offscreen PNG renders of SwiftUI views.**
    `NANOWHISPER_RENDER_DIR=<dir> swift test --filter ViewRender` writes every onboarding step and
    Settings in both engine modes (17 PNGs) to `<dir>`; read the PNGs to check layout. Views render
-   from fixed `SettingsContext` fixtures, so no running app is needed. PR #16 used the same
+   from fixed `SettingsContext` fixtures (`Fixtures` in `ViewRenderTests.swift`), `HistoryStore(fileURL:key:)`, so no running app is needed. PR #16 used the same
    approach for the overlay.
 2. **Standalone harnesses compiling the app's own sources.** Compile selected files from
    `Sources/NanoWhisper/` with a small `main.swift` against the same dependency versions, to run

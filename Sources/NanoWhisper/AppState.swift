@@ -1,111 +1,27 @@
 import SwiftUI
 import Combine
-import CryptoKit
 import ServiceManagement
 import os
-
-struct TranscriptionDebugInfo: Codable {
-    let audioDuration: Double?
-    let transcribeDuration: Double?
-    let rtf: Double?
-
-    enum CodingKeys: String, CodingKey {
-        case audioDuration = "audio_duration"
-        case transcribeDuration = "transcribe_duration"
-        case rtf
-    }
-}
-
-struct HistoryEntry: Codable, Identifiable {
-    let id: UUID
-    let text: String
-    let date: Date
-    var debugInfo: TranscriptionDebugInfo?
-
-    init(text: String, debugInfo: TranscriptionDebugInfo? = nil) {
-        self.id = UUID()
-        self.text = text
-        self.date = Date()
-        self.debugInfo = debugInfo
-    }
-}
-
-// MARK: - Encrypted history storage
-
-private enum HistoryCrypto {
-    private static let logger = Logger(subsystem: BuildFlavor.current.logSubsystem, category: "HistoryCrypto")
-    /// Key-derivation constant, not an identifier: changing it would make existing
-    /// history unreadable. Both builds keep it; their history files live in separate folders.
-    private static let salt = "com.moonji.nanowhisper.history.v1".data(using: .utf8)!
-
-    /// Derive a stable AES-256 key from the machine's hardware UUID via HKDF.
-    /// No Keychain needed — the key is deterministic and machine-bound.
-    static func symmetricKey() -> SymmetricKey? {
-        guard let uuid = hardwareUUID() else {
-            logger.error("Could not read hardware UUID")
-            return nil
-        }
-        let ikm = SymmetricKey(data: Data(uuid.utf8))
-        return HKDF<SHA256>.deriveKey(inputKeyMaterial: ikm, salt: salt, outputByteCount: 32)
-    }
-
-    /// Read the IOPlatformUUID (stable across reboots, unique per machine)
-    private static func hardwareUUID() -> String? {
-        let service = IOServiceGetMatchingService(kIOMainPortDefault,IOServiceMatching("IOPlatformExpertDevice"))
-        defer { IOObjectRelease(service) }
-        guard let uuid = IORegistryEntryCreateCFProperty(service, "IOPlatformUUID" as CFString, kCFAllocatorDefault, 0)?
-                .takeRetainedValue() as? String else { return nil }
-        return uuid
-    }
-
-
-    static func encrypt(_ data: Data) -> Data? {
-        guard let key = symmetricKey() else {
-            logger.error("Encryption failed — no symmetric key available")
-            return nil
-        }
-        guard let sealedBox = try? AES.GCM.seal(data, using: key),
-              let combined = sealedBox.combined else {
-            logger.error("AES-GCM seal failed")
-            return nil
-        }
-        return combined
-    }
-
-    static func decrypt(_ data: Data) -> Data? {
-        guard let key = symmetricKey() else {
-            logger.error("Decryption failed — no symmetric key available")
-            return nil
-        }
-        guard let sealedBox = try? AES.GCM.SealedBox(combined: data),
-              let decrypted = try? AES.GCM.open(sealedBox, using: key) else {
-            logger.error("AES-GCM open failed — data may be corrupted or key mismatch")
-            return nil
-        }
-        return decrypted
-    }
-}
 
 @MainActor
 class AppState: ObservableObject {
     @Published var isRecording = false
     @Published var isTranscribing = false
     @Published var isEngineReady = false
-    private var historyLoaded = false
-    @Published var history: [HistoryEntry] = [] {
-        didSet { if historyLoaded { saveHistory() } }
-    }
     @Published var lastError: String?
-    @Published var historyUnavailable = false
+
+    /// Encrypted history, loaded at launch (see `HistoryStore`).
+    let historyStore = HistoryStore()
+    /// Newest first. Setting it (the History window's delete and clear) saves it.
+    var history: [HistoryEntry] {
+        get { historyStore.entries }
+        set { historyStore.replaceEntries(newValue) }
+    }
+    /// The history file could not be decrypted (or encrypted): history is off until relaunch.
+    var historyUnavailable: Bool { historyStore.isUnavailable }
 
     private static let historyEnabledKey = "historyEnabled"
     private static let maxHistoryKey = "maxHistoryCount"
-    private static let historyFileURL: URL = {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = BuildFlavor.current.supportDirectory(in: appSupport)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("history.json")
-    }()
 
     @Published var launchAtLogin = false {
         didSet { updateLaunchAtLogin() }
@@ -164,9 +80,7 @@ class AppState: ObservableObject {
     @Published var maxHistoryCount: Int = 15 {
         didSet {
             UserDefaults.standard.set(maxHistoryCount, forKey: Self.maxHistoryKey)
-            if history.count > maxHistoryCount {
-                history = Array(history.prefix(maxHistoryCount))
-            }
+            historyStore.trim(to: maxHistoryCount)
         }
     }
 
@@ -213,7 +127,7 @@ class AppState: ObservableObject {
 
     init() {
         // Clean up any orphaned audio files from previous crashes
-        Self.cleanupOrphanedAudioFiles()
+        TemporaryRecordings.removeOrphans()
 
         recordingOverlay.onStop = { [weak self] in
             Task { @MainActor in
@@ -231,6 +145,13 @@ class AppState: ObservableObject {
         // Forward setupManager changes so SwiftUI re-renders menu bar
         setupManager.objectWillChange
             .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
+        // Forward history changes (entries, unavailable) so the menu and History window update
+        historyStore.objectWillChange
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
             }
@@ -257,14 +178,6 @@ class AppState: ObservableObject {
         // Check launch at login state
         if #available(macOS 13.0, *) {
             launchAtLogin = SMAppService.mainApp.status == .enabled
-        }
-
-        // Load persisted history
-        let loaded = Self.loadHistory()
-        history = loaded.entries
-        historyLoaded = true
-        if loaded.cryptoFailed {
-            historyUnavailable = true
         }
 
         // Sync settings
@@ -453,7 +366,7 @@ class AppState: ObservableObject {
 
         Task {
             defer {
-                Self.securelyDeleteFile(at: audioURL)
+                TemporaryRecordings.securelyDelete(at: audioURL)
                 // Resumes media only if no other recording session is open by now.
                 if let mediaSession { mediaController.endSession(mediaSession) }
             }
@@ -465,7 +378,8 @@ class AppState: ObservableObject {
             recordingOverlay.dismiss()
 
             switch DictationOutcome.resolve(
-                destination: destination, text: result.text, testBoxShowing: capturesTestTranscription
+                destination: destination, text: result.text, failure: result.failure,
+                testBoxShowing: capturesTestTranscription
             ) {
             case .showTestResult(let text):
                 testTranscription = text
@@ -476,16 +390,20 @@ class AppState: ObservableObject {
                 lastError = "Empty transcription"
                 sound.playNoResult()
                 return
+            case .failed(let failure):
+                if destination == .onboardingTest { testTranscription = nil } // no stale result
+                lastError = failure.message
+                sound.playNoResult()
+                return
             case .deliver:
                 break
             }
 
             if historyEnabled && !historyUnavailable {
-                let entry = HistoryEntry(text: result.text, debugInfo: result.debugInfo)
-                history.insert(entry, at: 0)
-                if history.count > maxHistoryCount {
-                    history.removeLast()
-                }
+                historyStore.add(
+                    HistoryEntry(text: result.text, debugInfo: result.debugInfo),
+                    keepingAtMost: maxHistoryCount
+                )
             }
             pasteManager.pasteText(result.text)
         }
@@ -545,61 +463,6 @@ class AppState: ObservableObject {
             parakeetVariant: parakeetVariant,
             whisperSettings: whisperSettings
         )
-    }
-
-    // MARK: - History persistence (encrypted)
-
-    private func saveHistory() {
-        guard let json = try? JSONEncoder().encode(history) else { return }
-        if let encrypted = HistoryCrypto.encrypt(json) {
-            try? encrypted.write(to: Self.historyFileURL)
-        } else {
-            // Encryption failed — do NOT write plaintext.
-            historyUnavailable = true
-        }
-    }
-
-    /// Returns `(entries, cryptoFailed)`. When the file exists but decryption fails,
-    /// `cryptoFailed` is `true` so the caller can surface the issue to the user.
-    private static func loadHistory() -> (entries: [HistoryEntry], cryptoFailed: Bool) {
-        guard let data = try? Data(contentsOf: historyFileURL) else { return ([], false) }
-
-        if let decrypted = HistoryCrypto.decrypt(data),
-           let entries = try? JSONDecoder().decode([HistoryEntry].self, from: decrypted) {
-            return (entries, false)
-        }
-
-        // Decryption failed — Keychain unavailable or key corrupted.
-        // Do NOT fall back to plaintext to avoid silent data exposure.
-        return ([], true)
-    }
-
-    // MARK: - Secure file operations
-
-    /// Overwrite a file with zeros before deleting it, preventing forensic recovery
-    private static func securelyDeleteFile(at url: URL) {
-        if let fileHandle = try? FileHandle(forWritingTo: url) {
-            let fileSize = fileHandle.seekToEndOfFile()
-            fileHandle.seek(toFileOffset: 0)
-            let zeroData = Data(count: Int(fileSize))
-            fileHandle.write(zeroData)
-            fileHandle.closeFile()
-        }
-        try? FileManager.default.removeItem(at: url)
-    }
-
-    /// Remove orphaned recordings left by a previous crash of this build. Only this
-    /// build's prefix is matched, so a recording in progress in the other build survives.
-    private static func cleanupOrphanedAudioFiles() {
-        let tempDir = FileManager.default.temporaryDirectory
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: tempDir,
-            includingPropertiesForKeys: nil
-        ) else { return }
-
-        for file in contents where BuildFlavor.current.ownsTemporaryAudioFile(named: file.lastPathComponent) {
-            securelyDeleteFile(at: file)
-        }
     }
 
     private func updateLaunchAtLogin() {

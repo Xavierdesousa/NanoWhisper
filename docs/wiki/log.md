@@ -5,6 +5,28 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-20
 
+- **Cleanup** (`chore/cleanup`, stacked on the live-debug-only PR):
+  - **History extracted** from `AppState` into `HistoryStore` (`HistoryStore.swift`, with
+    `HistoryEntry`, `TranscriptionDebugInfo`, `HistoryCrypto`); temp-recording deletion into
+    `TemporaryRecordings`. File format and key unchanged (key derivation pinned by a test).
+    One behavior tightening: while history is unavailable, no write happens at all (an open
+    History window could overwrite an unreadable file before). Stale Keychain comments fixed.
+    [architecture.md](architecture.md#history-storage).
+  - **Transcription errors surfaced:** `Transcriber` logs the error and returns
+    `TranscriptionResult.failure` (`TranscriptionFailure.engineError` / `.noEngine`) instead of
+    empty text; `DictationOutcome.failed` puts "Transcription failed…" in the menu error line
+    (overlay still dismissed, no-result sound). An empty result is unchanged ("Empty
+    transcription").
+  - **README:** Swift badge 6.2+; Gatekeeper first-launch steps for the non-notarized release
+    (Apple's "Open Anyway", or `xattr -dr com.apple.quarantine` on the app only); honest wording
+    for the history key; debug-only live transcription in the flavor table.
+  - **Leftovers:** `Subprocess` comments no longer mention perl. Remaining mentions of perl,
+    `mediaremote-adapter`, System Audio Recording, CodeQL, Whisper Medium and sliding-window
+    streaming are deliberate (rejected-alternative records in the wiki, the Medium migration in
+    code and README).
+  - Pages: [architecture.md](architecture.md), [testing-and-verification.md](testing-and-verification.md),
+    [open-questions.md](open-questions.md), `CLAUDE.md` source map.
+
 - **Live transcription made debug-only** (`feat/live-debug-only`): the maintainer found design
   problems in the overlay, so production hides the toggle and never starts a live session, even
   with `liveTranscriptionEnabled` stored on (the value is kept). One flag:

@@ -72,10 +72,11 @@ State in the PR what was not verified. See [testing](docs/wiki/testing-and-verif
 | Area | Files |
 |---|---|
 | App entry, menu bar | `NanoWhisperApp.swift` (`NanoWhisperApp`, `AppDelegate`), `MenuBarIcon.swift` |
-| Orchestration, state, history | `AppState.swift` (`AppState`, `HistoryCrypto`), `DictationDestination.swift` |
+| Orchestration, state | `AppState.swift` (`AppState`), `AppState+LiveTranscription.swift`, `DictationDestination.swift` (`DictationDestination`, `DictationOutcome`, `TranscriptionFailure`) |
+| History, temp recordings | `HistoryStore.swift` (`HistoryStore`, `HistoryCrypto`, `HistoryEntry`), `TemporaryRecordings.swift` |
 | Recording, hotkey, paste, sounds | `AudioRecorder.swift`, `HotkeyManager.swift`, `PasteManager.swift`, `SoundManager.swift` |
 | Overlay | `RecordingOverlay.swift` |
-| Transcription | `Transcriber.swift` (`Transcriber`, `WhisperEngine`, `SerialGate`), `TranscriptionEngine.swift` (model enums, `WhisperSettings`) |
+| Transcription | `Transcriber.swift` (`Transcriber`, `WhisperEngine`, `SerialGate`), `TranscriptionEngine.swift` (model enums, `WhisperSettings`), `LiveTranscription.swift` and `LiveTranscript.swift` (live preview, debug build only) |
 | Model download and cache | `SetupManager.swift` |
 | Media pause | `MediaController.swift`, `MediaPlaybackController.swift`, `NowPlayingPlaybackController.swift`, `MediaRemoteJXA.swift`, `Subprocess.swift` |
 | Settings and onboarding | `SettingsContext.swift`, `Settings*Section.swift`, `SettingsView.swift`, `OnboardingFlow.swift`, `OnboardingView.swift`, `Permissions.swift`, `ModelComparisonView.swift` |

@@ -16,6 +16,23 @@ enum DictationDestination: Equatable {
     }
 }
 
+/// Why a recording produced no text although something may have been said. Distinct from an
+/// empty result (the engine ran and recognized nothing).
+enum TranscriptionFailure: Error, Equatable, Sendable {
+    /// No engine was installed when the recording was submitted.
+    case noEngine
+    /// The engine threw; the underlying error is logged by `Transcriber`.
+    case engineError
+
+    /// The line shown in the menu.
+    var message: String {
+        switch self {
+        case .noEngine: return "Transcription failed: no model is loaded."
+        case .engineError: return "Transcription failed. Try again."
+        }
+    }
+}
+
 /// What to do with a finished transcription.
 enum DictationOutcome: Equatable {
     /// Show it in the Try-it box (may be empty: "Nothing was recognized").
@@ -26,14 +43,20 @@ enum DictationOutcome: Equatable {
     case noResult
     /// Normal dictation: save to history and paste.
     case deliver(String)
+    /// The engine failed: report the error (menu line), never as "Empty transcription".
+    case failed(TranscriptionFailure)
 
     static func resolve(
-        destination: DictationDestination, text: String, testBoxShowing: Bool
+        destination: DictationDestination, text: String, failure: TranscriptionFailure? = nil,
+        testBoxShowing: Bool
     ) -> DictationOutcome {
         switch destination {
         case .onboardingTest:
-            return testBoxShowing ? .showTestResult(text) : .discard
+            guard testBoxShowing else { return .discard }
+            if let failure { return .failed(failure) }
+            return .showTestResult(text)
         case .paste:
+            if let failure { return .failed(failure) }
             return text.isEmpty ? .noResult : .deliver(text)
         }
     }
