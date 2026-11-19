@@ -172,34 +172,85 @@ class Transcriber {
 
     // MARK: - Transcription
 
-    /// Transcribe one recording. Calls are queued and run one at a time, in order: a new
-    /// recording can finish while the previous one is still being transcribed.
+    /// Engine and settings a recording is transcribed with, captured when it is submitted.
+    struct Configuration: Sendable {
+        enum Engine: Sendable {
+            case none
+            case parakeet(AsrManager)
+            case whisper(WhisperEngine)
+        }
+
+        let engine: Engine
+        let whisperSettings: WhisperSettings?
+
+        var asrManager: AsrManager? {
+            if case .parakeet(let manager) = engine { return manager }
+            return nil
+        }
+    }
+
+    /// Engine and settings currently installed.
+    var currentConfiguration: Configuration {
+        let engine: Configuration.Engine
+        if let whisperEngine {
+            engine = .whisper(whisperEngine)
+        } else if let asrManager {
+            engine = .parakeet(asrManager)
+        } else {
+            engine = .none
+        }
+        return Configuration(engine: engine, whisperSettings: whisperSettings)
+    }
+
+    /// Test seam: replaces the actual inference for a queued recording.
+    var transcriptionHandler: ((Configuration, URL) async -> TranscriptionResult)?
+
+    /// Transcribe one recording.
     ///
-    /// - Parakeet: `AsrManager` is an actor, so overlapping calls would be data-race free and
-    ///   each has its own `TdtDecoderState`, but they would interleave at every `await` and
-    ///   share the manager's progress session and MLMultiArray cache.
-    /// - Whisper: `WhisperEngine` also serializes internally (it owns the non-Sendable kit).
-    /// Queuing here keeps the debug timings free of waiting time.
+    /// Contract:
+    /// - The recording is transcribed with the engine and settings in effect **when this method
+    ///   is called** (captured before any suspension), even if the model, language or vocabulary
+    ///   hint changes while it waits in the queue. A queued recording keeps its engine alive
+    ///   until it has been transcribed.
+    /// - Calls are queued and run one at a time, in submission order; none is dropped. A new
+    ///   recording can finish while the previous one is still being transcribed.
+    ///   - Parakeet: `AsrManager` is an actor, so overlapping calls would be data-race free and
+    ///     each has its own `TdtDecoderState`, but they would interleave at every `await` and
+    ///     share the manager's progress session and MLMultiArray cache.
+    ///   - Whisper: `WhisperEngine` also serializes internally (it owns the non-Sendable kit).
+    /// - Debug timings start once the recording leaves the queue.
     func transcribe(audioURL: URL) async -> TranscriptionResult {
+        let configuration = currentConfiguration
         await transcriptionGate.acquire()
         let result: TranscriptionResult
-        if whisperEngine != nil {
-            result = await transcribeWithWhisper(audioURL: audioURL)
-        } else if asrManager != nil {
-            result = await transcribeWithParakeet(audioURL: audioURL)
+        if let transcriptionHandler {
+            result = await transcriptionHandler(configuration, audioURL)
         } else {
-            result = TranscriptionResult(text: "", debugInfo: nil)
+            result = await transcribe(audioURL: audioURL, with: configuration)
         }
         await transcriptionGate.release()
         return result
     }
 
-    // MARK: - Parakeet
+    /// Recordings waiting behind the one being transcribed (exposed for tests).
+    var queuedTranscriptionCount: Int {
+        get async { await transcriptionGate.pendingCount }
+    }
 
-    private func transcribeWithParakeet(audioURL: URL) async -> TranscriptionResult {
-        guard let manager = asrManager else {
+    private func transcribe(audioURL: URL, with configuration: Configuration) async -> TranscriptionResult {
+        switch configuration.engine {
+        case .whisper(let engine):
+            return await transcribeWithWhisper(engine: engine, settings: configuration.whisperSettings, audioURL: audioURL)
+        case .parakeet(let manager):
+            return await transcribeWithParakeet(manager: manager, audioURL: audioURL)
+        case .none:
             return TranscriptionResult(text: "", debugInfo: nil)
         }
+    }
+
+    // MARK: - Parakeet
+
+    private func transcribeWithParakeet(manager: AsrManager, audioURL: URL) async -> TranscriptionResult {
         let audioDuration = Self.audioDuration(url: audioURL)
 
         let t0 = CFAbsoluteTimeGetCurrent()
@@ -224,10 +275,11 @@ class Transcriber {
 
     // MARK: - Whisper
 
-    private func transcribeWithWhisper(audioURL: URL) async -> TranscriptionResult {
-        guard let engine = whisperEngine else {
-            return TranscriptionResult(text: "", debugInfo: nil)
-        }
+    private func transcribeWithWhisper(
+        engine: WhisperEngine,
+        settings whisperSettings: WhisperSettings?,
+        audioURL: URL
+    ) async -> TranscriptionResult {
         let audioDuration = Self.audioDuration(url: audioURL)
         let t0 = CFAbsoluteTimeGetCurrent()
 
