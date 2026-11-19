@@ -27,7 +27,7 @@ import os
 /// previous send's process, so a read never misses the effect of the previous command.
 actor MediaRemoteJXA: NowPlayingSource {
     static let osascriptURL = URL(fileURLWithPath: "/usr/bin/osascript")
-    private static let logger = Logger(subsystem: "com.moonji.nanowhisper", category: "NowPlaying")
+    private static let logger = Logger(subsystem: BuildFlavor.current.logSubsystem, category: "NowPlaying")
 
     let timeout: TimeInterval
     /// Actors are reentrant: without it, a call could start while another awaits its process.
