@@ -49,7 +49,7 @@ private enum HistoryCrypto {
 
     /// Read the IOPlatformUUID (stable across reboots, unique per machine)
     private static func hardwareUUID() -> String? {
-        let service = IOServiceGetMatchingService(kIOMasterPortDefault, IOServiceMatching("IOPlatformExpertDevice"))
+        let service = IOServiceGetMatchingService(kIOMainPortDefault,IOServiceMatching("IOPlatformExpertDevice"))
         defer { IOObjectRelease(service) }
         guard let uuid = IORegistryEntryCreateCFProperty(service, "IOPlatformUUID" as CFString, kCFAllocatorDefault, 0)?
                 .takeRetainedValue() as? String else { return nil }
