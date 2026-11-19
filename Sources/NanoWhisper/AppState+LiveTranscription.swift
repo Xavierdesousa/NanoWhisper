@@ -10,7 +10,7 @@ extension AppState {
     static let liveTranscriptionKey = "liveTranscriptionEnabled"
 
     nonisolated private static var liveLogger: Logger {
-        Logger(subsystem: "com.moonji.nanowhisper", category: "LiveTranscription")
+        Logger(subsystem: BuildFlavor.current.logSubsystem, category: "LiveTranscription")
     }
 
     /// Start live transcription for a recording that is about to begin.

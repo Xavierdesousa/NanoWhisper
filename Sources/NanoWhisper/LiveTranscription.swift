@@ -128,7 +128,7 @@ enum LiveTranscriptionError: Error, Equatable {
 /// return `nil`, so the caller falls back to the batch transcription of the recording.
 @MainActor
 final class LiveTranscriptionSession {
-    nonisolated private static let logger = Logger(subsystem: "com.moonji.nanowhisper", category: "LiveTranscription")
+    nonisolated private static let logger = Logger(subsystem: BuildFlavor.current.logSubsystem, category: "LiveTranscription")
 
     let id = UUID()
     private(set) var transcript = LiveTranscript()
