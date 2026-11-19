@@ -1,4 +1,4 @@
-.PHONY: build app debug-bundle prod-bundle ci clean run notarize release release-zip-name publish test
+.PHONY: build app onboarding debug-bundle prod-bundle ci clean run notarize release release-zip-name publish test
 
 # Two flavors are built from the same executable and can run side by side:
 #   production  NanoWhisper.app        com.moonji.nanowhisper        (ci, release, notarize, publish)
@@ -93,6 +93,14 @@ app: debug-bundle
 	for i in $$(seq 50); do pgrep -x $(DEBUG_EXECUTABLE) >/dev/null || break; sleep 0.1; done
 	@open "$(DEBUG_APP)"
 	@echo "Done! $(DEBUG_APP) ($(GIT_COMMIT)) launched."
+
+# Same as `app`, but opens onboarding at launch (--onboarding). Settings are kept and
+# nothing is re-downloaded; the "onboarding completed" flag is left as it is.
+onboarding: debug-bundle
+	@pkill -x $(DEBUG_EXECUTABLE) 2>/dev/null; \
+	for i in $$(seq 50); do pgrep -x $(DEBUG_EXECUTABLE) >/dev/null || break; sleep 0.1; done
+	@open "$(DEBUG_APP)" --args --onboarding
+	@echo "Done! $(DEBUG_APP) ($(GIT_COMMIT)) launched with --onboarding."
 
 # CI build: production bundle, no launch (GitHub Actions)
 ci: prod-bundle
