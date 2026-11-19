@@ -290,11 +290,11 @@ class AppState: ObservableObject {
                 }
             }
         case .whisper:
-            guard let kit = setupManager.whisperKit else {
+            guard let engine = setupManager.whisperEngine else {
                 lastError = "Whisper model not loaded"
                 return
             }
-            transcriber.initializeWhisper(kit: kit, settings: whisperSettings)
+            transcriber.initializeWhisper(engine: engine, settings: whisperSettings)
             isEngineReady = true
         }
     }

@@ -1,6 +1,5 @@
 import Foundation
 import FluidAudio
-import WhisperKit
 
 @MainActor
 class SetupManager: ObservableObject {
@@ -10,10 +9,10 @@ class SetupManager: ObservableObject {
     @Published var setupError: String?
 
     private(set) var parakeetModels: AsrModels?
-    private(set) var whisperKit: WhisperKit?
+    private(set) var whisperEngine: WhisperEngine?
 
     var needsSetup: Bool {
-        parakeetModels == nil && whisperKit == nil
+        parakeetModels == nil && whisperEngine == nil
     }
 
     func runSetup(modelType: TranscriptionModelType, whisperSettings: WhisperSettings = WhisperSettings()) {
@@ -22,7 +21,7 @@ class SetupManager: ObservableObject {
         case .parakeet where parakeetModels != nil:
             setupComplete = true
             return
-        case .whisper where whisperKit != nil:
+        case .whisper where whisperEngine != nil:
             setupComplete = true
             return
         default:
@@ -54,7 +53,7 @@ class SetupManager: ObservableObject {
     /// Reset state to allow switching models
     func resetForModelSwitch() {
         parakeetModels = nil
-        whisperKit = nil
+        whisperEngine = nil
         setupComplete = false
         setupError = nil
         isSettingUp = false
@@ -75,12 +74,14 @@ class SetupManager: ObservableObject {
         self.parakeetModels = loadedModels
     }
 
-    private func handleParakeetProgress(_ progress: DownloadUtils.DownloadProgress) {
+    private func handleParakeetProgress(_ progress: DownloadProgress) {
         switch progress.phase {
         case .listing:
             setupProgress = "Preparing download..."
         case .downloading:
-            let percent = Int(progress.fractionCompleted * 100)
+            // ModelHub reports each model component as one operation where the download
+            // phase occupies the first half of `fractionCompleted` and compilation the rest.
+            let percent = Int(min(progress.fractionCompleted / 0.5, 1.0) * 100)
             setupProgress = "Downloading model (\(percent)%)..."
         case .compiling:
             setupProgress = "Compiling model..."
@@ -92,18 +93,9 @@ class SetupManager: ObservableObject {
     private func setupWhisper(settings: WhisperSettings) async throws {
         self.setupProgress = "Downloading Whisper \(settings.modelSize.displayName)..."
 
-        let config = WhisperKitConfig(
-            model: settings.modelSize.whisperKitModel,
-            verbose: false,
-            logLevel: .error,
-            prewarm: true,
-            load: true,
-            download: true
-        )
+        let engine = try await WhisperEngine(model: settings.modelSize.whisperKitModel)
 
-        let kit = try await WhisperKit(config)
-
-        self.whisperKit = kit
+        self.whisperEngine = engine
         self.setupProgress = "Whisper ready!"
     }
 }
