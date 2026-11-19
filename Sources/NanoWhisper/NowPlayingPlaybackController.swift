@@ -40,17 +40,20 @@ enum NowPlayingCommand: Int, Sendable {
 }
 
 /// Reads and commands the system Now Playing session. Must not block the caller's actor.
+/// Implemented by `MediaRemoteJXA`; another transport could be added behind it later.
 protocol NowPlayingSource: Sendable {
     func read() async -> NowPlayingReading
-    /// Sends `command` to the app that owns Now Playing. Returns whether it was delivered.
+    /// Sends `command` only if `session`'s app still owns Now Playing and is not already in
+    /// the requested state. Returns whether the command was issued.
     @discardableResult
-    func send(_ command: NowPlayingCommand) async -> Bool
+    func send(_ command: NowPlayingCommand, to session: NowPlayingSession) async -> Bool
 }
 
 /// `MediaPlaybackController` backed by the system Now Playing session (the media shown in
 /// Control Center), which covers native players and browser tabs alike.
 ///
-/// - Pauses with an explicit pause command, never a toggle, so it cannot start playback.
+/// - Reads the state first, then pauses with an explicit pause command, never a toggle, so it
+///   cannot start playback. Remembers what it paused only if the command was issued.
 /// - Resumes only the item it paused: when the session is still the same app process with
 ///   the same title, and is still paused. Anything else (another app or tab took over,
 ///   the player quit, the state cannot be read) leaves playback alone.
@@ -60,24 +63,21 @@ protocol NowPlayingSource: Sendable {
 ///   browser and music in a player), only the one owning Now Playing, usually the last one
 ///   started, is paused; the other keeps playing.
 /// - macOS routes a play command sent while no app owns Now Playing to Music, which it
-///   launches (measured on macOS 27.2). Play is only sent right after a reading showed our
-///   paused item, so this needs the player to quit within those few milliseconds.
+///   launches (measured on macOS 27.2). The source re-checks the owner right before sending,
+///   so this needs the player to quit within that instant.
 @MainActor
 final class NowPlayingPlaybackController: MediaPlaybackController {
-    private let source: NowPlayingSource?
+    private let source: NowPlayingSource
     /// Session seen by the last `playbackState()`, the one `pause()` acts on.
     private var observed: NowPlayingSession?
     /// Session we paused and have not resumed yet.
     private var paused: NowPlayingSession?
 
-    /// `source` is `nil` when the helper is not available (e.g. not running from the app
-    /// bundle): every answer is then `.unknown` and nothing is ever sent.
-    init(source: NowPlayingSource?) {
+    init(source: NowPlayingSource) {
         self.source = source
     }
 
     func playbackState() async -> MediaPlaybackState {
-        guard let source else { return .unknown }
         let reading = await source.read()
         if case .session(let session) = reading {
             observed = session
@@ -88,17 +88,19 @@ final class NowPlayingPlaybackController: MediaPlaybackController {
     }
 
     func pause() async {
-        guard let source, let target = observed, target.isPlaying else { return }
-        // Remembered even if delivery is not confirmed: resume() checks the live state anyway.
-        paused = target
-        await source.send(.pause)
+        guard let target = observed, target.isPlaying else { return }
+        // Not issued (state changed, or failure): nothing of ours to resume later.
+        if await source.send(.pause, to: target) {
+            paused = target
+        }
     }
 
     func resume() async {
-        guard let source, let target = paused else { return }
+        guard let target = paused else { return }
         paused = nil
-        guard Self.shouldResume(paused: target, now: await source.read()) else { return }
-        await source.send(.play)
+        let now = await source.read()
+        guard Self.shouldResume(paused: target, now: now), case .session(let current) = now else { return }
+        await source.send(.play, to: current)
     }
 
     /// Resume only when Now Playing still shows the item we paused, and it is still paused.

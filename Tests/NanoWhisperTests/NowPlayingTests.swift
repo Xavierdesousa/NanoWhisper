@@ -4,13 +4,17 @@ import Testing
 
 // MARK: - Fake Now Playing session
 
-/// Simulates the system Now Playing session: commands change the playing state of whatever
-/// session is current, like a real player would.
+/// Simulates the system Now Playing session and `MediaRemoteJXA.send`'s guard: a command is
+/// issued only if the target app owns Now Playing and is not already in the requested state;
+/// it then changes that state like a real player would.
 @MainActor
 private final class FakeNowPlaying: NowPlayingSource {
     var reading: NowPlayingReading
+    /// Commands actually issued.
     private(set) var sent: [NowPlayingCommand] = []
     private(set) var readCount = 0
+    /// When `false`, issued commands fail (`send` returns false, state unchanged).
+    var deliver = true
 
     init(_ reading: NowPlayingReading) {
         self.reading = reading
@@ -21,18 +25,21 @@ private final class FakeNowPlaying: NowPlayingSource {
         return reading
     }
 
-    func send(_ command: NowPlayingCommand) async -> Bool {
+    func send(_ command: NowPlayingCommand, to session: NowPlayingSession) async -> Bool {
+        guard case .session(let current) = reading,
+              current.processIdentifier == session.processIdentifier,
+              current.isPlaying != (command == .play),
+              deliver
+        else { return false }
         sent.append(command)
-        if case .session(let session) = reading {
-            reading = .session(session.with(isPlaying: command == .play))
-        }
+        reading = .session(current.with(isPlaying: command == .play))
         return true
     }
 }
 
 private extension NowPlayingSession {
-    static let vlc = NowPlayingSession(processIdentifier: 24655, bundleIdentifier: "org.videolan.vlc", title: "quiet.wav", isPlaying: true)
-    static let chrome = NowPlayingSession(processIdentifier: 25221, bundleIdentifier: "com.google.Chrome", title: "Some video - YouTube", isPlaying: true)
+    static let vlc = NowPlayingSession(processIdentifier: 41313, bundleIdentifier: "org.videolan.vlc", title: "quiet.wav", isPlaying: true)
+    static let chrome = NowPlayingSession(processIdentifier: 41652, bundleIdentifier: "com.google.Chrome", title: "NanoWhisper media test", isPlaying: true)
 
     func with(isPlaying: Bool) -> NowPlayingSession {
         NowPlayingSession(processIdentifier: processIdentifier, bundleIdentifier: bundleIdentifier, title: title, isPlaying: isPlaying)
@@ -47,66 +54,69 @@ private func output(_ stdout: String, stderr: String = "", status: Int32 = 0) ->
     SubprocessOutput(status: status, stdout: Data(stdout.utf8), stderr: Data(stderr.utf8))
 }
 
-// MARK: - Adapter output parsing
+// MARK: - Script output
 
-@Suite("mediaremote-adapter output")
-struct MediaRemoteAdapterParsingTests {
+@Suite("JXA script output")
+struct MediaRemoteJXAOutputTests {
 
-    @Test("null means no app owns Now Playing")
-    func nullIsNoSession() {
-        #expect(MediaRemoteAdapter.parseGetOutput(output("null\n")) == .noSession)
-    }
-
-    @Test("null with an error on stderr is a failure (MediaRemote timed out)")
-    func nullWithErrorFails() {
-        let out = output("null\n", stderr: "Reading now playing information timed out after 2000 milliseconds\n")
-        #expect(MediaRemoteAdapter.parseGetOutput(out) == .failed)
-    }
-
-    @Test("Native player playing (real output, VLC on macOS 27.2)")
-    func nativePlayerPlaying() {
-        let json = #"{"playbackRate":1,"album":"","trackNumber":0,"elapsedTime":0,"timestamp":"2026-11-19T13:27:17Z","bundleIdentifier":"org.videolan.vlc","processIdentifier":24655,"title":"quiet.wav","duration":600,"artist":"","contentItemIdentifier":"2F66D8BB-7862-417F-AA66-159C50636AB0","playing":true}"#
-        #expect(MediaRemoteAdapter.parseGetOutput(output(json + "\n")) == .session(.vlc))
+    @Test("No app owns Now Playing")
+    func noSession() {
+        #expect(MediaRemoteJXA.parse(output("null\n")) == .noSession)
     }
 
     @Test("Browser tab paused (real output, Chrome on macOS 27.2)")
     func browserPaused() {
-        let json = #"{"artist":"","timestamp":"2026-11-19T13:28:22Z","contentItemIdentifier":"5F1AEDC8-9D89-4682-8828-384B3A2F443B","title":"NanoWhisper media test","elapsedTime":8.2347560000000009,"bundleIdentifier":"com.google.Chrome","playing":false,"processIdentifier":25221,"duration":600,"playbackRate":0,"album":""}"#
-        let expected = NowPlayingSession(processIdentifier: 25221, bundleIdentifier: "com.google.Chrome", title: "NanoWhisper media test", isPlaying: false)
-        #expect(MediaRemoteAdapter.parseGetOutput(output(json)) == .session(expected))
+        let json = #"{"processIdentifier":41652,"playing":false,"bundleIdentifier":"com.google.Chrome","title":"NanoWhisper media test"}"#
+        #expect(MediaRemoteJXA.parse(output(json + "\n")) == .session(NowPlayingSession.chrome.with(isPlaying: false)))
+    }
+
+    @Test("Native player playing (VLC on macOS 27.2)")
+    func nativePlaying() {
+        let json = #"{"processIdentifier":41313,"playing":true,"bundleIdentifier":"org.videolan.vlc","title":"quiet.wav"}"#
+        #expect(MediaRemoteJXA.parse(output(json)) == .session(.vlc))
     }
 
     @Test("Title and bundle identifier are optional")
     func optionalFields() {
         let expected = NowPlayingSession(processIdentifier: 42, bundleIdentifier: nil, title: nil, isPlaying: true)
-        #expect(MediaRemoteAdapter.parseGetOutput(output(#"{"processIdentifier":42,"playing":true}"#)) == .session(expected))
+        #expect(MediaRemoteJXA.parse(output(#"{"processIdentifier":42,"playing":true}"#)) == .session(expected))
     }
 
-    @Test("A JSON payload with non-fatal warnings on stderr is still used")
-    func warningsWithPayload() {
-        let out = output(#"{"processIdentifier":42,"playing":false}"#, stderr: "Invalid JSON value type in dictionary for key 'x'\n")
-        #expect(MediaRemoteAdapter.parseGetOutput(out) == .session(NowPlayingSession(processIdentifier: 42, bundleIdentifier: nil, title: nil, isPlaying: false)))
+    @Test("Script error (real output: osascript exits 1)")
+    func scriptError() {
+        let out = output("", stderr: "execution error: Error: Error: unsupported arguments (-2700)", status: 1)
+        #expect(MediaRemoteJXA.parse(out) == .failed)
     }
 
-    @Test("Anything incomplete or unexpected is a failure", arguments: [
-        #"{"processIdentifier":42}"#,                      // no playing state
-        #"{"playing":true}"#,                              // no process
-        #"{"processIdentifier":0,"playing":true}"#,        // invalid pid
-        #"{"processIdentifier":42,"playing":"yes"}"#,      // not a boolean
-        #"{"processIdentifier":42,"playing":2}"#,          // not a boolean
-        #"{"processIdentifier":99999999999,"playing":true}"#, // pid out of range
-        "[]",
-        "",
-        "Failed to load framework: /x/MediaRemoteAdapter",
-    ])
-    func unexpectedOutput(stdout: String) {
-        #expect(MediaRemoteAdapter.parseGetOutput(output(stdout)) == .failed)
+    @Test("Anything on stderr is a failure, even with valid stdout")
+    func stderrFails() {
+        #expect(MediaRemoteJXA.parse(output("null", stderr: "warning")) == .failed)
+        #expect(MediaRemoteJXA.parse(output(#"{"processIdentifier":42,"playing":true}"#, stderr: "warning")) == .failed)
     }
 
     @Test("A non-zero exit status is a failure, whatever was printed")
     func nonZeroExit() {
-        #expect(MediaRemoteAdapter.parseGetOutput(output(#"{"processIdentifier":42,"playing":true}"#, status: 1)) == .failed)
-        #expect(MediaRemoteAdapter.parseGetOutput(output("null", status: 1)) == .failed)
+        #expect(MediaRemoteJXA.parse(output(#"{"processIdentifier":42,"playing":true}"#, status: 1)) == .failed)
+        #expect(MediaRemoteJXA.parse(output("null", status: 1)) == .failed)
+    }
+
+    @Test("Anything incomplete or unexpected is a failure", arguments: [
+        #"{"processIdentifier":42}"#,                          // no playing state
+        #"{"playing":true}"#,                                  // no process
+        #"{"processIdentifier":0,"playing":true}"#,            // invalid pid
+        #"{"processIdentifier":-1,"playing":false}"#,          // invalid pid
+        #"{"processIdentifier":42,"playing":"yes"}"#,          // not a boolean
+        #"{"processIdentifier":42,"playing":2}"#,              // not a boolean
+        #"{"processIdentifier":99999999999,"playing":true}"#,  // pid out of range
+        #"{"processIdentifier":"42","playing":true}"#,         // pid not a number
+        "[]",
+        "",
+        "undefined",
+        "skipped",
+        "null\nnull",
+    ])
+    func unexpectedOutput(stdout: String) {
+        #expect(MediaRemoteJXA.parse(output(stdout)) == .failed)
     }
 
     @Test("Failed reading answers unknown, no session answers not playing")
@@ -116,33 +126,33 @@ struct MediaRemoteAdapterParsingTests {
         #expect(NowPlayingReading.session(.vlc).playbackState == .playing)
         #expect(NowPlayingReading.session(.vlc.with(isPlaying: false)).playbackState == .notPlaying)
     }
-}
 
-// MARK: - Quarantine
-
-@Suite("mediaremote-adapter quarantine")
-struct MediaRemoteAdapterQuarantineTests {
-
-    @Test("Downloaded, unapproved framework is not loaded", arguments: ["0081;6afef9c7;Safari;79ABCCA2-5607-4C26-B9E8-A366C2621769", "0083;6afef9c7;Archive Utility;", "garbage", ""])
-    func blocked(value: String) {
-        #expect(MediaRemoteAdapter.quarantineBlocksLoading(value))
+    @Test("A command counts as issued only when the script prints `sent`", arguments: [
+        ("sent", true), ("skipped", false), ("not-sent", false), ("", false), ("execution error", false),
+    ])
+    func sentLine(line: String, expected: Bool) {
+        #expect(MediaRemoteJXA.isSent(line) == expected)
     }
 
-    @Test("User-approved framework is loaded")
-    func approved() {
-        #expect(!MediaRemoteAdapter.quarantineBlocksLoading("00c1;6afef9c7;Safari;79ABCCA2-5607-4C26-B9E8-A366C2621769"))
+    @Test("No output at all is not sent")
+    func noLine() {
+        #expect(!MediaRemoteJXA.isSent(nil))
     }
 
-    @Test("Reads the quarantine attribute of a file")
-    func readsAttribute() throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("nanowhisper-qtn-\(UUID().uuidString)")
-        try Data().write(to: url)
-        defer { try? FileManager.default.removeItem(at: url) }
-        #expect(MediaRemoteAdapter.quarantineValue(of: url) == nil)
+    @Test("Arguments: inline script, explicit play (0) / pause (1) and the target pid")
+    func arguments() {
+        #expect(MediaRemoteJXA.arguments("get") == ["-l", "JavaScript", "-e", MediaRemoteJXA.script, "get"])
+        #expect(MediaRemoteJXA.arguments("send", "1", "41313").suffix(3) == ["send", "1", "41313"])
+        #expect(NowPlayingCommand.play.rawValue == 0)
+        #expect(NowPlayingCommand.pause.rawValue == 1)
+    }
 
-        let value = "0081;6afef9c7;Safari;"
-        #expect(setxattr(url.path, "com.apple.quarantine", value, value.utf8.count, 0, 0) == 0)
-        #expect(MediaRemoteAdapter.quarantineValue(of: url) == value)
+    @Test("The script refuses the toggle and checks the target before sending")
+    func scriptGuards() {
+        let script = MediaRemoteJXA.script
+        #expect(script.contains("(argv[1] === '0' || argv[1] === '1')"))
+        #expect(script.contains("state.pid !== Number(argv[2]) || state.playing === play"))
+        #expect(!script.contains("'2'"))
     }
 }
 
@@ -211,20 +221,38 @@ struct NowPlayingPlaybackControllerTests {
         #expect(source.sent.isEmpty)
     }
 
-    @Test("Without the helper, the state is unknown and nothing is sent")
-    func noSource() async {
-        let controller = NowPlayingPlaybackController(source: nil)
-        #expect(await controller.playbackState() == .unknown)
-        await controller.pause()
-        await controller.resume()
-    }
-
     @Test("Never pauses when the last reading was not playing")
     func pauseWithoutPlaying() async {
         let source = FakeNowPlaying(.session(.vlc.with(isPlaying: false)))
         let controller = NowPlayingPlaybackController(source: source)
         _ = await controller.playbackState()
         await controller.pause()
+        await controller.resume()
+        #expect(source.sent.isEmpty)
+    }
+
+    @Test("A pause that was not issued is never resumed (the user paused in between)")
+    func pauseSkipped() async {
+        let source = FakeNowPlaying(.session(.vlc))
+        let controller = NowPlayingPlaybackController(source: source)
+        _ = await controller.playbackState()
+
+        source.reading = .session(.vlc.with(isPlaying: false)) // paused by the user meanwhile
+        await controller.pause()
+        await controller.resume()
+        #expect(source.sent.isEmpty)
+        #expect(source.reading == .session(.vlc.with(isPlaying: false)))
+    }
+
+    @Test("A pause that failed is never resumed")
+    func pauseFailed() async {
+        let source = FakeNowPlaying(.session(.vlc))
+        source.deliver = false
+        let controller = NowPlayingPlaybackController(source: source)
+        _ = await controller.playbackState()
+        await controller.pause()
+        source.deliver = true
+        source.reading = .session(.vlc.with(isPlaying: false))
         await controller.resume()
         #expect(source.sent.isEmpty)
     }
@@ -342,13 +370,26 @@ struct NowPlayingPlaybackControllerTests {
 
 @Suite("Subprocess")
 struct SubprocessTests {
+    private static let sh = URL(fileURLWithPath: "/bin/sh")
+
+    /// No such process, not even a zombie: it exited and was reaped.
+    private static func isGone(_ pid: Int32) -> Bool {
+        kill(pid, 0) == -1 && errno == ESRCH
+    }
 
     @Test("Captures exit status, stdout and stderr")
     func capturesOutput() async throws {
-        let out = try #require(await Subprocess.run(URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", "echo out; echo err >&2; exit 3"], timeout: 5))
+        let out = try #require(await Subprocess.run(Self.sh, arguments: ["-c", "echo out; echo err >&2; exit 3"], timeout: 5))
         #expect(out.status == 3)
         #expect(String(decoding: out.stdout, as: UTF8.self) == "out\n")
         #expect(out.stderrText == "err")
+    }
+
+    @Test("Passes arguments verbatim, without a shell")
+    func verbatimArguments() async throws {
+        let tricky = #"it's "quoted" $HOME `x` ; \n"#
+        let out = try #require(await Subprocess.run(URL(fileURLWithPath: "/bin/echo"), arguments: [tricky], timeout: 5))
+        #expect(String(decoding: out.stdout, as: UTF8.self) == tricky + "\n")
     }
 
     @Test("Runs with an empty environment")
@@ -368,12 +409,61 @@ struct SubprocessTests {
 
     @Test("Large output does not dead-lock")
     func largeOutput() async throws {
-        let out = try #require(await Subprocess.run(URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", "head -c 1000000 /dev/zero"], timeout: 5))
+        let out = try #require(await Subprocess.run(Self.sh, arguments: ["-c", "head -c 1000000 /dev/zero"], timeout: 5))
         #expect(out.stdout.count == 1_000_000)
     }
 
     @Test("A missing executable returns nil")
     func missingExecutable() async {
-        #expect(await Subprocess.run(URL(fileURLWithPath: "/nonexistent/perl"), arguments: [], timeout: 1) == nil)
+        #expect(await Subprocess.run(URL(fileURLWithPath: "/nonexistent/osascript"), arguments: [], timeout: 1) == nil)
+    }
+
+    // MARK: Background start (JXA send)
+
+    @Test("Returns the first line at once, then reaps the process when it exits")
+    func firstLineThenReaped() async throws {
+        let start = Date()
+        let (line, process) = await Subprocess.start(Self.sh, arguments: ["-c", "echo sent; sleep 0.4; echo done"], lineTimeout: 5, killAfter: 5)
+        #expect(line == "sent")
+        #expect(Date().timeIntervalSince(start) < 0.3, "must not wait for the process to finish")
+        let running = try #require(process)
+        let pid = running.processIdentifier
+        #expect(!Self.isGone(pid), "still running in the background")
+
+        #expect(await running.waitForExit(timeout: 3))
+        #expect(Self.isGone(pid))
+    }
+
+    @Test("A hung process is killed after killAfter and reaped")
+    func hungProcessKilled() async throws {
+        let (line, process) = await Subprocess.start(Self.sh, arguments: ["-c", "echo sent; exec sleep 30"], lineTimeout: 5, killAfter: 0.3)
+        #expect(line == "sent")
+        let running = try #require(process)
+        #expect(await running.waitForExit(timeout: 3))
+        #expect(Self.isGone(running.processIdentifier))
+    }
+
+    @Test("No line within the timeout: nil, and the process is killed")
+    func noLineKilled() async throws {
+        let start = Date()
+        let (line, process) = await Subprocess.start(Self.sh, arguments: ["-c", "exec sleep 30"], lineTimeout: 0.2, killAfter: 30)
+        #expect(line == nil)
+        #expect(Date().timeIntervalSince(start) < 1)
+        let running = try #require(process)
+        #expect(await running.waitForExit(timeout: 3))
+        #expect(Self.isGone(running.processIdentifier))
+    }
+
+    @Test("Exit without output gives nil")
+    func exitWithoutLine() async {
+        let (line, _) = await Subprocess.start(Self.sh, arguments: ["-c", "exit 1"], lineTimeout: 5, killAfter: 5)
+        #expect(line == nil)
+    }
+
+    @Test("A missing executable gives no line and no process")
+    func startMissingExecutable() async {
+        let (line, process) = await Subprocess.start(URL(fileURLWithPath: "/nonexistent/osascript"), arguments: [], lineTimeout: 1, killAfter: 1)
+        #expect(line == nil)
+        #expect(process == nil)
     }
 }

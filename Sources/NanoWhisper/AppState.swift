@@ -165,7 +165,7 @@ class AppState: ObservableObject {
     let onboardingWindow = OnboardingWindowController()
     let autoUpdater = AutoUpdater.shared
     let mediaController = MediaController(
-        playback: NowPlayingPlaybackController(source: MediaRemoteAdapter.bundled())
+        playback: NowPlayingPlaybackController(source: MediaRemoteJXA())
     )
     /// Media session of the recording in progress; handed to its transcription when it stops.
     private var recordingMediaSession: MediaController.Session?
