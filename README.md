@@ -110,6 +110,7 @@ Downloaded models are shared by both. `make app` only stops a running NanoWhispe
 | Target | Builds | Notes |
 |---|---|---|
 | `make app` | Debug | Launches it |
+| `make onboarding` | Debug | Launches it with `--onboarding` (shows onboarding again; settings and models are kept) |
 | `make run` | Debug | Runs the executable without a bundle |
 | `make ci` | Release | `NanoWhisper.app`, no launch (used by the release workflow) |
 | `make release` | Release | Also creates `NanoWhisper-v<version>.zip`; launches nothing |
