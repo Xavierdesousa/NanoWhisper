@@ -1,17 +1,10 @@
-.PHONY: build adapter app ci clean run notarize release test
+.PHONY: build app ci clean run notarize release test
 
 APP_NAME = NanoWhisper
 BUILD_DIR = .build/release
 APP_BUNDLE = $(APP_NAME).app
 SIGN_IDENTITY ?= Moonji Dev
 ENTITLEMENTS = Resources/NanoWhisper.entitlements
-
-# Now Playing helper (Vendor/mediaremote-adapter): framework loaded by /usr/bin/perl
-ADAPTER_DIR = Vendor/mediaremote-adapter
-ADAPTER_BUILD_DIR = .build/mediaremote-adapter
-ADAPTER_FRAMEWORK = $(ADAPTER_BUILD_DIR)/MediaRemoteAdapter.framework
-ADAPTER_BINARY = $(ADAPTER_FRAMEWORK)/Versions/A/MediaRemoteAdapter
-ADAPTER_SOURCES = $(shell find $(ADAPTER_DIR)/src $(ADAPTER_DIR)/include -type f)
 
 # Shared bundle creation and signing steps
 define BUNDLE_AND_SIGN
@@ -27,9 +20,6 @@ define BUNDLE_AND_SIGN
 	@cp Resources/start.m4a $(APP_BUNDLE)/Contents/Resources/
 	@cp Resources/stop.m4a $(APP_BUNDLE)/Contents/Resources/
 	@cp Resources/noResult.m4a $(APP_BUNDLE)/Contents/Resources/
-	@mkdir -p $(APP_BUNDLE)/Contents/Frameworks
-	@ditto $(ADAPTER_FRAMEWORK) $(APP_BUNDLE)/Contents/Frameworks/MediaRemoteAdapter.framework
-	@cp $(ADAPTER_DIR)/bin/mediaremote-adapter.pl $(APP_BUNDLE)/Contents/Resources/
 	@if [ -n "$(SIGN_IDENTITY)" ]; then \
 		codesign --force --deep --options runtime \
 			--entitlements $(ENTITLEMENTS) \
@@ -46,21 +36,14 @@ endef
 build:
 	swift build -c release
 
-# Build the Now Playing helper framework (rebuilt only when its sources change)
-adapter: $(ADAPTER_BINARY)
-
-$(ADAPTER_BINARY): $(ADAPTER_SOURCES) $(ADAPTER_DIR)/build-framework.sh $(ADAPTER_DIR)/LICENSE
-	@echo "Building MediaRemoteAdapter.framework..."
-	@$(ADAPTER_DIR)/build-framework.sh $(ADAPTER_BUILD_DIR)
-
 # Create the .app bundle and launch it
-app: build adapter
+app: build
 	$(BUNDLE_AND_SIGN)
 	@pkill -x $(APP_NAME) 2>/dev/null; sleep 0.3; open $(APP_BUNDLE)
 	@echo "Done! $(APP_BUNDLE) launched."
 
 # CI build: same as `app` but without launching (for GitHub Actions)
-ci: build adapter
+ci: build
 	$(BUNDLE_AND_SIGN)
 	@echo "Done! $(APP_BUNDLE) created."
 
@@ -95,4 +78,4 @@ test:
 # Clean build artifacts
 clean:
 	swift package clean
-	rm -rf $(APP_BUNDLE) $(ADAPTER_BUILD_DIR)
+	rm -rf $(APP_BUNDLE)
