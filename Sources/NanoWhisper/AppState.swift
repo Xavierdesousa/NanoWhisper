@@ -133,6 +133,15 @@ class AppState: ObservableObject {
         }
     }
 
+    /// Show the transcript in the overlay while recording, then paste that same text
+    /// (Parakeet only; see AppState+LiveTranscription.swift).
+    @Published var liveTranscriptionEnabled: Bool = false {
+        didSet { UserDefaults.standard.set(liveTranscriptionEnabled, forKey: Self.liveTranscriptionKey) }
+    }
+
+    /// Live transcription of the recording in progress, if any.
+    var liveSession: LiveTranscriptionSession?
+
     private static let selectedModelKey = "selectedModelType"
     private static let whisperSettingsKey = WhisperSettings.defaultsKey
 
@@ -256,6 +265,8 @@ class AppState: ObservableObject {
         } else {
             pauseMediaEnabled = UserDefaults.standard.bool(forKey: "pauseMediaEnabled")
         }
+        liveTranscriptionEnabled = UserDefaults.standard.bool(forKey: Self.liveTranscriptionKey)
+        observeTerminationForLiveTranscription()
 
         // Only auto-prompt accessibility on subsequent launches
         if !isFirstLaunch {
@@ -321,6 +332,8 @@ class AppState: ObservableObject {
     /// Switch model type and/or Parakeet variant, downloading and reloading as needed.
     /// Uses the current `parakeetVariant` and `whisperSettings` unless a variant is given.
     func switchModel(to modelType: TranscriptionModelType, parakeetVariant variant: ParakeetVariant? = nil) {
+        // A recording in progress keeps going; its live text stops (it holds the old models).
+        cancelLiveTranscription()
         isEngineReady = false
         transcriber.invalidatePendingInitialization()
         selectedModelType = modelType
@@ -368,11 +381,13 @@ class AppState: ObservableObject {
             mediaController.pauseIfPlaying()
         }
         sound.playStart()
+        let live = beginLiveTranscription() // nil unless enabled and on Parakeet
         do {
-            try audioRecorder.startRecording()
+            try audioRecorder.startRecording(onSamples: live?.sampleSink)
             isRecording = true
-            recordingOverlay.show(audioLevelPublisher: audioRecorder.audioLevelSubject)
+            recordingOverlay.show(audioLevelPublisher: audioRecorder.audioLevelSubject, transcriptID: live?.id)
         } catch {
+            cancelLiveTranscription()
             mediaController.resumeIfPaused()
             lastError = "Could not access the microphone. Check System Settings > Privacy > Microphone."
         }
@@ -381,8 +396,11 @@ class AppState: ObservableObject {
     func stopRecording() {
         sound.playStop()
         isRecording = false
+        let live = liveSession // finished by transcribeRecording, or cancelled below
+        liveSession = nil
         recordingOverlay.transitionToLoading()
         guard let audioURL = audioRecorder.stopRecording() else {
+            live?.cancel()
             lastError = "No audio recorded"
             recordingOverlay.dismiss()
             return
@@ -396,7 +414,8 @@ class AppState: ObservableObject {
                 mediaController.resumeIfPaused()
             }
 
-            let result = await transcriber.transcribe(audioURL: audioURL)
+            // Live text when it finalized, otherwise the batch pass as before.
+            let result = await transcribeRecording(at: audioURL, live: live)
             isTranscribing = false
             recordingOverlay.dismiss()
 

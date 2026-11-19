@@ -37,6 +37,13 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
+                Toggle("Live transcription (beta)", isOn: $appState.liveTranscriptionEnabled)
+                    .disabled(appState.selectedModelType != .parakeet)
+                Text(appState.selectedModelType == .parakeet
+                     ? "Shows the text while you speak, then pastes that text."
+                     : "Available with Parakeet only.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
 
             Section("Shortcut") {
