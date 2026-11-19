@@ -41,6 +41,28 @@ struct LivePreviewSchedule: Sendable, Equatable {
     }
 }
 
+// MARK: - Availability
+
+/// Which engines offer the live preview.
+///
+/// A preview decode still running when the recording stops must end at once, or it delays the
+/// text: the final pass waits for it (Whisper runs both on one engine). Measured on Apple
+/// Silicon: Parakeet and Whisper Base stop within ~10 ms; Whisper Large v3 Turbo only after
+/// ~0.6 s (its encoder pass cannot be interrupted), and its previews update every 3–7 s.
+/// Tiny is smaller than Base. Small is not measured, and Large v3 has Turbo's encoder.
+enum LiveTranscriptionSupport {
+    static let unavailableExplanation = "Not available with larger Whisper models: it would delay the text."
+
+    static func isAvailable(modelType: TranscriptionModelType, whisperModelSize: WhisperModelSize) -> Bool {
+        switch modelType {
+        case .parakeet:
+            return true
+        case .whisper:
+            return whisperModelSize == .tiny || whisperModelSize == .base
+        }
+    }
+}
+
 // MARK: - Window
 
 /// What the preview of a long recording decodes.

@@ -1,5 +1,11 @@
 import AppKit
 
+extension LiveTranscriptionSupport {
+    static func isAvailable(for configuration: EngineConfiguration) -> Bool {
+        isAvailable(modelType: configuration.modelType, whisperModelSize: configuration.whisperSettings.modelSize)
+    }
+}
+
 /// Live transcription (beta): while recording, the overlay shows repeated decodes of the audio
 /// so far; when the recording stops, it is transcribed exactly as with live transcription
 /// off, and the overlay shows that final text, which is the text pasted.
@@ -11,7 +17,10 @@ extension AppState {
     ///   transcription is off or no engine is installed.
     func beginLiveTranscription() -> LiveTranscriptionSession? {
         cancelLiveTranscription()
-        guard liveTranscriptionEnabled, let decoder = transcriber.makePreviewDecoder() else { return nil }
+        guard liveTranscriptionEnabled,
+              LiveTranscriptionSupport.isAvailable(for: engineConfiguration),
+              let decoder = transcriber.makePreviewDecoder()
+        else { return nil }
 
         let session = LiveTranscriptionSession(decoder: decoder)
         let id = session.id
@@ -42,7 +51,8 @@ extension AppState {
         recordingOverlay.updateTranscript(nil, for: session.id)
     }
 
-    /// Show a recording's final transcription in its live preview: the exact string pasted.
+    /// Show a recording's final transcription in its live preview: the exact string delivered
+    /// (pasted and saved, or shown in onboarding's Try-it box for a test).
     func showFinalLiveText(_ text: String, for session: LiveTranscriptionSession?) {
         guard let session, session.failure == nil else { return }
         var transcript = session.transcript

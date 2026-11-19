@@ -149,6 +149,30 @@ struct LivePreviewScheduleTests {
     }
 }
 
+// MARK: - Availability
+
+@Suite("Live transcription availability")
+struct LiveTranscriptionSupportTests {
+    @Test("Parakeet and the small Whisper models; not the large Whisper models")
+    func availability() {
+        #expect(LiveTranscriptionSupport.isAvailable(modelType: .parakeet, whisperModelSize: .largev3))
+        let available = WhisperModelSize.allCases.filter {
+            LiveTranscriptionSupport.isAvailable(modelType: .whisper, whisperModelSize: $0)
+        }
+        #expect(available == [.tiny, .base])
+    }
+
+    @Test("Settings follow the applied engine")
+    func followsAppliedEngine() {
+        var whisper = WhisperSettings()
+        whisper.modelSize = .largev3Turbo
+        #expect(!LiveTranscriptionSupport.isAvailable(
+            for: EngineConfiguration(modelType: .whisper, parakeetVariant: .ultra, whisperSettings: whisper)))
+        #expect(LiveTranscriptionSupport.isAvailable(
+            for: EngineConfiguration(modelType: .parakeet, parakeetVariant: .ultra, whisperSettings: whisper)))
+    }
+}
+
 // MARK: - Window for long recordings
 
 @Suite("Live preview window")
