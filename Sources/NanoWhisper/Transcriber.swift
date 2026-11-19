@@ -63,13 +63,15 @@ actor WhisperEngine {
     /// - Parameter prompt: optional vocabulary hint, passed to the decoder as Whisper's
     ///   previous-context prompt (`<|startofprev|>` + tokens) to bias spelling of names and terms.
     func transcribe(audioPath: String, options: DecodingOptions, prompt: String? = nil) async throws -> String {
-        try await transcribe(.path(audioPath), options: options, prompt: prompt)
+        try await transcribe(.path(audioPath), options: options, prompt: prompt).text
     }
 
     /// Transcribe 16 kHz mono samples (live preview of a recording in progress), like
-    /// `transcribe(audioPath:options:prompt:)`. Stops early when the calling task is cancelled.
-    func transcribe(audioArray: [Float], options: DecodingOptions, prompt: String? = nil) async throws -> String {
-        try await transcribe(.samples(audioArray), options: options, prompt: prompt)
+    /// `transcribe(audioPath:options:prompt:)`, with the timed segments. Stops early when the
+    /// calling task is cancelled.
+    func transcribePreview(audioArray: [Float], options: DecodingOptions, prompt: String? = nil) async throws -> Transcriber.PreviewResult {
+        let (text, pieces) = try await transcribe(.samples(audioArray), options: options, prompt: prompt)
+        return Transcriber.PreviewResult(text: text, pieces: pieces)
     }
 
     private enum Audio {
@@ -77,12 +79,14 @@ actor WhisperEngine {
         case samples([Float])
     }
 
-    private func transcribe(_ audio: Audio, options: DecodingOptions, prompt: String?) async throws -> String {
+    private func transcribe(
+        _ audio: Audio, options: DecodingOptions, prompt: String?
+    ) async throws -> (text: String, pieces: [Transcriber.TimedText]) {
         await gate.acquire()
         do {
-            let text = try await transcribeNow(audio, options: options, prompt: prompt)
+            let result = try await transcribeNow(audio, options: options, prompt: prompt)
             await gate.release()
-            return text
+            return result
         } catch {
             await gate.release()
             throw error
@@ -90,7 +94,9 @@ actor WhisperEngine {
     }
 
     /// Must only run while holding `gate`.
-    private func transcribeNow(_ audio: Audio, options: DecodingOptions, prompt: String?) async throws -> String {
+    private func transcribeNow(
+        _ audio: Audio, options: DecodingOptions, prompt: String?
+    ) async throws -> (text: String, pieces: [Transcriber.TimedText]) {
         var options = options
         if let prompt, let tokenizer = kit.tokenizer,
            let tokens = Self.promptTokens(
@@ -108,7 +114,19 @@ actor WhisperEngine {
         case .samples(let samples):
             results = try await kit.transcribe(audioArray: samples, decodeOptions: options)
         }
-        return results.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = results.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        let pieces = results.flatMap(\.segments).compactMap { segment -> Transcriber.TimedText? in
+            let text = Self.plainText(segment.text)
+            guard !text.isEmpty else { return nil }
+            return Transcriber.TimedText(text: text, start: Double(segment.start), end: Double(segment.end))
+        }
+        return (text, pieces)
+    }
+
+    /// Segment text without Whisper's special tokens (`<|0.00|>`, `<|en|>`…).
+    nonisolated static func plainText(_ text: String) -> String {
+        text.replacingOccurrences(of: "<\\|[^|]*\\|>", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Encode a vocabulary hint the way WhisperKit's own CLI does: a leading space (Whisper's
@@ -352,9 +370,40 @@ class Transcriber {
 
     // MARK: - Live preview
 
-    /// Decodes all the audio of a recording in progress for the live preview.
+    /// A stretch of text with its time span in seconds.
+    struct TimedText: Sendable, Equatable {
+        var text: String
+        var start: Double
+        var end: Double
+    }
+
+    /// A preview decode: the text, and the same text in timed pieces (words for Parakeet,
+    /// segments for Whisper; times from the start of the decoded audio).
+    struct PreviewResult: Sendable, Equatable {
+        var text: String
+        var pieces: [TimedText]
+    }
+
+    /// Decodes audio of a recording in progress for the live preview.
     struct PreviewDecoder: Sendable {
-        let decode: @Sendable ([Float]) async throws -> String
+        let decode: @Sendable ([Float]) async throws -> PreviewResult
+    }
+
+    /// Words of a Parakeet transcription with their times. A token whose text starts with a
+    /// space starts a word; punctuation and word continuations attach to the previous word.
+    nonisolated static func words(from timings: [TokenTiming]) -> [TimedText] {
+        var words: [TimedText] = []
+        for timing in timings {
+            let piece = timing.token
+            if piece.hasPrefix(" ") || words.isEmpty {
+                words.append(TimedText(text: piece.trimmingCharacters(in: .whitespaces),
+                                       start: timing.startTime, end: timing.endTime))
+            } else {
+                words[words.count - 1].text += piece
+                words[words.count - 1].end = timing.endTime
+            }
+        }
+        return words.filter { !$0.text.isEmpty }
     }
 
     /// A decoder for live previews of the next recording, on a snapshot of the engine and
@@ -376,13 +425,16 @@ class Transcriber {
             return PreviewDecoder { samples in
                 var decoderState = TdtDecoderState.make(decoderLayers: await manager.decoderLayerCount)
                 let result = try await manager.transcribe(samples, decoderState: &decoderState)
-                return result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                return PreviewResult(
+                    text: result.text.trimmingCharacters(in: .whitespacesAndNewlines),
+                    pieces: Self.words(from: result.tokenTimings ?? [])
+                )
             }
         case .whisper(let engine):
             let settings = whisperSettings
             let options = Self.decodingOptions(for: settings)
             return PreviewDecoder { samples in
-                try await engine.transcribe(audioArray: samples, options: options, prompt: settings?.promptText)
+                try await engine.transcribePreview(audioArray: samples, options: options, prompt: settings?.promptText)
             }
         case .none:
             return nil

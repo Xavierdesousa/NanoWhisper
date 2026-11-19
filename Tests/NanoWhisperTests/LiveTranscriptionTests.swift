@@ -1,4 +1,5 @@
 import AppKit
+import FluidAudio
 import Foundation
 import Testing
 @testable import NanoWhisper
@@ -148,6 +149,116 @@ struct LivePreviewScheduleTests {
     }
 }
 
+// MARK: - Window for long recordings
+
+@Suite("Live preview window")
+struct LivePreviewWindowTests {
+    /// A synthetic recording: 0.35 s words 0.1 s apart, with a 0.6 s pause every 7 words.
+    private struct Timeline {
+        var words: [Transcriber.TimedText] = []
+        init(seconds: Double) {
+            var time = 0.3
+            var index = 0
+            while time < seconds {
+                words.append(.init(text: "w\(index)", start: time, end: time + 0.35))
+                index += 1
+                time += 0.35 + (index % 7 == 0 ? 0.6 : 0.1)
+            }
+        }
+
+        /// What a decoder returns for the audio from `start` to `end`: the words whose middle
+        /// is in it (a word cut at the end still comes out), placed `jitter` seconds off,
+        /// with times relative to `start`.
+        func decode(from start: Double, to end: Double, jitter: Double) -> Transcriber.PreviewResult {
+            let heard = words.filter { ($0.start + $0.end) / 2 >= start && ($0.start + $0.end) / 2 < end }
+            let pieces = heard.map {
+                Transcriber.TimedText(text: $0.text, start: max(0, $0.start - start + jitter), end: $0.end - start + jitter)
+            }
+            return .init(text: pieces.map(\.text).joined(separator: " "), pieces: pieces)
+        }
+
+        /// The text a decode of everything up to `end` would show.
+        func expected(upTo end: Double) -> String {
+            decode(from: 0, to: end, jitter: 0).text
+        }
+    }
+
+    @Test("Short recordings are decoded whole and shown as decoded")
+    func fullDecodeBelowLimit() {
+        var window = LivePreviewWindow(schedule: .default)
+        let timeline = Timeline(seconds: 30)
+        for duration in stride(from: 2.0, through: 30, by: 1) {
+            #expect(window.decodeStart(forDuration: duration) == 0)
+            let result = timeline.decode(from: 0, to: duration, jitter: 0)
+            #expect(window.text(for: result, decodedFrom: 0) == result.text)
+        }
+        #expect(!window.isWindowed)
+    }
+
+    @Test("Past the limit the decoded audio stays bounded, and the joins neither repeat nor drop words",
+          arguments: [0.0, 0.05, -0.05])
+    func windowJoinsCleanly(jitter: Double) {
+        let schedule = LivePreviewSchedule.default
+        var window = LivePreviewWindow(schedule: schedule)
+        let timeline = Timeline(seconds: 245)
+        var step = 0
+        for duration in stride(from: 2.0, through: 240, by: 1.1) {
+            let start = window.decodeStart(forDuration: duration)
+            // Decodes place words slightly differently each time.
+            let result = timeline.decode(from: start, to: duration, jitter: step % 2 == 0 ? jitter : -jitter)
+            let shown = window.text(for: result, decodedFrom: start)
+            #expect(shown == timeline.expected(upTo: duration), "at \(duration) s")
+            if duration > schedule.fullDecodeLimit {
+                #expect(duration - start <= schedule.windowLimit + 1.1, "decoded \(duration - start) s at \(duration) s")
+            }
+            step += 1
+        }
+        #expect(window.isWindowed)
+        #expect(window.boundary > 200)
+    }
+
+    @Test("Silence past the limit moves the window on without freezing anything")
+    func silenceMovesWindow() {
+        var window = LivePreviewWindow(schedule: .default)
+        let empty = Transcriber.PreviewResult(text: "", pieces: [])
+        for duration in stride(from: 2.0, through: 90, by: 1) {
+            let start = window.decodeStart(forDuration: duration)
+            #expect(window.text(for: empty, decodedFrom: start) == "")
+            if duration > LivePreviewSchedule.default.fullDecodeLimit {
+                #expect(duration - start <= LivePreviewSchedule.default.windowLimit + 1)
+            }
+        }
+        #expect(window.frozenText.isEmpty)
+    }
+}
+
+@Suite("Preview decoder pieces")
+struct PreviewPiecesTests {
+    @Test("Parakeet tokens group into words; punctuation and continuations attach")
+    func parakeetWords() {
+        let timings = [
+            TokenTiming(token: " Bon", tokenId: 1, startTime: 0.0, endTime: 0.2, confidence: 1),
+            TokenTiming(token: "jour", tokenId: 2, startTime: 0.2, endTime: 0.4, confidence: 1),
+            TokenTiming(token: " Sarah", tokenId: 3, startTime: 0.5, endTime: 0.9, confidence: 1),
+            TokenTiming(token: ",", tokenId: 4, startTime: 0.9, endTime: 0.95, confidence: 1),
+            TokenTiming(token: " ça", tokenId: 5, startTime: 1.2, endTime: 1.4, confidence: 1),
+        ]
+        #expect(Transcriber.words(from: timings) == [
+            .init(text: "Bonjour", start: 0.0, end: 0.4),
+            .init(text: "Sarah,", start: 0.5, end: 0.95),
+            .init(text: "ça", start: 1.2, end: 1.4),
+        ])
+        #expect(Transcriber.words(from: []).isEmpty)
+    }
+
+    @Test("Whisper segment text loses its special tokens")
+    func whisperPlainText() {
+        #expect(WhisperEngine.plainText("<|startoftranscript|><|en|><|0.00|> Hello there.<|2.40|>") == "Hello there.")
+        #expect(WhisperEngine.plainText("<|0.00|><|1.00|>") == "")
+        #expect(WhisperEngine.plainText(" 10 | 20 ") == "10 | 20")
+    }
+}
+
 // MARK: - Session
 
 /// Records what the session asks the decoder to do.
@@ -205,7 +316,8 @@ struct LiveTranscriptionSessionTests {
                 throw error
             }
             await probe.end(cancelled: false)
-            return (1...max(1, samples.count / 800)).map { "w\($0)" }.joined(separator: " ")
+            let text = (1...max(1, samples.count / 800)).map { "w\($0)" }.joined(separator: " ")
+            return Transcriber.PreviewResult(text: text, pieces: [])
         }
     }
 
@@ -298,7 +410,7 @@ struct LiveTranscriptionSessionTests {
             await probe.begin(samples.count)
             await probe.end(cancelled: false)
             if samples.count > 3 * 800 { throw LiveTestError.boom }
-            return "Hello there"
+            return Transcriber.PreviewResult(text: "Hello there", pieces: [])
         }
         let session = LiveTranscriptionSession(decoder: decoder, schedule: schedule)
         var failures = 0
