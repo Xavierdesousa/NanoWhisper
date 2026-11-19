@@ -17,8 +17,10 @@ protocol MediaPlaybackController: AnyObject {
     func playbackState() async -> MediaPlaybackState
 
     /// Pauses playback. Only called right after `playbackState()` answered `.playing`.
-    func pause() async
+    /// Returns whether a pause was actually issued; `resume()` follows only if it was.
+    func pause() async -> Bool
 
-    /// Resumes the playback paused by a previous `pause()`. Called at most once per `pause()`.
+    /// Resumes the playback paused by a previous successful `pause()`. Called at most once
+    /// per such `pause()`.
     func resume() async
 }

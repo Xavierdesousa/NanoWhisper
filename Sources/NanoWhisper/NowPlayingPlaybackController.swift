@@ -87,12 +87,12 @@ final class NowPlayingPlaybackController: MediaPlaybackController {
         return reading.playbackState
     }
 
-    func pause() async {
-        guard let target = observed, target.isPlaying else { return }
+    func pause() async -> Bool {
+        guard let target = observed, target.isPlaying else { return false }
         // Not issued (state changed, or failure): nothing of ours to resume later.
-        if await source.send(.pause, to: target) {
-            paused = target
-        }
+        guard await source.send(.pause, to: target) else { return false }
+        paused = target
+        return true
     }
 
     func resume() async {

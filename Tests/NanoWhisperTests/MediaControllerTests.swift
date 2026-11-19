@@ -10,10 +10,17 @@ private final class FakePlaybackController: MediaPlaybackController {
 
     /// Answer returned by `playbackState()`.
     var state: MediaPlaybackState
+    /// Returned by `pause()`: whether a pause command was issued.
+    var pauseIssues = true
     private(set) var calls: [Call] = []
     /// When `true`, `playbackState()` waits until `releaseQueries()` is called.
     var holdQueries = false
     private var heldQueries: [CheckedContinuation<Void, Never>] = []
+    /// When `true`, `resume()` waits until `releaseResumes()` is called.
+    var holdResumes = false
+    private var heldResumes: [CheckedContinuation<Void, Never>] = []
+    /// State the media is in once a held resume lands.
+    var stateAfterResume: MediaPlaybackState?
 
     init(state: MediaPlaybackState) {
         self.state = state
@@ -31,8 +38,18 @@ private final class FakePlaybackController: MediaPlaybackController {
         return state
     }
 
-    func pause() async { calls.append(.pause) }
-    func resume() async { calls.append(.resume) }
+    func pause() async -> Bool {
+        calls.append(.pause)
+        return pauseIssues
+    }
+
+    func resume() async {
+        calls.append(.resume)
+        if holdResumes {
+            await withCheckedContinuation { heldResumes.append($0) }
+        }
+        if let stateAfterResume { state = stateAfterResume }
+    }
 
     func releaseQueries() {
         let held = heldQueries
@@ -40,12 +57,35 @@ private final class FakePlaybackController: MediaPlaybackController {
         held.forEach { $0.resume() }
     }
 
-    /// Lets background tasks run until a query is parked in `playbackState()`.
+    func releaseResumes() {
+        let held = heldResumes
+        heldResumes = []
+        held.forEach { $0.resume() }
+    }
+
+    /// Lets background tasks run until a query is parked in `playbackState()`. On timeout,
+    /// stops holding and releases everything first, so the test fails instead of hanging.
     func waitForHeldQuery() async {
         for _ in 0..<1_000 where heldQueries.isEmpty {
             await Task.yield()
         }
-        #expect(!heldQueries.isEmpty, "detection never started")
+        if heldQueries.isEmpty {
+            holdQueries = false
+            releaseQueries()
+            Issue.record("detection never started")
+        }
+    }
+
+    /// Same as `waitForHeldQuery()`, for `resume()`.
+    func waitForHeldResume() async {
+        for _ in 0..<1_000 where heldResumes.isEmpty {
+            await Task.yield()
+        }
+        if heldResumes.isEmpty {
+            holdResumes = false
+            releaseResumes()
+            Issue.record("resume never started")
+        }
     }
 }
 
@@ -257,6 +297,71 @@ struct MediaControllerTests {
         await controller.waitUntilIdle()
 
         #expect(fake.calls == [.query])
+    }
+
+    // MARK: Pause not issued
+
+    @Test("A pause that was not issued is not owned: nothing is resumed")
+    func pauseNotIssued() async {
+        let fake = FakePlaybackController(state: .playing)
+        fake.pauseIssues = false
+        let controller = MediaController(playback: fake)
+
+        let session = controller.beginSession(pauseMedia: true)
+        await controller.waitUntilIdle()
+        controller.endSession(session)
+        await controller.waitUntilIdle()
+
+        #expect(fake.calls == [.query, .pause])
+    }
+
+    @Test("After a pause that was not issued, the next session tries again")
+    func pauseNotIssuedThenRetried() async {
+        let fake = FakePlaybackController(state: .playing)
+        fake.pauseIssues = false
+        let controller = MediaController(playback: fake)
+
+        let first = controller.beginSession(pauseMedia: true)
+        await controller.waitUntilIdle()
+        fake.pauseIssues = true
+        let second = controller.beginSession(pauseMedia: true)
+        await controller.waitUntilIdle()
+        controller.endSession(first)
+        controller.endSession(second)
+        await controller.waitUntilIdle()
+
+        #expect(fake.calls == [.query, .pause, .query, .pause, .resume])
+    }
+
+    // MARK: Back-to-back dictation
+
+    @Test("A session starting while the resume is being sent detects after it lands, and pauses again")
+    func sessionDuringResume() async {
+        let fake = FakePlaybackController(state: .playing)
+        let controller = MediaController(playback: fake)
+
+        let first = controller.beginSession(pauseMedia: true)
+        await controller.waitUntilIdle()
+        fake.state = .notPlaying // paused by us
+
+        fake.holdResumes = true
+        fake.stateAfterResume = .playing
+        controller.endSession(first)
+        await fake.waitForHeldResume()
+
+        // Back-to-back dictation: the play has not landed yet.
+        let second = controller.beginSession(pauseMedia: true)
+        for _ in 0..<200 { await Task.yield() }
+        #expect(fake.calls == [.query, .pause, .resume], "must not detect before the resume lands")
+
+        fake.holdResumes = false
+        fake.releaseResumes()
+        await controller.waitUntilIdle()
+        #expect(fake.calls == [.query, .pause, .resume, .query, .pause])
+
+        controller.endSession(second)
+        await controller.waitUntilIdle()
+        #expect(fake.calls == [.query, .pause, .resume, .query, .pause, .resume])
     }
 
     // MARK: startRecording failure path

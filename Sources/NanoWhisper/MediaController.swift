@@ -9,6 +9,8 @@
 /// - Sessions may overlap (a recording starts while the previous transcription is still
 ///   running). Media is never resumed while a session is open; it is resumed once, when the
 ///   last open session ends.
+/// - A session beginning while the previous resume is still being sent detects only once it
+///   has landed, so media resumed a moment ago is seen as playing and paused again.
 /// - Detection runs in the background: `beginSession` returns immediately.
 @MainActor
 final class MediaController {
@@ -24,6 +26,9 @@ final class MediaController {
     private var didPause = false
     /// The in-flight "detect, then pause if playing" task, if any.
     private var pauseCheck: Task<Void, Never>?
+    /// The in-flight `playback.resume()` call, if any. Only that call, not the whole resume
+    /// task: the resume task itself waits for `pauseCheck`.
+    private var resumeCall: Task<Void, Never>?
     /// Every in-flight task, so tests can wait for them.
     private var inFlight: [UInt64: Task<Void, Never>] = [:]
     private var nextTaskID: UInt64 = 0
@@ -68,11 +73,19 @@ final class MediaController {
     // MARK: - State machine
 
     private func pauseIfPlaying() async {
+        // The previous session's resume may still be on its way: until it has landed, the
+        // media reads as paused, and music would then start over this recording. No new
+        // resume call can start while this check runs, so one wait is enough.
+        if let call = resumeCall {
+            await call.value
+        }
         let state = await playback.playbackState()
         // Every session may have ended while we were detecting: a pause now would never be undone.
         guard state == .playing, !openSessions.isEmpty, !didPause else { return }
-        didPause = true
-        await playback.pause()
+        // Owned only if a pause was actually issued: otherwise there is nothing to resume.
+        if await playback.pause() {
+            didPause = true
+        }
     }
 
     private func resumeIfNoSessionOpen() async {
@@ -83,7 +96,12 @@ final class MediaController {
         // A new session may have started meanwhile: it now owns the paused state.
         guard openSessions.isEmpty, didPause else { return }
         didPause = false
-        await playback.resume()
+        let call = Task { @MainActor [playback] in await playback.resume() }
+        resumeCall = call
+        await call.value
+        if resumeCall == call {
+            resumeCall = nil
+        }
     }
 
     @discardableResult
