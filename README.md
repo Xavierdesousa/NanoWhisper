@@ -115,7 +115,7 @@ Downloaded models are shared by both. `make app` only stops a running NanoWhispe
 | `make ci` | Release | `NanoWhisper.app`, no launch (used by the release workflow) |
 | `make release` | Release | Also creates `NanoWhisper-v<version>.zip`; launches nothing |
 | `make notarize` | Release | Notarizes and staples (`NOTARY_PROFILE=<keychain profile>`) |
-| `make publish` | Release | Creates the GitHub release for tag `v<version>` with `gh` (fallback when CI can't run); the tag must point at HEAD |
+| `make publish` | Release | Creates the GitHub release for tag `v<version>` with `gh` (fallback when CI can't run); needs a clean tree and the tag pushed to `origin` at HEAD |
 | `make test`, `make clean` | | |
 
 Signing uses `SIGN_IDENTITY` (default `Moonji Dev`; set it empty for ad-hoc signing).
