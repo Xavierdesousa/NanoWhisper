@@ -322,6 +322,9 @@ final class LiveTranscriptionSession {
             let duration = Double(await audio.samples.count) / 16_000
             let decodedFrom = window.decodeStart(forDuration: duration)
             let samples = await audio.samples(from: Int(decodedFrom * 16_000))
+            // Check again after those suspensions: the session may have stopped, or a final
+            // pass may have become pending meanwhile.
+            guard !Task.isCancelled, !isStopped, canDecode() else { continue }
             let start = ContinuousClock.now
             let result: Transcriber.PreviewResult
             do {
