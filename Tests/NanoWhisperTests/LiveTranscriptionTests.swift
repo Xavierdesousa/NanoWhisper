@@ -241,6 +241,43 @@ struct LivePreviewWindowTests {
         #expect(window.boundary > 200)
     }
 
+    @Test("A word the window decode places late at the join is not shown twice")
+    func lateWordAtJoin() {
+        var window = LivePreviewWindow(schedule: .default)
+        // Full decode at 31 s: "… to the release …" with a pause before "release".
+        let full = Transcriber.PreviewResult(text: "", pieces: (0..<40).map {
+            Transcriber.TimedText(text: "w\($0)", start: Double($0) * 0.7, end: Double($0) * 0.7 + 0.5)
+        } + [
+            .init(text: "to", start: 28.0, end: 28.2),
+            .init(text: "the", start: 28.25, end: 28.4),
+            .init(text: "release", start: 29.0, end: 29.5),
+            .init(text: "notes,", start: 29.6, end: 30.0),
+        ])
+        _ = window.decodeStart(forDuration: 30)
+        _ = window.text(for: full, decodedFrom: 0)
+        let start = window.decodeStart(forDuration: 31)
+        #expect(window.isWindowed)
+        // Suppose the boundary landed in the pause before "release", and the window decode
+        // emits "the" together with "release" (same frame).
+        let boundary = window.boundary
+        let shifted = Transcriber.PreviewResult(text: "", pieces: [
+            .init(text: "the", start: boundary + 0.05 - start, end: boundary + 0.1 - start),
+            .init(text: "release", start: boundary + 0.1 - start, end: boundary + 0.5 - start),
+        ])
+        let shown = window.text(for: shifted, decodedFrom: start)
+        #expect(!shown.contains("the the"))
+        #expect(shown.hasSuffix("release"))
+    }
+
+    @Test("The join guard compares words without case or punctuation, up to three")
+    func repeatedAtJoin() {
+        #expect(LivePreviewWindow.repeatedAtJoin(frozen: "add Julian and Martin to the", window: ["the", "release"]) == 1)
+        #expect(LivePreviewWindow.repeatedAtJoin(frozen: "I looked at", window: ["At", "the"]) == 1)
+        #expect(LivePreviewWindow.repeatedAtJoin(frozen: "on the migration.", window: ["the", "migration", "I"]) == 2)
+        #expect(LivePreviewWindow.repeatedAtJoin(frozen: "release notes", window: ["they", "did"]) == 0)
+        #expect(LivePreviewWindow.repeatedAtJoin(frozen: "", window: ["they"]) == 0)
+    }
+
     @Test("Silence past the limit moves the window on without freezing anything")
     func silenceMovesWindow() {
         var window = LivePreviewWindow(schedule: .default)

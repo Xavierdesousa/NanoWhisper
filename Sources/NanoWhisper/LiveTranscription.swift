@@ -112,8 +112,26 @@ struct LivePreviewWindow: Sendable {
             return result.text
         }
         pieces = decoded.filter { ($0.start + $0.end) / 2 >= boundary }
+        // A decoder can place a short word right at the join later than the decode it was
+        // frozen from ("to the | the release"): never show the same words twice in a row.
+        pieces.removeFirst(Self.repeatedAtJoin(frozen: frozenText, window: pieces.map(\.text)))
         let windowText = pieces.map(\.text).joined(separator: " ")
         return [frozenText, windowText].filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    /// How many leading `window` words repeat the last words of `frozen` (up to 3; compared
+    /// without case or punctuation).
+    static func repeatedAtJoin(frozen: String, window: [String]) -> Int {
+        func core<S: StringProtocol>(_ word: S) -> String {
+            word.lowercased().trimmingCharacters(in: .punctuationCharacters.union(.symbols))
+        }
+        let tail = frozen.split(separator: " ").suffix(3).map { core($0) }
+        let head = window.prefix(3).map { core($0) }
+        for count in stride(from: min(tail.count, head.count), through: 1, by: -1)
+        where Array(tail.suffix(count)) == Array(head.prefix(count)) && !head.prefix(count).contains("") {
+            return count
+        }
+        return 0
     }
 
     /// Freeze the last decode's text up to a new boundary.
