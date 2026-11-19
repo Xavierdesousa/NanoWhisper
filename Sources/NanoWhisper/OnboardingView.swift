@@ -104,6 +104,27 @@ struct OnboardingView: View {
                     }
                 }
 
+                // MARK: - Parakeet Options (conditional)
+                if appState.selectedModelType == .parakeet {
+                    Section("Parakeet Options") {
+                        Picker("Version", selection: $appState.parakeetVariant) {
+                            ForEach(ParakeetVariant.allCases, id: \.self) { variant in
+                                HStack {
+                                    Text(variant.displayName)
+                                    Spacer()
+                                    Text(variant.sizeDescription)
+                                        .foregroundColor(.secondary)
+                                        .font(.caption)
+                                }
+                                .tag(variant)
+                            }
+                        }
+                        .onChange(of: appState.parakeetVariant) { _, _ in
+                            appState.switchModel(to: .parakeet)
+                        }
+                    }
+                }
+
                 // MARK: - Whisper Options (conditional)
                 if appState.selectedModelType == .whisper {
                     Section("Whisper Options") {
@@ -118,6 +139,9 @@ struct OnboardingView: View {
                                 }
                                 .tag(size)
                             }
+                        }
+                        .onChange(of: appState.whisperSettings.modelSize) { _, _ in
+                            appState.switchModel(to: .whisper)
                         }
 
                         Picker("Language", selection: languageBinding) {
@@ -274,7 +298,7 @@ struct OnboardingView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }
-        .frame(width: 440, height: appState.selectedModelType == .whisper ? 780 : 640)
+        .frame(width: 440, height: appState.selectedModelType == .whisper ? 780 : 700)
         .background(ShortcutRecorder(
             isRecording: $isRecordingShortcut,
             onShortcutCaptured: { keyCode, modifiers in

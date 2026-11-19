@@ -142,6 +142,13 @@ class AppState: ObservableObject {
         }
     }
 
+    /// Parakeet weights to use. Resolved at launch by `ParakeetVariant.loadOrMigrate(from:)`.
+    @Published var parakeetVariant: ParakeetVariant = ParakeetVariant.newInstallDefault {
+        didSet {
+            UserDefaults.standard.set(parakeetVariant.rawValue, forKey: ParakeetVariant.defaultsKey)
+        }
+    }
+
     @Published var whisperSettings: WhisperSettings = WhisperSettings() {
         didSet {
             if let data = try? JSONEncoder().encode(whisperSettings) {
@@ -264,9 +271,15 @@ class AppState: ObservableObject {
            let settings = try? JSONDecoder().decode(WhisperSettings.self, from: data) {
             whisperSettings = settings
         }
+        // Existing installs keep Parakeet v3 (already on disk); new installs get Ultra.
+        parakeetVariant = ParakeetVariant.loadOrMigrate(from: .standard)
 
         // Begin: either setup or start engine directly
-        setupManager.runSetup(modelType: selectedModelType, whisperSettings: whisperSettings)
+        setupManager.runSetup(
+            modelType: selectedModelType,
+            parakeetVariant: parakeetVariant,
+            whisperSettings: whisperSettings
+        )
 
         // Start auto-update checks (every hour)
         autoUpdater.startPeriodicChecks()
@@ -277,13 +290,17 @@ class AppState: ObservableObject {
 
         switch selectedModelType {
         case .parakeet:
-            guard let models = setupManager.parakeetModels else {
+            guard let models = setupManager.parakeetModels,
+                  let variant = setupManager.loadedParakeetVariant else {
                 lastError = "Models not loaded"
                 return
             }
             Task {
                 do {
                     try await transcriber.initializeParakeet(models: models)
+                    // Ignore if the user switched models while the engine was initializing.
+                    guard selectedModelType == .parakeet,
+                          setupManager.loadedParakeetVariant == variant else { return }
                     isEngineReady = true
                 } catch {
                     lastError = "Failed to initialize the transcription engine. Please restart the app."
@@ -299,12 +316,33 @@ class AppState: ObservableObject {
         }
     }
 
-    /// Switch to a different model type, triggering re-download and re-init
-    func switchModel(to modelType: TranscriptionModelType) {
+    /// Switch model type and/or Parakeet variant, downloading and reloading as needed.
+    /// Uses the current `parakeetVariant` and `whisperSettings` unless a variant is given.
+    func switchModel(to modelType: TranscriptionModelType, parakeetVariant variant: ParakeetVariant? = nil) {
         isEngineReady = false
         selectedModelType = modelType
-        setupManager.resetForModelSwitch()
-        setupManager.runSetup(modelType: modelType, whisperSettings: whisperSettings)
+        if let variant {
+            parakeetVariant = variant
+        }
+        let alreadyLoaded: Bool
+        switch modelType {
+        case .parakeet:
+            alreadyLoaded = setupManager.parakeetModels != nil
+                && setupManager.loadedParakeetVariant == parakeetVariant
+        case .whisper:
+            alreadyLoaded = setupManager.whisperEngine != nil
+                && setupManager.loadedWhisperModelSize == whisperSettings.modelSize
+        }
+        // Release the previous model before loading another one; a model that is
+        // already loaded is simply re-attached to the transcriber.
+        if !alreadyLoaded {
+            setupManager.resetForModelSwitch()
+        }
+        setupManager.runSetup(
+            modelType: modelType,
+            parakeetVariant: parakeetVariant,
+            whisperSettings: whisperSettings
+        )
     }
 
     func toggleRecording() {
