@@ -10,7 +10,9 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
     `HistoryEntry`, `TranscriptionDebugInfo`, `HistoryCrypto`); temp-recording deletion into
     `TemporaryRecordings`. File format and key unchanged (key derivation pinned by a test).
     One behavior tightening: while history is unavailable, no write happens at all (an open
-    History window could overwrite an unreadable file before). Stale Keychain comments fixed.
+    History window could overwrite an unreadable file before); saves are now atomic. Stale
+    Keychain comments fixed. The zero-then-delete of recordings uses throwing `FileHandle` calls
+    (the old ones raise an Objective-C exception on I/O errors) and is documented as best effort.
     [architecture.md](architecture.md#history-storage).
   - **Transcription errors surfaced:** `Transcriber` logs the error and returns
     `TranscriptionResult.failure` (`TranscriptionFailure.engineError` / `.noEngine`) instead of

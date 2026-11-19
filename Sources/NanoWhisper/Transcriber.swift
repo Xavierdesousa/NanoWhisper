@@ -183,9 +183,13 @@ class Transcriber {
 
     private static let logger = Logger(subsystem: BuildFlavor.current.logSubsystem, category: "Transcriber")
 
-    /// Log an engine error (never the audio or any text) and turn it into a failed result.
+    /// Log an engine error and turn it into a failed result. Only the error's type is public:
+    /// its description comes from the engine and could quote the vocabulary hint or decoded
+    /// text, so it is logged as private (shown only where private log data is enabled).
     private static func failedResult(_ engineName: String, _ error: any Error) -> TranscriptionResult {
-        logger.error("\(engineName, privacy: .public) transcription failed: \(String(describing: error), privacy: .public)")
+        let type = String(reflecting: Swift.type(of: error))
+        let description = String(describing: error)
+        logger.error("\(engineName, privacy: .public) transcription failed (\(type, privacy: .public)): \(description, privacy: .private)")
         return .failed(.engineError)
     }
 

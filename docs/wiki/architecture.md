@@ -51,7 +51,8 @@ There is no Xcode project and no app sandbox; the bundle is assembled and signed
    - `DictationOutcome.resolve(...)`: test result shown in onboarding, discarded, "Empty
      transcription" (engine ran, nothing recognized; no-result sound), failed (engine error or
      no engine: `TranscriptionFailure.message` in the menu's error line, same sound; the
-     error itself is in the log, category `Transcriber`), or delivered;
+     error is in the log, category `Transcriber`: its type public, its description private
+     since it could quote the vocabulary hint or text), or delivered;
    - delivered text is added to history (`HistoryStore.add(_:keepingAtMost:)`, if enabled) and pasted;
    - `defer`: the WAV is overwritten with zeros and deleted (`TemporaryRecordings.securelyDelete(at:)`), and the
      media session is ended (media resumes only when no other session is open).
@@ -65,7 +66,7 @@ being transcribed. Each keeps its own media session and destination.
   (`BuildFlavor.supportDirectory(in:)`), so production and debug never share it.
 - `HistoryStore` (`HistoryStore.swift`, `@MainActor`, `ObservableObject`) owns it: `entries`
   (newest first), `isUnavailable`, `add(_:keepingAtMost:)`, `trim(to:)`, `replaceEntries(_:)`.
-  It loads in its initializer and writes the whole file after each change. `AppState.history`
+  It loads in its initializer and writes the whole file (atomically) after each change. `AppState.history`
   and `AppState.historyUnavailable` forward to it (its `objectWillChange` is forwarded too), so
   views did not change. The file URL and key are injectable for `HistoryStoreTests`.
 - Encrypted with AES-256-GCM (`HistoryCrypto`). The key is derived with HKDF-SHA256 from the

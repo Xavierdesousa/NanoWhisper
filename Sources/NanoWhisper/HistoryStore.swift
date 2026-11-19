@@ -105,7 +105,8 @@ final class HistoryStore: ObservableObject {
             return
         }
         do {
-            try sealed.write(to: fileURL)
+            // Atomic: an interrupted save never leaves a partial (undecryptable) file.
+            try sealed.write(to: fileURL, options: .atomic)
         } catch {
             Self.logger.error("History could not be written: \(String(describing: error), privacy: .public)")
         }
