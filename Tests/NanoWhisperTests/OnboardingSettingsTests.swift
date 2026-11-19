@@ -206,20 +206,103 @@ struct ModelSectionLogicTests {
 
     @Test("Buttons say when they download, and captions give the size first")
     func actionText() {
-        #expect(ModelActionText.applyTitle(availability: .notDownloaded, changesModel: true) == "Download & Apply")
-        #expect(ModelActionText.applyTitle(availability: .downloaded, changesModel: true) == "Apply")
-        #expect(ModelActionText.applyTitle(availability: .unknown, changesModel: true) == "Apply")
-        #expect(ModelActionText.applyTitle(availability: .notDownloaded, changesModel: false) == "Apply")
+        #expect(ModelActionText.applyTitle(availability: .notDownloaded, loadsModel: true) == "Download & Apply")
+        #expect(ModelActionText.applyTitle(availability: .downloaded, loadsModel: true) == "Apply")
+        #expect(ModelActionText.applyTitle(availability: .unknown, loadsModel: true) == "Apply")
+        #expect(ModelActionText.applyTitle(availability: .notDownloaded, loadsModel: false) == "Apply")
 
-        #expect(ModelActionText.applyDetail(whisperSmall, availability: .notDownloaded, changesModel: true)
+        #expect(ModelActionText.applyDetail(whisperSmall, availability: .notDownloaded, loadsModel: true)
             == "Downloads Whisper Small (~490 MB).")
-        #expect(ModelActionText.applyDetail(whisperSmall, availability: .unknown, changesModel: true)
+        #expect(ModelActionText.applyDetail(whisperSmall, availability: .unknown, loadsModel: true)
             .contains("~490 MB"))
-        #expect(ModelActionText.applyDetail(whisperSmall, availability: .downloaded, changesModel: false)
+        #expect(ModelActionText.applyDetail(whisperSmall, availability: .downloaded, loadsModel: false)
             == "Takes effect immediately.")
 
         #expect(ModelActionText.loadTitle(availability: .notDownloaded) == "Download")
         #expect(ModelActionText.loadTitle(availability: .downloaded) == "Load")
         #expect(ModelActionText.notLoadedDetail(ultra, availability: .notDownloaded) == "Not downloaded · ~630 MB")
+    }
+
+    @Test("Apply loads a model when it changes, or when nothing is ready and no setup runs")
+    func applyLoadsModel() {
+        let ready = EngineState(isReady: true, setupComplete: true)
+        #expect(!ready.applyLoadsModel(changesModel: false))
+        #expect(ready.applyLoadsModel(changesModel: true))
+        // A download in progress is never restarted by a settings-only change.
+        #expect(!EngineState(isSettingUp: true).applyLoadsModel(changesModel: false))
+        // Idle: first launch before the download, failed setup, failed engine start.
+        #expect(EngineState().applyLoadsModel(changesModel: false))
+        #expect(EngineState(error: "failed").applyLoadsModel(changesModel: false))
+        #expect(EngineState(setupComplete: true, initializationError: "failed").applyLoadsModel(changesModel: false))
+    }
+
+    @Test("First launch, deferred Parakeet download: a hidden Whisper edit says it downloads Parakeet")
+    func deferredDownloadAfterWhisperEdit() {
+        var draft = ultra
+        draft.whisperSettings.language = "fr"   // edited while Whisper was selected, then switched back
+        #expect(!draft.changesModel(from: ultra))
+        let loadsModel = EngineState().applyLoadsModel(changesModel: draft.changesModel(from: ultra))
+        let availability = ModelAvailability.resolve(draft, loadedParakeet: nil, loadedWhisper: nil, parakeetOnDisk: { _ in false })
+        #expect(ModelActionText.applyTitle(availability: availability, loadsModel: loadsModel) == "Download & Apply")
+        #expect(ModelActionText.applyDetail(draft, availability: availability, loadsModel: loadsModel)
+            == "Downloads Parakeet Ultra (~630 MB).")
+    }
+
+    @Test("Failed Whisper setup, then a language change: the caption gives the download size")
+    func failedWhisperThenLanguageChange() {
+        var draft = whisperSmall
+        draft.whisperSettings.language = "de"
+        #expect(!draft.changesModel(from: whisperSmall))
+        let failed = EngineState(error: "Model setup failed. Please check your internet connection and try again.")
+        let loadsModel = failed.applyLoadsModel(changesModel: draft.changesModel(from: whisperSmall))
+        let availability = ModelAvailability.resolve(draft, loadedParakeet: nil, loadedWhisper: nil, parakeetOnDisk: { _ in true })
+        #expect(availability == .unknown)
+        let detail = ModelActionText.applyDetail(draft, availability: availability, loadsModel: loadsModel)
+        #expect(detail.hasPrefix("Downloads Whisper Small (~490 MB)"))
+        #expect(detail != "Takes effect immediately.")
+    }
+
+    @Test("Engine start failure shows as failed (Retry), not as an endless Loading")
+    func initializationFailure() {
+        let message = AppState.engineStartFailedMessage
+        let failedStart = EngineState(setupComplete: true, initializationError: message)
+        #expect(ModelStatus.resolve(failedStart) == .failed(message))
+        #expect(!ModelStatus.resolve(failedStart).isInProgress)
+        #expect(!message.contains("restart"))
+        // A retry clears the error: back to Loading while the engine starts again.
+        #expect(ModelStatus.resolve(EngineState(setupComplete: true)) == .loading)
+        // A setup error wins over an engine error; a ready engine wins over both.
+        #expect(ModelStatus.resolve(EngineState(error: "setup", initializationError: "start")) == .failed("setup"))
+        #expect(ModelStatus.resolve(EngineState(isReady: true, setupComplete: true, initializationError: "start")) == .ready)
+    }
+}
+
+@Suite("Dictation destination")
+struct DictationDestinationTests {
+    @Test("A recording started from the Try-it step with the app in front is a test")
+    func startAsTest() {
+        #expect(DictationDestination.atStart(testBoxShowing: true, appIsActive: true) == .onboardingTest)
+    }
+
+    @Test("A recording started for another app, or outside the Try-it step, pastes")
+    func startAsPaste() {
+        #expect(DictationDestination.atStart(testBoxShowing: true, appIsActive: false) == .paste)
+        #expect(DictationDestination.atStart(testBoxShowing: false, appIsActive: true) == .paste)
+        #expect(DictationDestination.atStart(testBoxShowing: false, appIsActive: false) == .paste)
+    }
+
+    @Test("A test stays a test: shown while the box is there, dropped once onboarding moved on")
+    func testOutcome() {
+        #expect(DictationOutcome.resolve(destination: .onboardingTest, text: "Hello", testBoxShowing: true) == .showTestResult("Hello"))
+        #expect(DictationOutcome.resolve(destination: .onboardingTest, text: "", testBoxShowing: true) == .showTestResult(""))
+        // Onboarding closed, finished, skipped or went Back during transcription: never pasted or saved.
+        #expect(DictationOutcome.resolve(destination: .onboardingTest, text: "Hello", testBoxShowing: false) == .discard)
+    }
+
+    @Test("A normal dictation is delivered even if the Try-it step is showing when it finishes")
+    func pasteOutcome() {
+        #expect(DictationOutcome.resolve(destination: .paste, text: "Hello", testBoxShowing: true) == .deliver("Hello"))
+        #expect(DictationOutcome.resolve(destination: .paste, text: "Hello", testBoxShowing: false) == .deliver("Hello"))
+        #expect(DictationOutcome.resolve(destination: .paste, text: "", testBoxShowing: true) == .noResult)
     }
 }

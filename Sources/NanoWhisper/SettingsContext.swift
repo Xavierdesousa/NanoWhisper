@@ -101,7 +101,17 @@ struct EngineState: Equatable {
     var isSettingUp = false
     var setupComplete = false
     var progressText = ""
+    /// Download or load failure (`SetupManager.setupError`).
     var error: String?
+    /// The model is loaded but the transcription engine could not start (`AppState.engineError`).
+    var initializationError: String?
+
+    /// Whether applying a configuration loads (and may download) a model, as
+    /// `AppState.applyEngine` does: when the model changes, and also when nothing is
+    /// ready and no setup is running (first launch before the download, after a failure).
+    func applyLoadsModel(changesModel: Bool) -> Bool {
+        changesModel || (!isReady && !isSettingUp)
+    }
 }
 
 /// What the Model section shows for the applied model.
@@ -123,6 +133,7 @@ enum ModelStatus: Equatable {
             if state.progressText.contains("Compiling") { return .compiling }
             return .downloading(fraction: downloadFraction(from: state.progressText))
         }
+        if let error = state.initializationError { return .failed(error) }
         return state.setupComplete ? .loading : .notLoaded
     }
 
@@ -146,16 +157,16 @@ enum ModelStatus: Equatable {
 /// Wording of the Model section's buttons, so the cost of an action is always stated
 /// before the click: a button that downloads says so and the caption gives the size.
 enum ModelActionText {
-    /// Button that applies a changed draft.
-    static func applyTitle(availability: ModelAvailability, changesModel: Bool) -> String {
-        changesModel && availability == .notDownloaded ? "Download & Apply" : "Apply"
+    /// Button that applies a changed draft. `loadsModel`: see `EngineState.applyLoadsModel`.
+    static func applyTitle(availability: ModelAvailability, loadsModel: Bool) -> String {
+        loadsModel && availability == .notDownloaded ? "Download & Apply" : "Apply"
     }
 
     /// Caption next to the apply button, for the draft `configuration`.
     static func applyDetail(
-        _ configuration: EngineConfiguration, availability: ModelAvailability, changesModel: Bool
+        _ configuration: EngineConfiguration, availability: ModelAvailability, loadsModel: Bool
     ) -> String {
-        guard changesModel else { return "Takes effect immediately." }
+        guard loadsModel else { return "Takes effect immediately." }
         switch availability {
         case .downloaded: return "\(configuration.modelName) is already on this Mac."
         case .notDownloaded: return "Downloads \(configuration.modelName) (\(configuration.downloadSize))."
@@ -237,18 +248,22 @@ extension AppState {
             isSettingUp: setupManager.isSettingUp,
             setupComplete: setupManager.setupComplete,
             progressText: setupManager.setupProgress,
-            error: setupManager.setupError
+            error: setupManager.setupError,
+            initializationError: engineError
         )
     }
 
     /// Make `configuration` the applied one. Changing only the Whisper language or
     /// vocabulary hint takes effect without reloading (and never restarts a download in
-    /// progress); any other change switches models.
+    /// progress); any other change switches models. The Model section words its button
+    /// from the same rule (`EngineState.applyLoadsModel`).
     func applyEngine(_ configuration: EngineConfiguration) {
-        let changesModel = configuration.changesModel(from: engineConfiguration)
+        let loadsModel = engineState.applyLoadsModel(
+            changesModel: configuration.changesModel(from: engineConfiguration)
+        )
         whisperSettings = configuration.whisperSettings
         parakeetVariant = configuration.parakeetVariant
-        if changesModel || (!isEngineReady && !setupManager.isSettingUp) {
+        if loadsModel {
             switchModel(to: configuration.modelType, parakeetVariant: configuration.parakeetVariant)
         }
     }

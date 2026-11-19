@@ -45,6 +45,17 @@ struct NanoWhisperApp: App {
                     appState.switchModel(to: appState.selectedModelType)
                 }
             }
+            // Model loaded, but the engine failed to start
+            else if let engineErr = appState.engineError, !appState.isEngineReady {
+                Label("Engine failed to start", systemImage: "xmark.circle")
+                    .foregroundColor(.red)
+                Text(engineErr)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Button("Retry") {
+                    appState.switchModel(to: appState.selectedModelType)
+                }
+            }
             // First launch: the download waits for the user (see shouldDeferSetupAtLaunch)
             else if !appState.isEngineReady && !appState.setupManager.setupComplete {
                 Label("Model not downloaded", systemImage: "arrow.down.circle")

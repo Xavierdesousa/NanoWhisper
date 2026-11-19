@@ -191,13 +191,19 @@ class AppState: ObservableObject {
     /// The record shortcut, mirrored from `hotkeyManager` so views update when it changes.
     @Published private(set) var shortcut: Shortcut = .default
 
-    /// While true (onboarding's last step is showing) and the app is active, a finished
-    /// dictation goes to `testTranscription` instead of being pasted or saved to history.
+    /// True while onboarding's last step (with its Try-it box) is showing. A recording
+    /// started then, with the app active, is a test (see `DictationDestination`).
     @Published var capturesTestTranscription = false {
         didSet { if !capturesTestTranscription { testTranscription = nil } }
     }
     /// Text of the last test dictation; empty when nothing was recognized.
     @Published private(set) var testTranscription: String?
+    /// Destination of the recording in progress, decided when it started.
+    private var recordingDestination: DictationDestination = .paste
+
+    /// The model is loaded but the transcription engine failed to start. Cleared when a
+    /// new start (Retry, model switch) begins.
+    @Published private(set) var engineError: String?
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -309,14 +315,17 @@ class AppState: ObservableObject {
         autoUpdater.startPeriodicChecks()
     }
 
+    nonisolated static let engineStartFailedMessage = "The transcription engine could not start. Click Retry to try again."
+
     func startEngine() {
         lastError = nil
+        engineError = nil
 
         switch selectedModelType {
         case .parakeet:
             guard let models = setupManager.parakeetModels,
                   let variant = setupManager.loadedParakeetVariant else {
-                lastError = "Models not loaded"
+                engineError = Self.engineStartFailedMessage
                 return
             }
             Task {
@@ -329,12 +338,16 @@ class AppState: ObservableObject {
                           setupManager.loadedParakeetVariant == variant else { return }
                     isEngineReady = true
                 } catch {
-                    lastError = "Failed to initialize the transcription engine. Please restart the app."
+                    // Ignore a failure of a start that a model switch already replaced.
+                    guard selectedModelType == .parakeet,
+                          setupManager.loadedParakeetVariant == variant,
+                          !isEngineReady else { return }
+                    engineError = Self.engineStartFailedMessage
                 }
             }
         case .whisper:
             guard let engine = setupManager.whisperEngine else {
-                lastError = "Whisper model not loaded"
+                engineError = Self.engineStartFailedMessage
                 return
             }
             transcriber.initializeWhisper(engine: engine, settings: whisperSettings)
@@ -344,8 +357,10 @@ class AppState: ObservableObject {
 
     /// Switch model type and/or Parakeet variant, downloading and reloading as needed.
     /// Uses the current `parakeetVariant` and `whisperSettings` unless a variant is given.
+    /// Also the Retry action: with the model still in memory it only restarts the engine.
     func switchModel(to modelType: TranscriptionModelType, parakeetVariant variant: ParakeetVariant? = nil) {
         isEngineReady = false
+        engineError = nil
         transcriber.invalidatePendingInitialization()
         selectedModelType = modelType
         if let variant {
@@ -394,6 +409,9 @@ class AppState: ObservableObject {
         sound.playStart()
         do {
             try audioRecorder.startRecording()
+            recordingDestination = DictationDestination.atStart(
+                testBoxShowing: capturesTestTranscription, appIsActive: NSApp.isActive
+            )
             isRecording = true
             recordingOverlay.show(audioLevelPublisher: audioRecorder.audioLevelSubject)
         } catch {
@@ -413,6 +431,8 @@ class AppState: ObservableObject {
         }
 
         isTranscribing = true
+        let destination = recordingDestination
+        recordingDestination = .paste
 
         Task {
             defer {
@@ -424,17 +444,20 @@ class AppState: ObservableObject {
             isTranscribing = false
             recordingOverlay.dismiss()
 
-            // Only while the onboarding window is in front: there the text could not be
-            // pasted anyway, and a dictation into another app must still paste.
-            if capturesTestTranscription && NSApp.isActive {
-                testTranscription = result.text
+            switch DictationOutcome.resolve(
+                destination: destination, text: result.text, testBoxShowing: capturesTestTranscription
+            ) {
+            case .showTestResult(let text):
+                testTranscription = text
                 return
-            }
-
-            if result.text.isEmpty {
+            case .discard:
+                return
+            case .noResult:
                 lastError = "Empty transcription"
                 sound.playNoResult()
                 return
+            case .deliver:
+                break
             }
 
             if historyEnabled && !historyUnavailable {

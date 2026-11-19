@@ -62,18 +62,18 @@ struct ModelSettingsSection: View {
 
     private var applyRow: some View {
         let availability = context.availability(draft)
-        let changesModel = draft.changesModel(from: applied)
+        let loadsModel = context.engineState.applyLoadsModel(changesModel: draft.changesModel(from: applied))
         return HStack(alignment: .center, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Changes not applied")
-                Text(ModelActionText.applyDetail(draft, availability: availability, changesModel: changesModel))
+                Text(ModelActionText.applyDetail(draft, availability: availability, loadsModel: loadsModel))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
             Button("Revert") { draft = applied }
-            Button(ModelActionText.applyTitle(availability: availability, changesModel: changesModel)) {
+            Button(ModelActionText.applyTitle(availability: availability, loadsModel: loadsModel)) {
                 context.applyEngine(draft)
             }
             .buttonStyle(.borderedProminent)
