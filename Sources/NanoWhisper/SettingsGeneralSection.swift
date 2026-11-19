@@ -8,12 +8,22 @@ struct GeneralSettingsSection: View {
 
     static let historyLimitChoices = [5, 10, 15, 25, 50, 100]
 
+    private var liveTranscriptionAvailable: Bool {
+        LiveTranscriptionSupport.isAvailable(for: context.appliedEngine)
+    }
+
     var body: some View {
         Section("General") {
             Toggle("Launch at login", isOn: context.launchAtLogin)
             Toggle("Sound feedback", isOn: context.soundEnabled)
             Toggle("Pause media during recording", isOn: context.pauseMediaEnabled)
-            // Live transcription (beta) toggle goes here.
+            Toggle("Live transcription (beta)", isOn: context.liveTranscriptionEnabled)
+                .disabled(!liveTranscriptionAvailable)
+            Text(liveTranscriptionAvailable
+                 ? "Shows the text in the overlay while you speak."
+                 : LiveTranscriptionSupport.unavailableExplanation)
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             Toggle("Save transcription history", isOn: context.historyEnabled)
                 .disabled(context.historyUnavailable)

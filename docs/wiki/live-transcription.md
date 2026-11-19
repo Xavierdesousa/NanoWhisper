@@ -1,77 +1,141 @@
-# Live transcription (beta) — NOT MERGED YET
+# Live transcription (beta)
 
-> **Status: PR #16 (`feat/live-transcription`) is open. Nothing on this page exists on `main`.**
-> Written 2026-11-19 from the PR description and the branch at 562ddb8. File and type names
-> below refer to that branch. Re-check everything when the PR merges, then remove this banner.
+Last verified: 2026-11-19, against `feat/live-transcription` (PR #16). Until PR #16 merges,
+nothing on this page exists on `main`.
 
 ## What it is
 
-An opt-in setting, "Live transcription (beta)" (Settings › General, off by default; on the
-branch the `UserDefaults` key is `liveTranscriptionEnabled`). While the user speaks, the
-recording overlay shows the text recognized so far. Nothing is typed during the recording.
-On `main` today, `GeneralSettingsSection` only has a placeholder comment where the toggle goes.
+An opt-in setting, "Live transcription (beta)" (`UserDefaults` key `liveTranscriptionEnabled`,
+off by default), in `GeneralSettingsSection`, so it shows in Settings › General and in
+onboarding's essentials step. While the user speaks, the recording overlay shows the text
+recognized so far. Nothing is typed during the recording.
 
-**The maintainer's rule: the overlay text and the pasted text must be identical.** At stop, the
-recording is transcribed exactly as with live off; the overlay then shows that final text, which
-is the string pasted and stored in history.
+**The maintainer's rule: the overlay text and the delivered text must be identical.** At stop,
+the recording is transcribed exactly as with live off. The overlay then shows that final text,
+which is the string pasted and stored in history, or shown in onboarding's Try-it box for a test
+recording (`DictationDestination.onboardingTest`: never pasted or saved).
+
+**Available with** Parakeet and Whisper Tiny/Base (`LiveTranscriptionSupport`). For Whisper
+Small, Large v3 and Large v3 Turbo the toggle is disabled with a one-line explanation.
 
 ## Design: re-decode the growing buffer
 
-- **Audio:** `AudioRecorder` hands the live session a copy of the same 16 kHz samples it writes
-  to the WAV. The tap only enqueues; samples accumulate off the audio thread (`LiveAudioBuffer`).
+- **Audio:** `AudioRecorder.startRecording(onSamples:)` hands the session a copy of the same
+  16 kHz samples it writes to the WAV. The tap only enqueues, and the samples accumulate off
+  the audio thread (`LiveAudioBuffer`).
 - **Preview decodes** (`LiveTranscriptionSession`): once 1 s of audio has followed the first
-  sound (leading silence skipped), the session decodes **all audio so far** with the ordinary
-  batch path, on a snapshot of the engine and settings the final pass uses
-  (`Transcriber.makePreviewDecoder()`).
-- **Cadence** (`LivePreviewSchedule`): one decode at a time; starts spaced by
-  `max(1 s, 4 × last decode duration)`, so wall-clock duty stays ≤ 25 % and decodes never queue.
-- **Display** (`LiveTranscript`): the leading words two consecutive decodes agree on are
-  "stable" (primary color); the rest is the dimmed tail; at stop the final text replaces both.
-- **At stop:** the decode in flight is cancelled and its result ignored; the normal final pass
-  runs on the WAV; its text is shown and pasted.
-- **Partials never delay or reorder real transcriptions:** they never enter the `Transcriber`
-  queue; they are skipped while `Transcriber.pendingTranscriptions > 0`; Parakeet previews run
-  on their own `AsrManager` sharing the batch models' `MLModel` instances (as FluidAudio's
-  parallel chunk workers do).
-- **Failure:** a failed preview stops the preview and clears its text (logged); the recording
+  sound (leading silence skipped), the session decodes the audio so far with the ordinary batch
+  path, on a snapshot of the engine and settings the final pass uses
+  (`Transcriber.makePreviewDecoder()`). A decode returns the text plus timed pieces: Parakeet
+  words grouped from token timings (`Transcriber.words(from:)`), or Whisper segments.
+- **Cadence** (`LivePreviewSchedule`): one decode at a time, with starts spaced by
+  `max(1 s, 4 × last decode duration)`, so decodes never queue up.
+- **Long recordings** (`LivePreviewWindow`):
+  - **Up to 30 s** (`fullDecodeLimit`), every decode covers the whole recording.
+  - **Past 30 s**, the text before a boundary is frozen. Only a window after it is decoded, at
+    most 15 s (`windowLimit`, one Parakeet model window), plus 1 s of acoustic context.
+  - **Moving the boundary:** when the window would exceed the limit, the boundary moves to the
+    longest pause that leaves 8 s (`windowKeep`) in the window.
+  - **Joins:** a window piece belongs to the window when its midpoint is past the boundary.
+    `overlapAtJoin` then compares the last frozen words with the first window words, letters
+    only. A repeat is dropped from whichever side it covers whole words of:
+    - leading window words: "to the | the release", where a short word comes out late;
+    - trailing frozen words: "you double | double-check", where the window respells.
+- **Display** (`LiveTranscript`): the leading words two consecutive decodes agree on, plus
+  the frozen text, are "stable" (primary color); the rest is the dimmed tail. At stop the
+  final text replaces both (`finalize(_:)`).
+- **At stop:** the decode in flight is cancelled and its result ignored. The normal final pass
+  then runs on the WAV, and its text is shown and delivered.
+- **Partials never delay or reorder real transcriptions:**
+  - They never enter the `Transcriber` queue.
+  - They are skipped while `Transcriber.pendingTranscriptions > 0`.
+  - Parakeet previews run on their own `AsrManager`, sharing the batch models' `MLModel`
+    instances as FluidAudio's parallel chunk workers do.
+- **Failure:** a failed preview stops the preview and clears its text (logged). The recording
   and its final pass are unaffected.
-- **Whisper:** same seam through `WhisperEngine.transcribe(audioArray:options:prompt:)`.
-- Lifecycle glue is in `AppState+LiveTranscription.swift` (`beginLiveTranscription()`,
-  `cancelLiveTranscription()`, `showFinalLiveText(_:for:)`).
-- Overlay: grows once to 384×82 pt when text appears, keeps its top edge and center, shows the
-  last two lines; Reduce Motion disables the resize animation and dot pulse.
+- **Lifecycle glue** is in `AppState+LiveTranscription.swift`: `beginLiveTranscription()`,
+  `cancelLiveTranscription()`, `showFinalLiveText(_:for:)`, and cancellation on quit.
+- **Overlay:**
+  - It grows once to 384×82 pt when text appears, keeps its top edge and center, and shows the
+    last two lines.
+  - Reduce Motion disables the resize animation and the dot pulse.
+  - Without text it is exactly the pre-PR overlay.
 
-## Why: the rejected alternative
+## Decisions and rejected alternatives
 
-FluidAudio's sliding-window **streaming** engine was measured and rejected: first text only after
-~5 s, and stray sentence breaks at window edges that ended up in the pasted text. An earlier
-version of PR #16 used it; it was removed with its token-revision code and batch fallback.
-Re-decoding with the batch engine gives the same model and settings as the final pass, so the
-preview converges on the text that will be pasted.
+- **Sliding-window streaming (FluidAudio `SlidingWindowAsrManager`), rejected:**
+  - First text came only after ~5 s, with updates every 4 s.
+  - Stray sentence breaks at window edges ended up in the pasted text ("Martin. aux notes de
+    version. Ils").
+  - With ≤ 2 s chunks, very short clips came out as garbage, because the tail flush freezes a
+    decode of ~1.5 s of audio.
+  - An earlier version of PR #16 used it; it was removed with its token-revision code and batch
+    fallback.
+- **Long-recording cap (decided):** decoding everything made CPU grow to a full core after
+  ~2.5 min, because FluidAudio decodes audio longer than 15 s on 4 parallel workers. The window
+  keeps CPU flat (numbers below). It is display only: the delivered text is always the full
+  normal pass.
+- **Whisper large sizes (decided: disabled):**
+  - A preview decode in flight at stop must end quickly, because the final pass waits for it:
+    both use the same `WhisperEngine`.
+  - WhisperKit checks cancellation between steps, but cannot interrupt an encoder prediction.
+    Large v3 Turbo needs ~0.6 s to stop, and its previews update only every 3–7 s.
+  - Base stops in ~10 ms. Tiny is smaller than Base (enabled, not measured). Small is not
+    measured (disabled). Large v3 has Turbo's encoder (disabled).
+- **Stop → paste cost (accepted for Parakeet):** +0.01–0.05 s typically; up to +0.1 s when a long
+  preview decode is in flight at stop.
 
-## Measurements (PR #16, Parakeet Ultra, harness, `say` audio fed in real time as 85 ms chunks)
+## Measurements (PR #16, 2026-11-19, Apple Silicon, macOS 27.2)
 
-| Clip | First text | Decode median / max | CPU (% of one core) | Final == live off | Stop → paste ON / OFF |
-|---|---|---|---|---|---|
-| en 3.2 s | 1.14 s | 0.067 / 0.073 s | 5.6 | yes | 0.060 / 0.048 s |
-| en 25.8 s | 1.12 s | 0.114 / 0.180 s | 21.4 | yes | 0.155 / 0.143 s |
-| fr 32.2 s | 1.13 s | 0.174 / 0.206 s | 30.9 | yes | 0.193 / 0.179 s |
-| en 77.4 s | 1.11 s | 0.196 / 0.333 s | 53.5 | yes | 0.377 / 0.289 s |
-| en 3.9 min | 1.15 s | 0.319 / 0.790 s | 81.4 | yes | 0.668 / 0.638 s |
+Harness compiling the app's `Transcriber`, `LiveTranscriptionSession`, `LiveTranscript`;
+`say` audio (English, French) fed in real time as 85 ms chunks.
 
-(Selection; the PR has all 10 clips.) Final text was identical to live off on all 10. CPU reaches a
-full core after ~2.5 min of recording. Peak resident memory 106–134 MB up to 77 s, 160 MB at
-3.9 min. Stable words that later changed were mostly sentence-boundary punctuation.
+**Parakeet Ultra, short clips (no window):** first text at 1.12–1.14 s, then an update every
+~1.03 s. CPU is 4–10 % of one core for clips ≤ 5 s and 21–31 % for 26–32 s. Final text was
+identical to live off on all clips. The stable words that changed later were mostly
+sentence-boundary punctuation.
 
-## Open decisions (for the maintainer)
+**Parakeet Ultra, long recordings (window cap):**
 
-1. CPU on long recordings: suggested cap past ~60 s (decode only the last ~30 s, freeze earlier
-   preview text). Not built.
-2. Whisper: keep live enabled unmeasured, or disable it until measured.
-3. Stop → paste costs up to +0.1 s when a long preview decode is in flight at stop.
+| Clip | First text | Update interval (max) | Decode median | Audio per decode | CPU (% of one core) | Final == live off | Stop → paste ON / OFF |
+|---|---|---|---|---|---|---|---|
+| fr 32 s | 1.14 s | 1.03 s (1.08) | 0.159 s | whole | 35.9 | yes | 0.280 / 0.179 s |
+| en 77 s | 1.15 s | 1.03 s (1.13) | 0.155 s | 13.0 s | 27.7 | yes | 0.331 / 0.321 s |
+| en 3.9 min | 1.13 s | 1.02 s (1.10) | 0.154 s | 13.0 s | 27.4 | yes | 0.705 / 0.655 s |
+
+- **CPU over the 3.9 min recording,** per 30 s: 33.5, 27.9, 28.0, 27.6, 24.2, 24.8 and 25.8 %
+  (an earlier run of the same code: 28.7, then 22.7–24.5 %). Without the cap it was 30, 61, 80,
+  87, 97, 100 and 98 %.
+- **The first 30 s** are full decodes, at 29–36 % of a core.
+- **Memory:** peak resident 116–143 MB.
+- **Join stutter:** before the join guard, 1–3 immediate word repeats appeared in previews of the
+  77 s and 3.9 min recordings ("to the the release notes", "I looked at at the", "could you
+  double double-check"). With `overlapAtJoin`, no immediate repeat appeared in any preview of
+  the 32 s, 77 s or 3.9 min recordings.
+
+**Stop with a preview decode in flight (Parakeet, 26 s clip):** the preview ended 5–8 ms after
+stop, and the final pass took 0.165–0.168 s median (max 0.211 s) over 100 runs. One 19.4 s final
+pass occurred once in an earlier batch and did not reproduce in those 100 runs. The debug app
+was running on the same Neural Engine at the time, so outside contention is likely, but that is
+**unconfirmed**.
+
+**Whisper** (models downloaded through the app's own `WhisperEngine` into
+`~/Documents/huggingface/models/argmaxinc/whisperkit-coreml/`):
+
+| Model | First text | Update interval | Decode median | CPU | Stop → paste ON / OFF (5 s; 26 s clip) | Stop with preview in flight |
+|---|---|---|---|---|---|---|
+| Base | 1.12–1.21 s | 1.03–1.8 s | 0.12–0.45 s | 6–15 % | 0.21 / 0.14 s; 0.61 / 0.54 s | stops in 9 ms; 0.573 vs 0.522 s |
+| Large v3 Turbo | 1.78–1.81 s | 3.3–6.6 s | 0.77–1.23 s | 2–6 % | 0.92 / 0.92 s; 1.93 / 1.92 s | stops in **604 ms**; 2.548 vs 1.963 s |
+
+Final text was identical to live off for both.
 
 ## Not verified
 
-No real-microphone recording in the app; real speech; the resize animation; several screens;
-hover-to-stop with text; Whisper live preview (no Whisper model on disk); Parakeet v3 (Ultra only).
+- No real-microphone recording in the app.
+- Real speech (only TTS audio).
+- The resize animation, several screens, and hover-to-stop with text.
+- Onboarding's Try-it with live on.
+- Whisper Tiny and Small, and Large v3.
+- Parakeet v3: Ultra only, because the v3 cache lacked `JointDecisionv3.mlmodelc`.
+
 See [open-questions.md](open-questions.md).

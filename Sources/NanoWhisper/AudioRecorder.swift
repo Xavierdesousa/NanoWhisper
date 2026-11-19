@@ -11,7 +11,9 @@ class AudioRecorder {
     /// Current audio level (0.0 – 1.0), updated from the recording tap.
     let audioLevelSubject = PassthroughSubject<Float, Never>()
 
-    func startRecording() throws {
+    /// - Parameter onSamples: receives a copy of every 16 kHz mono chunk written to the file
+    ///   (live transcription). Called on the tap's thread; it must only enqueue.
+    func startRecording(onSamples: (@Sendable ([Float]) -> Void)? = nil) throws {
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
         let inputFormat = inputNode.outputFormat(forBus: 0)
@@ -70,6 +72,7 @@ class AudioRecorder {
                 // Compute RMS level for the visualizer
                 if let channelData = convertedBuffer.floatChannelData?[0] {
                     let frames = Int(convertedBuffer.frameLength)
+                    onSamples?(Array(UnsafeBufferPointer(start: channelData, count: frames)))
                     var sum: Float = 0
                     for i in 0..<frames {
                         let sample = channelData[i]

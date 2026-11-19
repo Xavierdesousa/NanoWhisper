@@ -127,6 +127,14 @@ class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(pauseMediaEnabled, forKey: "pauseMediaEnabled") }
     }
 
+    /// Show the text in the overlay while recording (see AppState+LiveTranscription.swift).
+    @Published var liveTranscriptionEnabled: Bool = false {
+        didSet { UserDefaults.standard.set(liveTranscriptionEnabled, forKey: Self.liveTranscriptionKey) }
+    }
+
+    /// Live transcription of the recording in progress, if any.
+    var liveSession: LiveTranscriptionSession?
+
     private static let selectedModelKey = "selectedModelType"
     private static let whisperSettingsKey = WhisperSettings.defaultsKey
 
@@ -274,6 +282,8 @@ class AppState: ObservableObject {
         } else {
             pauseMediaEnabled = UserDefaults.standard.bool(forKey: "pauseMediaEnabled")
         }
+        liveTranscriptionEnabled = UserDefaults.standard.bool(forKey: Self.liveTranscriptionKey)
+        observeTerminationForLiveTranscription()
 
         // Only auto-prompt accessibility on subsequent launches
         if !isFirstLaunch {
@@ -355,6 +365,8 @@ class AppState: ObservableObject {
     /// Uses the current `parakeetVariant` and `whisperSettings` unless a variant is given.
     /// Also the Retry action: with the model still in memory it only restarts the engine.
     func switchModel(to modelType: TranscriptionModelType, parakeetVariant variant: ParakeetVariant? = nil) {
+        // A recording in progress keeps going; its live text stops (it holds the old models).
+        cancelLiveTranscription()
         isEngineReady = false
         engineError = nil
         transcriber.invalidatePendingInitialization()
@@ -402,15 +414,17 @@ class AppState: ObservableObject {
         // the background, so the mic starts right away.
         let mediaSession = mediaController.beginSession(pauseMedia: pauseMediaEnabled)
         sound.playStart()
+        let live = beginLiveTranscription() // nil unless enabled
         do {
-            try audioRecorder.startRecording()
+            try audioRecorder.startRecording(onSamples: live?.sampleSink)
             recordingMediaSession = mediaSession
             recordingDestination = DictationDestination.atStart(
                 testBoxShowing: capturesTestTranscription, appIsActive: NSApp.isActive
             )
             isRecording = true
-            recordingOverlay.show(audioLevelPublisher: audioRecorder.audioLevelSubject)
+            recordingOverlay.show(audioLevelPublisher: audioRecorder.audioLevelSubject, transcriptID: live?.id)
         } catch {
+            cancelLiveTranscription()
             mediaController.endSession(mediaSession)
             lastError = "Could not access the microphone. Check System Settings > Privacy > Microphone."
         }
@@ -421,6 +435,10 @@ class AppState: ObservableObject {
         isRecording = false
         let mediaSession = recordingMediaSession
         recordingMediaSession = nil
+        // Abandon the live preview's decode in flight; its text stays until the final text.
+        let live = liveSession
+        liveSession = nil
+        live?.stop()
         recordingOverlay.transitionToLoading()
         guard let audioURL = audioRecorder.stopRecording() else {
             if let mediaSession { mediaController.endSession(mediaSession) }
@@ -441,6 +459,8 @@ class AppState: ObservableObject {
             }
 
             let result = await transcriber.transcribe(audioURL: audioURL)
+            // The overlay shows exactly the text delivered (pasted, or the Try-it box's).
+            showFinalLiveText(result.text, for: live)
             isTranscribing = false
             recordingOverlay.dismiss()
 

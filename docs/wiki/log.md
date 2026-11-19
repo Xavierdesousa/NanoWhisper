@@ -5,6 +5,20 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-19
 
+- **PR #16 updated** (live transcription):
+  - **Window cap:** previews of recordings longer than 30 s decode a ≤ 15 s window after a
+    frozen boundary, which keeps CPU at ~23 % of one core instead of reaching a full core after
+    2.5 min.
+  - **Join guard:** stops repeated words at window joins.
+  - **Whisper availability:** offered only for Tiny and Base. Large v3 Turbo needs ~0.6 s to
+    stop a preview decode.
+  - **Integration:** wired to `SettingsContext` and `GeneralSettingsSection` (#15) and to
+    `DictationDestination` (the Try-it box gets the final text).
+  - **Downloads:** Whisper Base and Large v3 Turbo were downloaded into WhisperKit's default
+    cache through the app's `WhisperEngine`, on the maintainer's request.
+  - **Pages:** [live-transcription.md](live-transcription.md) rewritten;
+    [transcription-engines.md](transcription-engines.md) gained the Whisper cache path and the
+    Turbo measurements.
 - **Wiki created** (`docs/llm-wiki` branch): `CLAUDE.md` and these pages, from the code on `main`
   (29e84c9), PRs #11–#16 and the maintainer's notes. `swift test` on `main`: 174 tests in 20
   suites passed (Swift 6.4, macOS 27.2); `ViewRender` renders passed.

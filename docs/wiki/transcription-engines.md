@@ -54,8 +54,9 @@ and the app is not sandboxed.
 
 - FluidAudio: `~/Library/Application Support/FluidAudio/Models/<folder>`
   (`AsrModels.defaultCacheDirectory(for:)`). Parakeet v3 is in `parakeet-tdt-0.6b-v3`.
-- WhisperKit: under `~/Documents/huggingface` (stated in PR #14; the code only says "under
-  ~/Documents"). The app never inspects it: reading `~/Documents` would trigger a privacy
+- WhisperKit: `~/Documents/huggingface/models/argmaxinc/whisperkit-coreml/<variant>`
+  (WhisperKit's `HubApi` default download base; confirmed by the PR #16 harness, whose
+  `WhisperEngine(model:)` downloads went there). The app never inspects it: reading `~/Documents` would trigger a privacy
   prompt for Parakeet users, so Whisper availability is `ModelAvailability.unknown` unless the
   size is loaded in memory.
 
@@ -111,6 +112,15 @@ update, and a rename in the same parent folder is atomic.
   identifiers were checked against the Hugging Face repositories only. The PR #16 harness
   loaded Parakeet Ultra from an existing cache on the maintainer's machine; a clean first
   download of Ultra or Large v3 Turbo through the app has not been recorded.
-- Whisper Large v3 Turbo and Large v3 have not been measured in this repo.
+- Whisper Base and Large v3 Turbo were downloaded and run through the app's `WhisperEngine` in
+  the PR #16 harness (2026-11-19, Apple Silicon, macOS 27.2). Both transcribed English and
+  French correctly.
+  - **Sizes on disk:** Base 143 MB, Turbo 606 MB.
+  - **Load time:** Turbo needed 82–93 s per process start even with the files on disk; Base
+    needed 3–18 s.
+  - **Final pass:** Turbo took 0.8 s (3 s clip) to 3.1 s (32 s clip); Base took 0.09–0.8 s.
+  - **Cancellation:** a cancelled Turbo decode releases the engine only after ~0.6 s, because an
+    encoder prediction cannot be interrupted ([live-transcription.md](live-transcription.md)).
+  - **Not measured:** Large v3.
 - A transcription error returns an empty text, reported to the user as "Empty transcription";
   the error itself is not logged by `Transcriber`.

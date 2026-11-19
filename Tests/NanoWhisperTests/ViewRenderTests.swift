@@ -183,6 +183,7 @@ private enum Fixtures {
             launchAtLogin: .constant(false),
             soundEnabled: .constant(true),
             pauseMediaEnabled: .constant(false),
+            liveTranscriptionEnabled: .constant(false),
             historyEnabled: .constant(true),
             historyUnavailable: false,
             maxHistoryCount: .constant(15)

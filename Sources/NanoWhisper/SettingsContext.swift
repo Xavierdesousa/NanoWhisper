@@ -218,6 +218,7 @@ struct SettingsContext {
     var launchAtLogin: Binding<Bool>
     var soundEnabled: Binding<Bool>
     var pauseMediaEnabled: Binding<Bool>
+    var liveTranscriptionEnabled: Binding<Bool>
     var historyEnabled: Binding<Bool>
     var historyUnavailable: Bool
     var maxHistoryCount: Binding<Int>
@@ -292,6 +293,7 @@ extension AppState {
             launchAtLogin: binding(\.launchAtLogin),
             soundEnabled: binding(\.soundEnabled),
             pauseMediaEnabled: binding(\.pauseMediaEnabled),
+            liveTranscriptionEnabled: binding(\.liveTranscriptionEnabled),
             historyEnabled: binding(\.historyEnabled),
             historyUnavailable: historyUnavailable,
             maxHistoryCount: binding(\.maxHistoryCount)
