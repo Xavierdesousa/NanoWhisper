@@ -24,7 +24,7 @@
 
 | | |
 |---|---|
-| **Dual engine** | [Parakeet](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) (fastest) or [WhisperKit](https://github.com/argmaxinc/WhisperKit) (99 languages) — both run on-device via CoreML |
+| **Dual engine** | [Parakeet](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) via [FluidAudio](https://github.com/FluidInference/FluidAudio) (fastest, 25 European languages) or Whisper via [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift) (99 languages) — both run on-device via CoreML |
 | **Global shortcut** | Customizable hotkey (default **⌥ Space**) to start/stop recording from anywhere |
 | **Recording overlay** | Floating visualizer with live audio bars, timer, and stop button |
 | **Auto-paste** | Transcribed text goes straight to your clipboard and active text field |
@@ -59,13 +59,24 @@ On first launch, an onboarding window walks you through model download, permissi
 | **Microphone** | Record audio for transcription |
 | **Accessibility** | Paste text into the active field (simulates ⌘V) |
 
-## Whisper Configuration
+## Models
 
-When using the Whisper engine:
+### Parakeet
 
-- **Model size** — Tiny (~75 MB), Base (~150 MB), Small (~500 MB), Medium (~1.5 GB), Large-v3 (~3 GB)
-- **Language** — auto-detect or pick from 99 languages
-- **Vocabulary hint** — improve recognition of technical terms or names
+Transcribes 25 European languages and detects the language automatically. Two versions:
+
+| Version | Download | Notes |
+|---|---|---|
+| **Parakeet Ultra** | ~630 MB | Post-trained v3 ([moondream/parakeet-ultra](https://huggingface.co/moondream/parakeet-ultra)): same speed, fewer errors. Default for new installs. |
+| **Parakeet TDT 0.6B v3** | ~480 MB | NVIDIA's original model. Installs set up before Ultra was added keep it until you switch in Settings. |
+
+Word error rate published by FluidAudio ([benchmarks](https://github.com/FluidInference/FluidAudio/blob/main/Documentation/ASR/ParakeetUltra.md)): LibriSpeech test-clean 2.27 % (v3) → 2.13 % (Ultra); FLEURS, mean of 24 languages, 14.81 % → 11.67 %.
+
+### Whisper
+
+- **Model size** — Tiny (~75 MB), Base (~150 MB), Small (~490 MB), Large v3 Turbo (~630 MB, OpenAI's faster large-v3-turbo; good accuracy/speed balance), Large v3 (~3.1 GB). Medium was removed (no longer in WhisperKit's supported models); a saved Medium selection switches to Large v3 Turbo.
+- **Language** — auto-detect, or pick the spoken language (more reliable on short clips)
+- **Vocabulary hint** — words or names passed to Whisper as a prompt to bias recognition of technical terms or names
 
 ## Requirements
 
@@ -74,6 +85,8 @@ When using the Whisper engine:
 - ~1 GB disk (varies by model)
 
 ## Build from Source
+
+Requires Xcode with Swift 6.2 or later (the package uses SwiftPM traits to build FluidAudio without its TTS and diarization modules).
 
 ```bash
 git clone https://github.com/Xavierdesousa/NanoWhisper.git

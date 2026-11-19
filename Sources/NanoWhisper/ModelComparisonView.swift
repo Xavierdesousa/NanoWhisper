@@ -2,26 +2,20 @@ import SwiftUI
 
 // MARK: - Model comparison metrics view
 
+/// Qualitative speed/accuracy summary for the selected model.
+///
+/// Bars are relative tiers, not measurements. The only figures shown are word error rates
+/// published by FluidAudio for Parakeet (Documentation/ASR/ParakeetUltra.md): LibriSpeech
+/// test-clean 2.27 % (v3) / 2.13 % (Ultra), FLEURS 24-language mean 14.81 % / 11.67 %.
 struct ModelComparisonView: View {
     let modelType: TranscriptionModelType
+    var parakeetVariant: ParakeetVariant = .v3
+    var whisperModelSize: WhisperModelSize = .base
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // Speed bar
-            MetricBar(
-                label: "Speed",
-                value: modelType == .parakeet ? 0.95 : 0.45,
-                color: .blue,
-                description: modelType == .parakeet ? "Very fast" : "Slower"
-            )
-
-            // Accuracy bar
-            MetricBar(
-                label: "Accuracy",
-                value: modelType == .parakeet ? 0.82 : 0.97,
-                color: .green,
-                description: modelType == .parakeet ? "~80-85%" : "~95-100%"
-            )
+            MetricBar(label: "Speed", tier: speed, color: .blue)
+            MetricBar(label: "Accuracy", tier: accuracy, color: .green)
 
             // Key points
             VStack(alignment: .leading, spacing: 4) {
@@ -40,22 +34,91 @@ struct ModelComparisonView: View {
         .padding(.vertical, 4)
     }
 
-    private var bulletPoints: [String] {
+    var speed: MetricTier {
         switch modelType {
         case .parakeet:
-            return [
-                "Multilingual by default — no language to configure",
-                "Fastest transcription speed available",
-                "Best for quick dictation and real-time use",
-                "English-optimized but handles other languages",
-            ]
+            // Ultra runs at parity with v3 (FluidAudio benchmarks).
+            return .highest
         case .whisper:
-            return [
-                "Near-perfect accuracy when language is specified",
-                "99 languages supported with dedicated models",
-                "Vocabulary hints for technical terms and names",
-                "Auto-detect mode available (less reliable on short clips)",
+            switch whisperModelSize {
+            case .tiny, .base: return .high
+            case .small, .largev3Turbo: return .medium
+            case .largev3: return .lowest
+            }
+        }
+    }
+
+    var accuracy: MetricTier {
+        switch modelType {
+        case .parakeet:
+            switch parakeetVariant {
+            case .v3: return .high
+            case .ultra: return .highest
+            }
+        case .whisper:
+            switch whisperModelSize {
+            case .tiny: return .lowest
+            case .base: return .low
+            case .small: return .medium
+            case .largev3Turbo: return .high
+            case .largev3: return .highest
+            }
+        }
+    }
+
+    var bulletPoints: [String] {
+        switch modelType {
+        case .parakeet:
+            let common = [
+                "25 European languages, detected automatically — nothing to configure",
+                "Fastest option: transcribes many times faster than real time",
             ]
+            switch parakeetVariant {
+            case .v3:
+                return common + [
+                    "Word error rate: 2.3% on English (LibriSpeech), 14.8% average across 24 European languages (FLEURS)",
+                ]
+            case .ultra:
+                return common + [
+                    "Post-trained v3: fewer errors in every measured language, same speed",
+                    "Word error rate: 2.1% on English (LibriSpeech), 11.7% average across 24 European languages (FLEURS)",
+                ]
+            }
+        case .whisper:
+            var points = [
+                "99 languages; set the language for best results on short clips",
+                "Vocabulary hints help with names and technical terms",
+            ]
+            switch whisperModelSize {
+            case .tiny, .base:
+                points.append("Small and fast, but noticeably less accurate than larger sizes")
+            case .small:
+                points.append("Balanced size, speed and accuracy")
+            case .largev3:
+                points.append("Most accurate Whisper size, also the slowest and largest")
+            case .largev3Turbo:
+                points.append("OpenAI's turbo model: accuracy close to Large v3, much faster, a fifth of the download")
+            }
+            return points
+        }
+    }
+}
+
+// MARK: - Qualitative tiers
+
+enum MetricTier: Int, CaseIterable {
+    case lowest = 1, low, medium, high, highest
+
+    /// Fill fraction of the bar.
+    var fraction: Double { Double(rawValue) / Double(Self.allCases.count) }
+
+    var label: String {
+        switch self {
+        case .lowest: return "Lowest"
+        case .low: return "Low"
+        case .medium: return "Medium"
+        case .high: return "High"
+        case .highest: return "Highest"
         }
     }
 }
@@ -64,9 +127,8 @@ struct ModelComparisonView: View {
 
 private struct MetricBar: View {
     let label: String
-    let value: Double  // 0.0 to 1.0
+    let tier: MetricTier
     let color: Color
-    let description: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -75,7 +137,7 @@ private struct MetricBar: View {
                     .font(.caption)
                     .fontWeight(.medium)
                 Spacer()
-                Text(description)
+                Text(tier.label)
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -86,11 +148,10 @@ private struct MetricBar: View {
                         .frame(height: 6)
                     RoundedRectangle(cornerRadius: 3)
                         .fill(color)
-                        .frame(width: geo.size.width * value, height: 6)
+                        .frame(width: geo.size.width * tier.fraction, height: 6)
                 }
             }
             .frame(height: 6)
         }
     }
 }
-
