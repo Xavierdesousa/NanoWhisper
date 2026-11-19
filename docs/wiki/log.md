@@ -5,7 +5,7 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-20
 
-- **Cleanup** (`chore/cleanup`, stacked on the live-debug-only PR):
+- **Cleanup** (PR #19, `chore/cleanup`):
   - **History extracted** from `AppState` into `HistoryStore` (`HistoryStore.swift`, with
     `HistoryEntry`, `TranscriptionDebugInfo`, `HistoryCrypto`); temp-recording deletion into
     `TemporaryRecordings`. File format and key unchanged (key derivation pinned by a test).
@@ -29,7 +29,7 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
   - Pages: [architecture.md](architecture.md), [testing-and-verification.md](testing-and-verification.md),
     [open-questions.md](open-questions.md), `CLAUDE.md` source map.
 
-- **Live transcription made debug-only** (`feat/live-debug-only`): the maintainer found design
+- **Live transcription made debug-only** (PR #18, merged as a77106d): the maintainer found design
   problems in the overlay, so production hides the toggle and never starts a live session, even
   with `liveTranscriptionEnabled` stored on (the value is kept). One flag:
   `BuildFlavor.supportsLiveTranscription`. Pages: [live-transcription.md](live-transcription.md#debug-build-only),
