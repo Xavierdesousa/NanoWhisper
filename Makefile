@@ -1,4 +1,4 @@
-.PHONY: build app debug-bundle prod-bundle ci clean run notarize release publish test
+.PHONY: build app debug-bundle prod-bundle ci clean run notarize release release-zip-name publish test
 
 # Two flavors are built from the same executable and can run side by side:
 #   production  NanoWhisper.app        com.moonji.nanowhisper        (ci, release, notarize, publish)
@@ -122,13 +122,27 @@ release: prod-bundle
 	@ditto -c -k --keepParent $(PROD_APP) "$(RELEASE_ZIP)"
 	@echo "Done! $(RELEASE_ZIP) created."
 
+# File name of the release asset (used by the release workflow, so it is defined only here)
+release-zip-name:
+	@echo "$(RELEASE_ZIP)"
+
 # Local fallback for the release workflow (e.g. hosted macOS runner unavailable):
 # builds the production zip and creates the GitHub release for tag v$(VERSION).
-# The tag must already exist on GitHub and point at the checked-out commit.
+# Requires a fully clean tree (SwiftPM compiles untracked sources too) and the tag
+# to exist on origin and point at HEAD (lightweight or annotated).
 publish:
-	@git diff --quiet HEAD -- || { echo "Error: uncommitted changes; publish from a clean checkout."; exit 1; }
-	@[ "$$(git rev-parse -q --verify 'refs/tags/v$(VERSION)^{commit}')" = "$$(git rev-parse HEAD)" ] || \
-		{ echo "Error: tag v$(VERSION) must exist locally and point at HEAD."; exit 1; }
+	@[ -z "$$(git status --porcelain)" ] || \
+		{ echo "Error: the working tree is not clean (uncommitted or untracked files); publish from a clean checkout."; git status --short; exit 1; }
+	@TAG="v$(VERSION)"; \
+	REFS=$$(git ls-remote --tags origin "refs/tags/$$TAG" "refs/tags/$$TAG^{}") || \
+		{ echo "Error: could not list tags on origin."; exit 1; }; \
+	REMOTE=$$(printf '%s\n' "$$REFS" | tail -1 | cut -f1); \
+	HEAD_COMMIT=$$(git rev-parse HEAD); \
+	if [ -z "$$REMOTE" ]; then \
+		echo "Error: tag $$TAG does not exist on origin. Tag HEAD and push it first: git tag $$TAG && git push origin $$TAG"; exit 1; \
+	elif [ "$$REMOTE" != "$$HEAD_COMMIT" ]; then \
+		echo "Error: tag $$TAG on origin points at $$REMOTE, but HEAD is $$HEAD_COMMIT."; exit 1; \
+	fi
 	@$(MAKE) release
 	gh release create "v$(VERSION)" "$(RELEASE_ZIP)" \
 		--verify-tag \
