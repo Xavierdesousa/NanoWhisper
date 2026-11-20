@@ -73,7 +73,7 @@ State in the PR what was not verified. See [testing](docs/wiki/testing-and-verif
 |---|---|
 | App entry, menu bar | `NanoWhisperApp.swift` (`NanoWhisperApp`, `AppDelegate`), `MenuBarController.swift` (status item, `NSMenu`, item views), `MenuBarMenu.swift` (`MenuContent`: menu lines per state), `MenuBarIcon.swift` |
 | Orchestration, state | `AppState.swift` (`AppState`), `AppState+LiveTranscription.swift`, `DictationDestination.swift` (`DictationDestination`, `DictationOutcome`, `TranscriptionFailure`) |
-| History, temp recordings | `HistoryStore.swift` (`HistoryStore`, `HistoryCrypto`, `HistoryEntry`), `TemporaryRecordings.swift` |
+| History, temp recordings | `HistoryStore.swift` (`HistoryStore`, `HistoryCrypto`, `HistoryEntry`), `TemporaryRecordings.swift`, `InterruptedRecordings.swift` (leftovers of a crash, `WAVHeader`), `InterruptedRecordingRecovery.swift` |
 | Recording, hotkey, paste, sounds | `AudioRecorder.swift`, `HotkeyManager.swift`, `PasteManager.swift`, `SoundManager.swift` |
 | Overlay | `RecordingOverlay.swift` (panel, placement, `OverlayResult`), `RecordingOverlayView.swift` (the "Voice note" views), `OverlayWaveform.swift` (level history, bars), `RecorderPosition.swift`, `RecorderPositionPicker.swift` |
 | Transcription | `Transcriber.swift` (`Transcriber`, `WhisperEngine`, `SerialGate`), `TranscriptionEngine.swift` (model enums, `WhisperSettings`), `LiveTranscription.swift` and `LiveTranscript.swift` (live preview, debug build only) |

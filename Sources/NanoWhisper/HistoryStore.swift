@@ -22,10 +22,12 @@ struct HistoryEntry: Codable, Identifiable {
     let date: Date
     var debugInfo: TranscriptionDebugInfo?
 
-    init(text: String, debugInfo: TranscriptionDebugInfo? = nil) {
+    /// - Parameter date: when it was dictated; now, except for a recording recovered after a
+    ///   crash (the recording's date).
+    init(text: String, date: Date = Date(), debugInfo: TranscriptionDebugInfo? = nil) {
         self.id = UUID()
         self.text = text
-        self.date = Date()
+        self.date = date
         self.debugInfo = debugInfo
     }
 }
@@ -67,6 +69,18 @@ final class HistoryStore: ObservableObject {
     func add(_ entry: HistoryEntry, keepingAtMost maxCount: Int) {
         guard !isUnavailable else { return }
         entries = Array(([entry] + entries).prefix(max(0, maxCount)))
+        save()
+    }
+
+    /// Insert an entry at its place by date (the list is newest first), keeping at most
+    /// `maxCount` entries: the oldest are dropped. For a recording recovered after a crash,
+    /// whose date is earlier than entries added since.
+    func insert(_ entry: HistoryEntry, keepingAtMost maxCount: Int) {
+        guard !isUnavailable else { return }
+        var updated = entries
+        let index = updated.firstIndex { $0.date < entry.date } ?? updated.count
+        updated.insert(entry, at: index)
+        entries = Array(updated.prefix(max(0, maxCount)))
         save()
     }
 

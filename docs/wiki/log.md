@@ -5,6 +5,14 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-20
 
+- **Recovery of recordings interrupted by a crash** (`feat/recover-interrupted-recordings`, PR #28):
+  the maintainer approved the recommendation of PR #26 with their own rules. At launch, this
+  build's leftovers with audio are kept (header repaired) and transcribed once each, silently,
+  when the app is idle; the text goes to History at the recording's date. Renamed
+  `….attempted.wav` before the attempt, so a crash during it is never retried; too short, too
+  old, unreadable or with history off: deleted. Replaces `TemporaryRecordings.removeOrphans()`.
+  Details: [architecture.md](architecture.md#temporary-recordings).
+
 - **Feedback on the redesign** (`feat/redesign-feedback`, PR #27): the maintainer's notes after
   trying PRs #24 and #25. Overlay: three lines of live text (card 380 × 106), the waveform takes
   the card's width, silence drawn as dim 1.5 pt marks with a 0.35 floor (room noise was drawn as
@@ -23,7 +31,7 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
   by disassembly and tracing, reproduced with the same signature in a stress harness.
   `AudioRecorder` now stops the engine before removing the tap, closes the WAV before returning
   it (`RecordingWriter`), and continues on a new input after `AVAudioEngineConfigurationChange`
-  (or stops cleanly with `onInputLost`). Recommendation (not implemented) to offer crashed
+  (or stops cleanly with `onInputLost`). Recommendation (implemented later, see above) to offer crashed
   recordings at next launch. Details:
   [architecture.md](architecture.md#stopping-the-recorder-crash-of-2026-11-20).
 

@@ -304,16 +304,38 @@ makes existing history unreadable. Both flavors keep it.
 
 - Prefix `nanowhisper_` (production) or `nanowhisper-debug_` (debug), from
   `BuildFlavor.temporaryAudioFilePrefix`.
-- At launch, `TemporaryRecordings.removeOrphans()` deletes leftovers with its own prefix only
-  (`BuildFlavor.ownsTemporaryAudioFile(named:)`). A leftover is a recording whose app crashed
-  before it was transcribed; its header usually says 0 bytes of audio (closed only at stop), but
-  the samples are in the file.
-- **Recommendation, not implemented (2026-11-20):** instead of deleting a leftover that holds
-  audio, repair its header (data size from the file length), keep it, and offer it once at the
-  next launch ("Transcribe the recording interrupted by a crash", menu line or notification),
-  deleting it after it is transcribed or dismissed, or after a day. Not done in the crash fix
-  because it needs a UI decision and care: a recording that crashed the transcription itself
-  must not be retried automatically at every launch.
+- A leftover at launch is a recording whose app crashed before it was transcribed; its header
+  usually says 0 bytes of audio (`AVAudioFile` writes the sizes when it is closed), but the
+  samples are in the file.
+- **Recovery of interrupted recordings** (`feat/recover-interrupted-recordings`, 2026-11-20; the
+  maintainer's rules: "we try the transcription once, no need to tell the user; it appears in
+  History as if nothing happened"). `InterruptedRecordings`, `InterruptedRecordingRecovery`,
+  `AppState.recoverInterruptedRecordings()`; it replaced `TemporaryRecordings.removeOrphans()`.
+  - **At launch** (`InterruptedRecordings.collect`, this build's prefix only, so the other
+    build's files are never touched, not even repaired): deleted (zeroed first) when already
+    attempted (`….attempted.wav`), when history is off or unavailable, when older than 7 days
+    (file creation date), when not a readable WAV, or when shorter than 0.3 s. The others get
+    their header repaired (`WAVHeader.repair`: RIFF size, `data` size in whole frames from the
+    file length, `fact` frame count; never shrinks a size that already counts more) and are
+    kept, oldest first.
+  - **Then, silently**: no overlay, sound, paste, notification or menu error line. Each
+    recording waits until the app is idle (engine ready, not recording, nothing transcribing,
+    the transcriber's queue empty; checked every second), is renamed `….attempted.wav`, goes
+    through the normal `Transcriber` queue with the current engine, and is deleted (zeroed)
+    whatever the outcome. Non-empty text goes to History with `HistoryStore.insert`, at the
+    recording's date, in chronological place (newest first; a full history drops its oldest).
+    Empty text or an engine failure: nothing in History.
+  - **Exactly once:** the rename happens before the transcription starts, and an attempted
+    file found at the next launch is deleted without a retry, so a recording that crashes the
+    transcription cannot loop.
+  - **Priority:** a recovery never starts while a dictation is recorded or transcribed. One
+    already running when the user stops a dictation is finished first (FIFO queue; a
+    transcription cannot be interrupted): one recording, well under a second with Parakeet for
+    a few minutes of audio (not measured here), longer with Whisper Large.
+  - **Logs** (category `InterruptedRecordings`): counts only, never text.
+  - **Not verified in the app:** a real crash followed by a relaunch; tests use temporary
+    directories, the crash state copied from an open `RecordingWriter` file, and fake
+    transcriptions.
 - The debug prefix deliberately does not start with `nanowhisper_`: the released v0.0.4 deletes
   every `nanowhisper_*.wav` at launch and would otherwise delete a debug recording in progress.
 
