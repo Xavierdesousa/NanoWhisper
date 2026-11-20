@@ -103,6 +103,32 @@ struct ViewRenderTests {
         )
     }
 
+    @Test("Settings: migration upgrade status and the Downloaded Models section")
+    func settingsModelStorage() throws {
+        let parakeet = Fixtures.parakeetUltra
+        func form(_ state: EngineState, height: CGFloat = 520) -> some View {
+            SettingsForm(
+                context: Fixtures.context(applied: parakeet, state: state), draft: .constant(parakeet),
+                autoUpdater: AutoUpdater.shared, debugMode: .constant(false), showOnboarding: {}
+            )
+            .frame(width: SettingsForm.size.width, height: height)
+        }
+        var upgrading = Fixtures.ready
+        upgrading.upgrade = ModelUpgrade(from: .parakeet(.v3), to: .parakeet(.ultra), status: .downloading(fraction: 0.42))
+        try render(form(upgrading), "settings-model-upgrading")
+        var deferred = Fixtures.ready
+        deferred.upgrade = ModelUpgrade(from: .parakeet(.v3), to: .parakeet(.ultra), status: .deferred)
+        try render(form(deferred), "settings-model-upgrade-deferred")
+        try render(form(Fixtures.ready, height: 760), "settings-model-storage-enabled")
+
+        try render(UnusedModelsSheet(preview: Fixtures.samplePreview, onCancel: {}, onRemove: {}), "settings-remove-unused-sheet")
+        var denied = Fixtures.samplePreview
+        denied.removable = []
+        denied.keptForOtherFlavor = []
+        denied.whisperAccessDenied = true
+        try render(UnusedModelsSheet(preview: denied, onCancel: {}, onRemove: {}), "settings-remove-unused-sheet-empty-denied")
+    }
+
     // MARK: - Helpers
 
     private func onboarding(
@@ -192,7 +218,23 @@ enum Fixtures {
             offersLiveTranscription: offersLiveTranscription,
             historyEnabled: .constant(true),
             historyUnavailable: false,
-            maxHistoryCount: .constant(15)
+            maxHistoryCount: .constant(15),
+            storage: ModelStorageContext(
+                unavailableReason: ModelStorageContext.unavailableReason(state),
+                preview: { samplePreview },
+                remove: { _ in ModelRemovalReport() }
+            )
         )
     }
+
+    static let samplePreview = UnusedModelsPreview(
+        removable: [
+            StoredModel(folder: .parakeetV3, bytes: 473_000_000),
+            StoredModel(folder: .whisperLargeV3Turbo, bytes: 598_000_000),
+        ],
+        keptInUse: [StoredModel(folder: .parakeetUltra, bytes: 603_000_000)],
+        keptForOtherFlavor: [StoredModel(folder: .whisperBase, bytes: 140_000_000)],
+        otherFlavorName: "NanoWhisper",
+        whisperAccessDenied: false
+    )
 }

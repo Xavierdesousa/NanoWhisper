@@ -24,8 +24,9 @@ enum TranscriptionModelType: String, Codable, CaseIterable {
 // MARK: - Parakeet variants
 
 /// Parakeet TDT 0.6B weights to load. Both share the architecture, the 25 European
-/// languages (detected automatically) and the speed; only the weights differ.
-enum ParakeetVariant: String, Codable, CaseIterable {
+/// languages (detected automatically) and the speed; only the weights differ. Both stay
+/// selectable while they are published upstream (maintainer rule, 2026-11-20).
+enum ParakeetVariant: String, Codable, CaseIterable, Sendable {
     /// NVIDIA Parakeet TDT 0.6B v3.
     case v3
     /// Parakeet Ultra: post-trained v3 with lower error rates in every measured language.
@@ -38,6 +39,10 @@ enum ParakeetVariant: String, Codable, CaseIterable {
     static let newInstallDefault: ParakeetVariant = .ultra
     /// Variant kept by installs that predate the choice (their models are already on disk).
     static let existingInstallDefault: ParakeetVariant = .v3
+
+    /// Shown with a "Recommended" badge in the pickers. Ultra is also the new-install default
+    /// and the target of the v3 migration step (`ModelMigrations.steps`).
+    var isRecommended: Bool { self == .ultra }
 
     var displayName: String {
         switch self {
@@ -68,8 +73,9 @@ enum ParakeetVariant: String, Codable, CaseIterable {
     ///   - storedValue: raw value persisted under `defaultsKey`, if any.
     ///   - isExistingInstall: whether the app was set up before variants existed
     ///     (onboarding completed or a model type already persisted).
-    /// - Returns: the stored variant when valid; otherwise v3 for existing installs (so an
-    ///   update never triggers a surprise ~600 MB download) and Ultra for new installs.
+    /// - Returns: the stored variant when valid; otherwise v3 for existing installs (what
+    ///   0.0.5 resolved them to) and Ultra for new installs. `ModelMigrations` then moves v3
+    ///   installs to Ultra once, without a gap in dictation.
     static func resolve(storedValue: String?, isExistingInstall: Bool) -> ParakeetVariant {
         if let storedValue, let variant = ParakeetVariant(rawValue: storedValue) {
             return variant
@@ -95,46 +101,52 @@ enum ParakeetVariant: String, Codable, CaseIterable {
 
 // MARK: - Whisper model sizes
 
-enum WhisperModelSize: String, Codable, CaseIterable {
+/// Whisper sizes. Offered: Base, Small, Large v3 Turbo. Tiny, Medium and Large v3 are obsolete
+/// (see `replacement`): kept so a stored choice decodes and is replaced smoothly, and so their
+/// folders can be recognized and removed.
+enum WhisperModelSize: String, Codable, CaseIterable, Sendable {
+    /// Obsolete since 0.0.6 (curation), replaced by Base.
     case tiny
     case base
     case small
+    /// Obsolete since 0.0.5: no longer in WhisperKit's supported-model list for any Mac.
+    case medium
+    /// Obsolete since 0.0.6 (curation), replaced by Large v3 Turbo.
     case largev3 = "large-v3"
     case largev3Turbo = "large-v3-turbo"
 
-    /// Sizes that were removed, mapped to their replacement. `medium` is not in WhisperKit's
-    /// supported-model list for any Mac; Large v3 Turbo is smaller (~630 MB vs ~1.5 GB),
-    /// faster and more accurate, and is the only multilingual model in that list between
-    /// Small and Large v3 (distil-large-v3 is English-only).
-    static let removedSizeReplacements: [String: WhisperModelSize] = ["medium": .largev3Turbo]
-
-    /// Parse a persisted raw value, mapping removed sizes to their replacement.
-    init?(persistedValue: String) {
-        if let size = WhisperModelSize(rawValue: persistedValue) {
-            self = size
-        } else if let replacement = Self.removedSizeReplacements[persistedValue] {
-            self = replacement
-        } else {
-            return nil
+    /// For an obsolete size (no longer offered), the size that replaces it. A stored obsolete
+    /// size is replaced at launch (`ObsoleteModels`) with the smooth switchover, language and
+    /// vocabulary hint kept. Not a migration step: steps move people to a better recommended
+    /// model; a replacement exists because the old model is no longer offered.
+    ///
+    /// Tiny and Large v3 are still published upstream but were dropped from the app on purpose
+    /// (maintainer curation, 2026-11-20): on Apple Silicon Tiny is no faster than Base in
+    /// practice and much less accurate, and Large v3 is superseded by its Turbo variant.
+    var replacement: WhisperModelSize? {
+        switch self {
+        case .tiny: return .base
+        case .medium, .largev3: return .largev3Turbo
+        case .base, .small, .largev3Turbo: return nil
         }
     }
 
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        let raw = try container.decode(String.self)
-        guard let size = WhisperModelSize(persistedValue: raw) else {
-            throw DecodingError.dataCorruptedError(
-                in: container, debugDescription: "Unknown Whisper model size '\(raw)'"
-            )
-        }
-        self = size
-    }
+    /// Whether the size is offered in the pickers.
+    var isSelectable: Bool { replacement == nil }
+
+    /// Sizes offered in the pickers, in display order.
+    static var selectable: [WhisperModelSize] { allCases.filter(\.isSelectable) }
+
+    /// Shown with a "Recommended" badge in the pickers. Large v3 Turbo: accuracy close to
+    /// Large v3 at a fifth of the size. Whisper users are not migrated: they keep their size.
+    var isRecommended: Bool { self == .largev3Turbo }
 
     var displayName: String {
         switch self {
         case .tiny: return "Tiny"
         case .base: return "Base"
         case .small: return "Small"
+        case .medium: return "Medium"
         case .largev3: return "Large v3"
         case .largev3Turbo: return "Large v3 Turbo"
         }
@@ -146,6 +158,7 @@ enum WhisperModelSize: String, Codable, CaseIterable {
         case .tiny: return "~75 MB"
         case .base: return "~150 MB"
         case .small: return "~490 MB"
+        case .medium: return "~1.5 GB"
         case .largev3: return "~3.1 GB"
         case .largev3Turbo: return "~630 MB"
         }
@@ -174,19 +187,13 @@ struct WhisperSettings: Codable, Equatable {
     /// UserDefaults key holding the JSON-encoded settings.
     static let defaultsKey = "whisperSettings"
 
-    /// Load the persisted settings. Removed model sizes decode to their replacement
-    /// (see `WhisperModelSize.removedSizeReplacements`); when that happens the migrated
-    /// settings are written back so the stored value no longer names the removed size.
-    static func loadOrMigrate(from defaults: UserDefaults) -> WhisperSettings? {
-        guard let data = defaults.data(forKey: defaultsKey),
-              let settings = try? JSONDecoder().decode(WhisperSettings.self, from: data) else { return nil }
-        struct StoredSize: Decodable { let modelSize: String? }
-        if let stored = try? JSONDecoder().decode(StoredSize.self, from: data).modelSize,
-           stored != settings.modelSize.rawValue,
-           let migrated = try? JSONEncoder().encode(settings) {
-            defaults.set(migrated, forKey: defaultsKey)
-        }
-        return settings
+    /// Load the persisted settings. An obsolete size (Medium) decodes as itself; it is replaced
+    /// at launch by `ObsoleteModels.replace`, which keeps Medium working until the replacement
+    /// is downloaded. 0.0.5 rewrote a stored Medium here; such installs already hold Large v3
+    /// Turbo and are not replaced again.
+    static func load(from defaults: UserDefaults) -> WhisperSettings? {
+        guard let data = defaults.data(forKey: defaultsKey) else { return nil }
+        return try? JSONDecoder().decode(WhisperSettings.self, from: data)
     }
 
     /// Display string for the selected language

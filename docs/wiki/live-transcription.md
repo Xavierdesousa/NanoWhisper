@@ -34,8 +34,9 @@ the recording is transcribed exactly as with live off. The overlay then shows th
 which is the string pasted and stored in history, or shown in onboarding's Try-it box for a test
 recording (`DictationDestination.onboardingTest`: never pasted or saved).
 
-**Available with** Parakeet and Whisper Tiny/Base (`LiveTranscriptionSupport`). For Whisper
-Small, Large v3 and Large v3 Turbo the toggle is disabled with a one-line explanation.
+**Available with** Parakeet and Whisper Base (`LiveTranscriptionSupport`). For Whisper Small
+and Large v3 Turbo the toggle is disabled with a one-line explanation. (Tiny and Large v3 are no
+longer offered since the model migration PR, see [transcription-engines.md](transcription-engines.md).)
 
 ## Design: re-decode the growing buffer
 
@@ -106,8 +107,8 @@ Small, Large v3 and Large v3 Turbo the toggle is disabled with a one-line explan
     both use the same `WhisperEngine`.
   - WhisperKit checks cancellation between steps, but cannot interrupt an encoder prediction.
     Large v3 Turbo needs ~0.6 s to stop, and its previews update only every 3–7 s.
-  - Base stops in ~10 ms. Tiny is smaller than Base (enabled, not measured). Small is not
-    measured (disabled). Large v3 has Turbo's encoder (disabled).
+  - Base stops in ~10 ms. Small is not measured (disabled). (Tiny was enabled and Large v3
+    disabled until both were removed from the lineup.)
 - **Stop → paste cost (accepted for Parakeet):** +0.01–0.05 s typically; up to +0.1 s when a long
   preview decode is in flight at stop.
 
@@ -163,7 +164,7 @@ Final text was identical to live off for both.
   in the compact panel shows between the text update and the resize (they are one main-queue
   turn apart) was not checked on screen.
 - Onboarding's Try-it with live on.
-- Whisper Tiny and Small, and Large v3.
+- Whisper Small.
 - Parakeet v3: Ultra only, because the v3 cache lacked `JointDecisionv3.mlmodelc`.
 
 See [open-questions.md](open-questions.md).

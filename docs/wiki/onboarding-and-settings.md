@@ -1,6 +1,6 @@
 # Onboarding and Settings
 
-Last verified against the code: 2026-11-19 (`main` at 29e84c9). Source: PR #15 and the code.
+Last verified against the code: 2026-11-20 (`feat/model-migration-and-cleanup`). Source: PR #15, the model migration PR and the code.
 
 ## What it is
 
@@ -13,6 +13,7 @@ behavior. `SettingsView` and `OnboardingView` only assemble them.
 | Permissions: Microphone, Accessibility, live status | `PermissionsSettingsSection` (`SettingsPermissionsSection.swift`), `PermissionMonitor` (`Permissions.swift`) |
 | Shortcut recorder | `ShortcutSettingsSection` (`SettingsShortcutSection.swift`) |
 | General: launch at login, sounds, pause media, history | `GeneralSettingsSection` (`SettingsGeneralSection.swift`); the history size shows in Settings only (`showsHistoryLimit`) |
+| Settings only: Downloaded Models ("Remove Unused Models…") | `ModelStorageSection`, `UnusedModelsSheet` (`SettingsStorageSection.swift`) |
 | Settings only: Updates, Debug | `UpdatesSettingsSection`, `Section("Debug")` in `SettingsForm` (`SettingsView.swift`) |
 
 The Settings "Debug" section ("Show debug info in history", `AppState.debugMode`, and "Show
@@ -39,6 +40,34 @@ ones, so each section can be drawn without a running app
   the legacy v3 folder); Whisper is `.unknown` unless loaded, because WhisperKit's cache is under
   `~/Documents` and reading it would trigger a privacy prompt.
 - The status row always describes the model in use (`ModelStatus.resolve(_:)`), not the draft.
+  During a migration's switchover (`EngineState.upgrade`) it shows the selected model as Ready
+  (dictation works on the previous one) with "Downloading the improved model (~630 MB)… 42%",
+  a progress bar and "<previous> stays in use until it is ready."; after a failed or offline
+  download, "<previous> is in use. <new> will download at next launch." The menu shows the same
+  progress line while downloading and nothing after a failure.
+- Pickers: the Parakeet "Version" picker offers Ultra and v3; the Whisper size picker offers
+  `WhisperModelSize.selectable` (Base, Small, Large v3 Turbo). The recommended item of each reads
+  "<name> (<size>) · Recommended" (`ModelLabel.pickerTitle`, from the model metadata).
+- Applying a different Parakeet variant or Whisper size clears that engine's pending migration
+  move: the user keeps what they picked ([transcription-engines.md](transcription-engines.md#model-migrations-modelmigrationsswift)).
+
+## Downloaded Models (Settings only)
+
+"Remove Unused Models…" (`ModelStorageSection`), not in onboarding:
+
+1. Disabled, with the reason in the caption, while a download or model switch runs or nothing is
+   loaded (`ModelStorageContext.unavailableReason`): "unused" is defined relative to the loaded
+   model.
+2. Click: scans both caches off the main thread (user-initiated, so the Whisper cache under
+   `~/Documents` may show the macOS prompt) and opens `UnusedModelsSheet`: each removable model
+   with its size, the total, what is kept (in use; kept for the other flavor), and a note if the
+   Documents folder could not be read.
+3. Confirm ("Remove <total>"): removal under the shared lock; what is kept is recomputed at that
+   moment, so the model in use is never removed even if it changed after the preview. The caption
+   then reports "Removed N models and freed X." and any failure.
+- Removable = every folder of the allow-list (`ModelFolder.all`) on disk, except the selected and
+  loaded models, pending-migration fallbacks, and what the other flavor may use. Rules and lock:
+  [transcription-engines.md](transcription-engines.md#removing-models-modelstoreswift).
 
 ## Onboarding flow
 

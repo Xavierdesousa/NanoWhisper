@@ -71,6 +71,29 @@ production ones (`plutil`, `scripts/make-debug-icon.swift`).
 
 Agents never push tags, create releases or run `make publish` unless asked.
 
+### Models: at every version bump
+
+Rules (maintainer, 2026-11-20): a model stays in the app while it is still downloadable
+upstream (exception: deliberate curation, e.g. Whisper Tiny and Large v3); obsolete models are
+removed from disk automatically; migrations to the recommended model are automatic and smooth;
+still-selectable models are never deleted automatically. Details:
+[transcription-engines.md](transcription-engines.md#model-migrations-modelmigrationsswift).
+
+1. **Review upstream** (FluidAudio releases and `AsrModelVersion`, WhisperKit's model-support
+   config, the Hugging Face repos): new models, retired ones, changed folder names.
+2. **Recommended model changed?** Append one `ModelMigrationStep` to `ModelMigrations.steps` with a
+   new `id` and the target for that engine (`parakeet:` / `whisper:`; leave the other engine
+   out). Any other model of that engine moves to the target, including users who went back to an
+   older model after a previous step. Never edit or reorder a shipped step. Add a test in
+   `ModelMigrationTests`.
+3. **Update the "Recommended" flags** (`ParakeetVariant.isRecommended`,
+   `WhisperModelSize.isRecommended`) and, for Parakeet, `ParakeetVariant.newInstallDefault`.
+4. **A model became obsolete** (gone upstream, or curated out)? Declare its replacement
+   (`WhisperModelSize.replacement`; Parakeet has none yet), keep the case so stored values decode,
+   and mark its folder `isObsolete: true` in `ModelFolder.all`. New folder names NanoWhisper
+   downloads go into `ModelFolder.all` too (the deletion allow-list); never remove a name.
+5. Update the README's Models section and this wiki.
+
 Not yet exercised: the release workflow on GitHub since PR #14 (needs a tag push) and
 `make publish` for real (its guards were tested by hand). The current released version is
 0.0.4.

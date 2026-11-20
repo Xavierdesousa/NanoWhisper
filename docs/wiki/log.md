@@ -5,6 +5,24 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-20
 
+- **Model migrations, obsolete models, "Remove Unused Models…"** (`feat/model-migration-and-cleanup`):
+  - **Decision reversal:** 0.0.5 kept existing installs on Parakeet v3; the maintainer now wants
+    updates to move people to the better model automatically. Rules recorded in
+    [transcription-engines.md](transcription-engines.md#model-rules-maintainer-decisions-2026-11-20):
+    a model stays while it is published upstream (v3 stays), obsolete models are removed
+    automatically, migrations are automatic and smooth, selectable models are never auto-deleted.
+  - Migration schema `ModelMigrations.steps` (step 1: Parakeet → Ultra; Whisper left out),
+    run once per install; smooth switchover (`ModelSwitchover`): start on the previous model,
+    download the new one in the background, switch when loaded and no recording is in progress.
+  - Whisper lineup curated to Base, Small, Large v3 Turbo; Tiny → Base, Medium and Large v3 →
+    Turbo as declared replacements (`WhisperModelSize.replacement`), separate from steps. Live
+    transcription now Base only.
+  - "Recommended" badge from model metadata (Ultra, Large v3 Turbo).
+  - `ModelStore`: allow-listed folder names, shared lock, automatic removal of obsolete folders,
+    Settings › Downloaded Models › "Remove Unused Models…", production/debug protection from the
+    other flavor's preferences.
+  - Version-bump checklist added to [build-and-release.md](build-and-release.md#models-at-every-version-bump).
+  - Nothing was run against the real caches or apps; see [open-questions.md](open-questions.md).
 - **Release 0.0.5**: version bumped in `Resources/Info.plist` (build 5). The maintainer tested
   the debug build by hand (media pause in all cases incl. YouTube, onboarding, Try-it, plain
   dictation, live preview after the overlay fix). Roadmap for the next version recorded in

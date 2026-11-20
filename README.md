@@ -75,16 +75,22 @@ Transcribes 25 European languages and detects the language automatically. Two ve
 
 | Version | Download | Notes |
 |---|---|---|
-| **Parakeet Ultra** | ~630 MB | Post-trained v3 ([moondream/parakeet-ultra](https://huggingface.co/moondream/parakeet-ultra)): same speed, fewer errors. Default for new installs. |
-| **Parakeet TDT 0.6B v3** | ~480 MB | NVIDIA's original model. Installs set up before Ultra was added keep it until you switch in Settings. |
+| **Parakeet Ultra** (Recommended) | ~630 MB | Post-trained v3 ([moondream/parakeet-ultra](https://huggingface.co/moondream/parakeet-ultra)): same speed, fewer errors. The default. |
+| **Parakeet TDT 0.6B v3** | ~480 MB | NVIDIA's original model. Still available in Settings. |
 
 Word error rate published by FluidAudio ([benchmarks](https://github.com/FluidInference/FluidAudio/blob/main/Documentation/ASR/ParakeetUltra.md)): LibriSpeech test-clean 2.27 % (v3) → 2.13 % (Ultra); FLEURS, mean of 24 languages, 14.81 % → 11.67 %.
 
+**Updating from 0.0.5 or earlier on Parakeet v3:** NanoWhisper moves you to Parakeet Ultra once. If v3 is on your Mac, you keep dictating with it while Ultra downloads in the background (the menu and Settings show the progress); the app switches when Ultra is ready. Offline, it keeps v3 and tries again at the next launch. v3 stays on disk and in the list: if you pick it again in Settings, you stay on it.
+
 ### Whisper
 
-- **Model size** — Tiny (~75 MB), Base (~150 MB), Small (~490 MB), Large v3 Turbo (~630 MB, OpenAI's faster large-v3-turbo; good accuracy/speed balance), Large v3 (~3.1 GB). Medium was removed (no longer in WhisperKit's supported models); a saved Medium selection switches to Large v3 Turbo.
+- **Model size** — Base (~150 MB), Small (~490 MB), Large v3 Turbo (~630 MB, Recommended: OpenAI's faster large-v3-turbo, accuracy close to Large v3). Tiny, Medium and Large v3 are no longer offered: a saved Tiny becomes Base, a saved Medium or Large v3 becomes Large v3 Turbo (the old model keeps working until the new one is downloaded; language and vocabulary hint are kept).
 - **Language** — auto-detect, or pick the spoken language (more reliable on short clips)
 - **Vocabulary hint** — words or names passed to Whisper as a prompt to bias recognition of technical terms or names
+
+### Disk space
+
+Models that NanoWhisper no longer offers are deleted automatically once their replacement is loaded (the 0.0.4 copy of Parakeet v3, Whisper Tiny, Medium and Large v3). Whisper models are cleaned up this way only while you use Whisper, so Parakeet users never see a request to access the Documents folder. Models you can still select are never deleted automatically: **Settings → Downloaded Models → Remove Unused Models…** lists every NanoWhisper model on disk except the one in use, with sizes, and deletes them after you confirm. Only folders NanoWhisper itself downloads are ever touched.
 
 ## Requirements
 

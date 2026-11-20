@@ -60,7 +60,26 @@ class AppState: ObservableObject {
         }
     }
 
-    /// Parakeet weights to use. Resolved at launch by `ParakeetVariant.loadOrMigrate(from:)`.
+    /// Previous models of unfinished migrations (see `ModelMigrations`), persisted.
+    private(set) var pendingModelMoves = PendingModelMoves() {
+        didSet { pendingModelMoves.save(to: .standard) }
+    }
+
+    /// A model loaded by a background upgrade, waiting for a moment with no recording in
+    /// progress to be installed in the transcriber.
+    enum PendingEngine {
+        case parakeet(Transcriber.PreparedParakeet)
+        case whisper(WhisperEngine)
+    }
+    private var pendingEngine: PendingEngine?
+    /// The obsolete-model cleanup waits for recordings and transcriptions in flight.
+    private var obsoleteModelCleanupDeferred = false
+
+    /// File operations on the downloaded models (shared with `setupManager`).
+    var modelStore: ModelStore { setupManager.store }
+
+    /// Parakeet weights to use. Resolved at launch by `ParakeetVariant.loadOrMigrate(from:)`
+    /// and `ModelMigrations`.
     @Published var parakeetVariant: ParakeetVariant = ParakeetVariant.newInstallDefault {
         didSet {
             UserDefaults.standard.set(parakeetVariant.rawValue, forKey: ParakeetVariant.defaultsKey)
@@ -203,31 +222,49 @@ class AppState: ObservableObject {
             _ = PasteManager.checkAccessibility(prompt: false)
         }
 
-        // Load persisted model selection
+        // Load persisted model selection. Read before anything below writes a default.
+        let isExistingInstall = ModelMigrations.isExistingInstall(.standard)
         if let raw = UserDefaults.standard.string(forKey: Self.selectedModelKey),
            let model = TranscriptionModelType(rawValue: raw) {
             selectedModelType = model
         }
-        // Also rewrites settings that still name a removed model size (e.g. Medium).
-        if let settings = WhisperSettings.loadOrMigrate(from: .standard) {
-            whisperSettings = settings
+        let storedWhisper = WhisperSettings.load(from: .standard)
+        // What 0.0.5 resolved (existing installs on v3, new installs on Ultra)...
+        let storedParakeet = ParakeetVariant.loadOrMigrate(from: .standard)
+        // ...then the migration steps not applied yet, and obsolete-model replacements.
+        let migration = ModelMigrations.run(
+            on: .standard,
+            choices: ModelChoices(parakeet: storedParakeet, whisper: (storedWhisper ?? WhisperSettings()).modelSize),
+            isExistingInstall: isExistingInstall
+        ) { choices in
+            // Written by the property observers, before the step is recorded as applied.
+            parakeetVariant = choices.parakeet
+            if var settings = storedWhisper {
+                // Only the size changes; language and vocabulary hint are kept.
+                settings.modelSize = choices.whisper
+                whisperSettings = settings
+            } else if choices.whisper != whisperSettings.modelSize {
+                whisperSettings.modelSize = choices.whisper
+            }
         }
-        // Existing installs keep Parakeet v3 (already on disk); new installs get Ultra.
-        parakeetVariant = ParakeetVariant.loadOrMigrate(from: .standard)
+        for move in migration.applied {
+            Self.logger.info("Model migration: \(move.from.displayName, privacy: .public) → \(move.to.displayName, privacy: .public)")
+        }
+        pendingModelMoves = migration.pending
+
+        setupManager.onUpgradeLoaded = { [weak self] in self?.adoptUpgradedModel() }
 
         // Begin: either setup or start engine directly. On first launch a model that is not
         // on disk yet waits for onboarding, where the user sees its size before downloading.
+        let previousParakeet = pendingModelMoves.parakeet
         let deferSetup = ModelAvailability.shouldDeferSetupAtLaunch(
             isFirstLaunch: isFirstLaunch,
             modelType: selectedModelType,
             parakeetOnDisk: ModelAvailability.parakeetIsOnDisk(parakeetVariant)
+                || previousParakeet.map(ModelAvailability.parakeetIsOnDisk) == true
         )
         if !deferSetup {
-            setupManager.runSetup(
-                modelType: selectedModelType,
-                parakeetVariant: parakeetVariant,
-                whisperSettings: whisperSettings
-            )
+            runSelectedModelSetup()
         }
 
         // Start auto-update checks (every hour; a no-op in debug builds)
@@ -256,6 +293,7 @@ class AppState: ObservableObject {
                           selectedModelType == .parakeet,
                           setupManager.loadedParakeetVariant == variant else { return }
                     isEngineReady = true
+                    engineDidBecomeReady()
                 } catch {
                     // Ignore a failure of a start that a model switch already replaced.
                     guard selectedModelType == .parakeet,
@@ -271,6 +309,124 @@ class AppState: ObservableObject {
             }
             transcriber.initializeWhisper(engine: engine, settings: whisperSettings)
             isEngineReady = true
+            engineDidBecomeReady()
+        }
+    }
+
+    /// Set up the selected model, smoothly if a migration moved this engine (the previous
+    /// model keeps working while the new one downloads).
+    private func runSelectedModelSetup() {
+        setupManager.runSetup(
+            modelType: selectedModelType,
+            parakeetVariant: parakeetVariant,
+            whisperSettings: whisperSettings,
+            previousModel: pendingModelMoves.previousModel(for: selectedModelType)
+        )
+    }
+
+    /// The model selected for the engine in use.
+    var selectedModel: SpeechModel {
+        ModelChoices(parakeet: parakeetVariant, whisper: whisperSettings.modelSize).model(for: selectedModelType)
+    }
+
+    func clearPendingModelMove(_ engine: TranscriptionModelType) {
+        pendingModelMoves.clear(engine)
+    }
+
+    /// The transcriber runs a model: finish a migration whose new model is the one in use,
+    /// then remove obsolete model folders.
+    private func engineDidBecomeReady() {
+        if pendingModelMoves.previousModel(for: selectedModelType) != nil,
+           setupManager.loadedModels.contains(selectedModel) {
+            pendingModelMoves.clear(selectedModelType)
+        }
+        removeObsoleteModelsInBackground()
+    }
+
+    // MARK: - Background upgrade (migration switchover)
+
+    /// A background upgrade loaded the selected model: prepare its engine while the previous
+    /// one keeps working, then install it when no recording is in progress.
+    private func adoptUpgradedModel() {
+        switch selectedModelType {
+        case .parakeet:
+            guard let models = setupManager.parakeetModels,
+                  setupManager.loadedParakeetVariant == parakeetVariant else { return }
+            let variant = parakeetVariant
+            Task {
+                do {
+                    let prepared = try await transcriber.prepareParakeet(models: models)
+                    guard selectedModelType == .parakeet, parakeetVariant == variant,
+                          setupManager.loadedParakeetVariant == variant else { return }
+                    pendingEngine = .parakeet(prepared)
+                    installPendingEngineIfIdle()
+                } catch {
+                    // The previous engine stays installed; the next launch tries again.
+                    Self.logger.error("Could not start the upgraded engine: \(error.localizedDescription, privacy: .public)")
+                }
+            }
+        case .whisper:
+            guard let engine = setupManager.whisperEngine,
+                  setupManager.loadedWhisperModelSize == whisperSettings.modelSize else { return }
+            pendingEngine = .whisper(engine)
+            installPendingEngineIfIdle()
+        }
+    }
+
+    /// Install a pending upgraded engine unless a recording is in progress (that recording
+    /// keeps the engine it started with; `stopRecording` calls this once it is submitted).
+    private func installPendingEngineIfIdle() {
+        guard !isRecording, let pending = pendingEngine else { return }
+        pendingEngine = nil
+        switch pending {
+        case .parakeet(let prepared):
+            guard transcriber.installPrepared(prepared) else { return }
+        case .whisper(let engine):
+            transcriber.initializeWhisper(engine: engine, settings: whisperSettings)
+        }
+        // Also covers a previous engine whose start was overtaken by the upgrade.
+        isEngineReady = true
+        engineError = nil
+        engineDidBecomeReady()
+    }
+
+    // MARK: - Model cleanup
+
+    nonisolated private static let logger = Logger(subsystem: BuildFlavor.current.logSubsystem, category: "AppState")
+
+    /// Folders this app must keep: the selected model, what is loaded, previous models of
+    /// unfinished migrations.
+    var modelFoldersInUse: Set<ModelFolder> {
+        ModelCleanupPolicy.inUse(selected: selectedModel, loaded: setupManager.loadedModels, pending: pendingModelMoves)
+    }
+
+    /// Folders the other flavor (production or debug) may use, from its stored settings.
+    /// Reads its preferences; never writes them.
+    var modelFoldersOfOtherFlavor: Set<ModelFolder> {
+        let other: BuildFlavor = BuildFlavor.current == .production ? .debug : .production
+        return ModelCleanupPolicy.usedByOtherFlavor(UserDefaults(suiteName: other.bundleIdentifier))
+    }
+
+    /// Remove obsolete model folders, once the selected model is loaded. Off the main thread
+    /// (the lock may wait for another NanoWhisper process); failures are only logged. The
+    /// Whisper cache (~/Documents) is touched only when the user is on Whisper.
+    private func removeObsoleteModelsInBackground() {
+        guard isEngineReady else { return }
+        // A recording or queued transcription may still hold the previous engine (whose model
+        // may be the obsolete one): wait until they are done.
+        guard !isRecording, transcriber.pendingTranscriptions == 0 else {
+            obsoleteModelCleanupDeferred = true
+            return
+        }
+        obsoleteModelCleanupDeferred = false
+        let keep = modelFoldersInUse.union(modelFoldersOfOtherFlavor)
+        let includeWhisper = selectedModelType == .whisper
+        let store = modelStore
+        Task.detached(priority: .utility) {
+            let report = store.removeObsoleteModels(keeping: keep, includeWhisperCache: includeWhisper)
+            if !report.removed.isEmpty {
+                Self.logger.info("Removed \(report.removed.count) obsolete model folder(s), \(report.freedBytes) bytes")
+            }
         }
     }
 
@@ -282,6 +438,7 @@ class AppState: ObservableObject {
         cancelLiveTranscription()
         isEngineReady = false
         engineError = nil
+        pendingEngine = nil
         transcriber.invalidatePendingInitialization()
         selectedModelType = modelType
         if let variant {
@@ -301,11 +458,8 @@ class AppState: ObservableObject {
         if !alreadyLoaded {
             setupManager.resetForModelSwitch()
         }
-        setupManager.runSetup(
-            modelType: modelType,
-            parakeetVariant: parakeetVariant,
-            whisperSettings: whisperSettings
-        )
+        // With a pending migration this is also its retry (the Retry action).
+        runSelectedModelSetup()
     }
 
     func toggleRecording() {
@@ -340,12 +494,16 @@ class AppState: ObservableObject {
             cancelLiveTranscription()
             mediaController.endSession(mediaSession)
             lastError = "Could not access the microphone. Check System Settings > Privacy > Microphone."
+            installPendingEngineIfIdle()
         }
     }
 
     func stopRecording() {
         sound.playStop()
         isRecording = false
+        // After the engine for this recording is captured below: an upgraded engine that
+        // arrived during the recording is installed for the next one.
+        defer { installPendingEngineIfIdle() }
         let mediaSession = recordingMediaSession
         recordingMediaSession = nil
         // Abandon the live preview's decode in flight; its text stays until the final text.
@@ -363,6 +521,8 @@ class AppState: ObservableObject {
         isTranscribing = true
         let destination = recordingDestination
         recordingDestination = .paste
+        // Captured now, so the recording keeps its engine even if an upgrade installs next.
+        let configuration = transcriber.currentConfiguration
 
         Task {
             defer {
@@ -371,11 +531,14 @@ class AppState: ObservableObject {
                 if let mediaSession { mediaController.endSession(mediaSession) }
             }
 
-            let result = await transcriber.transcribe(audioURL: audioURL)
+            let result = await transcriber.transcribe(audioURL: audioURL, configuration: configuration)
             // The overlay shows exactly the text delivered (pasted, or the Try-it box's).
             showFinalLiveText(result.text, for: live)
             isTranscribing = false
             recordingOverlay.dismiss()
+            if obsoleteModelCleanupDeferred {
+                removeObsoleteModelsInBackground()
+            }
 
             switch DictationOutcome.resolve(
                 destination: destination, text: result.text, failure: result.failure,
@@ -458,11 +621,7 @@ class AppState: ObservableObject {
     func loadSelectedModelIfIdle() {
         guard !isEngineReady, !setupManager.isSettingUp, !setupManager.setupComplete,
               setupManager.setupError == nil else { return }
-        setupManager.runSetup(
-            modelType: selectedModelType,
-            parakeetVariant: parakeetVariant,
-            whisperSettings: whisperSettings
-        )
+        runSelectedModelSetup()
     }
 
     private func updateLaunchAtLogin() {

@@ -105,6 +105,8 @@ struct EngineState: Equatable {
     var error: String?
     /// The model is loaded but the transcription engine could not start (`AppState.engineError`).
     var initializationError: String?
+    /// A migration's new model downloading in the background (`SetupManager.upgrade`).
+    var upgrade: ModelUpgrade?
 
     /// Whether applying a configuration loads (and may download) a model, as
     /// `AppState.applyEngine` does: when the model changes, and also when nothing is
@@ -225,6 +227,9 @@ struct SettingsContext {
     var historyUnavailable: Bool
     var maxHistoryCount: Binding<Int>
 
+    // Downloaded models (Settings only)
+    var storage: ModelStorageContext
+
     var modelStatus: ModelStatus { ModelStatus.resolve(engineState) }
 
     func status(of permission: Permission) -> PermissionStatus {
@@ -252,7 +257,8 @@ extension AppState {
             setupComplete: setupManager.setupComplete,
             progressText: setupManager.setupProgress,
             error: setupManager.setupError,
-            initializationError: engineError
+            initializationError: engineError,
+            upgrade: setupManager.upgrade
         )
     }
 
@@ -264,6 +270,14 @@ extension AppState {
         let loadsModel = engineState.applyLoadsModel(
             changesModel: configuration.changesModel(from: engineConfiguration)
         )
+        // A deliberate choice of another model for an engine ends that engine's migration:
+        // the user keeps what they picked (the step does not run again).
+        if configuration.parakeetVariant != parakeetVariant {
+            clearPendingModelMove(.parakeet)
+        }
+        if configuration.whisperSettings.modelSize != whisperSettings.modelSize {
+            clearPendingModelMove(.whisper)
+        }
         whisperSettings = configuration.whisperSettings
         parakeetVariant = configuration.parakeetVariant
         if loadsModel {
@@ -299,7 +313,8 @@ extension AppState {
             offersLiveTranscription: BuildFlavor.current.supportsLiveTranscription,
             historyEnabled: binding(\.historyEnabled),
             historyUnavailable: historyUnavailable,
-            maxHistoryCount: binding(\.maxHistoryCount)
+            maxHistoryCount: binding(\.maxHistoryCount),
+            storage: modelStorageContext
         )
     }
 

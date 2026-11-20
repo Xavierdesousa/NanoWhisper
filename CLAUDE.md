@@ -77,7 +77,7 @@ State in the PR what was not verified. See [testing](docs/wiki/testing-and-verif
 | Recording, hotkey, paste, sounds | `AudioRecorder.swift`, `HotkeyManager.swift`, `PasteManager.swift`, `SoundManager.swift` |
 | Overlay | `RecordingOverlay.swift` |
 | Transcription | `Transcriber.swift` (`Transcriber`, `WhisperEngine`, `SerialGate`), `TranscriptionEngine.swift` (model enums, `WhisperSettings`), `LiveTranscription.swift` and `LiveTranscript.swift` (live preview, debug build only) |
-| Model download and cache | `SetupManager.swift` |
+| Model download and cache | `SetupManager.swift`, `ModelMigrations.swift` (migration steps, obsolete replacements), `ModelSwitchover.swift` (smooth switchover), `ModelStore.swift` (allow-listed folders, lock, removal) |
 | Media pause | `MediaController.swift`, `MediaPlaybackController.swift`, `NowPlayingPlaybackController.swift`, `MediaRemoteJXA.swift`, `Subprocess.swift` |
 | Settings and onboarding | `SettingsContext.swift`, `Settings*Section.swift`, `SettingsView.swift`, `OnboardingFlow.swift`, `OnboardingView.swift`, `Permissions.swift`, `ModelComparisonView.swift` |
 | History window | `HistoryView.swift` |

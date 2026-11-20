@@ -48,14 +48,17 @@ actor WhisperEngine {
     private let gate = SerialGate()
 
     /// Download (if needed), prewarm and load the given WhisperKit model variant.
-    init(model: String) async throws {
+    /// - Parameter localFolder: load from this folder only, without downloading (the previous
+    ///   model during a switchover).
+    init(model: String, localFolder: URL? = nil) async throws {
         let config = WhisperKitConfig(
             model: model,
+            modelFolder: localFolder?.path,
             verbose: false,
             logLevel: .error,
             prewarm: true,
             load: true,
-            download: true
+            download: localFolder == nil
         )
         kit = try await WhisperKit(config)
     }
@@ -222,6 +225,43 @@ class Transcriber {
         return true
     }
 
+    /// A Parakeet engine loaded but not installed yet (a switchover's new model). Installing it
+    /// is synchronous, so the app can pick the moment: never while a recording is in progress.
+    struct PreparedParakeet: Sendable {
+        let manager: AsrManager
+        let models: AsrModels?
+        /// `engineGeneration` when preparation started.
+        fileprivate let generation: Int
+    }
+
+    /// Load Parakeet models into a new `AsrManager` without installing it; the engine in use
+    /// keeps working meanwhile.
+    func prepareParakeet(models: AsrModels) async throws -> PreparedParakeet {
+        try await prepareParakeet(models: models) {
+            let manager = AsrManager(config: .default)
+            try await manager.loadModels(models)
+            return manager
+        }
+    }
+
+    func prepareParakeet(models: AsrModels?, _ load: () async throws -> AsrManager) async throws -> PreparedParakeet {
+        let generation = engineGeneration
+        return PreparedParakeet(manager: try await load(), models: models, generation: generation)
+    }
+
+    /// Install a prepared engine now. Returns `false` (and changes nothing) if another
+    /// initialization or a model switch happened since preparation started. Recordings already
+    /// submitted keep the engine they captured.
+    @discardableResult
+    func installPrepared(_ prepared: PreparedParakeet) -> Bool {
+        guard prepared.generation == engineGeneration else { return false }
+        engineGeneration += 1
+        asrManager = prepared.manager
+        parakeetModels = prepared.models
+        whisperEngine = nil
+        return true
+    }
+
     /// Install a loaded Whisper engine. Synchronous, so it cannot be overtaken itself, but it
     /// bumps the generation so a Parakeet initialization still in flight is discarded.
     func initializeWhisper(engine: WhisperEngine, settings: WhisperSettings) {
@@ -291,7 +331,12 @@ class Transcriber {
     ///   - Whisper: `WhisperEngine` also serializes internally (it owns the non-Sendable kit).
     /// - Debug timings start once the recording leaves the queue.
     func transcribe(audioURL: URL) async -> TranscriptionResult {
-        let configuration = currentConfiguration
+        await transcribe(audioURL: audioURL, configuration: currentConfiguration)
+    }
+
+    /// Transcribe one recording with a configuration captured earlier (synchronously, e.g. when
+    /// the recording stopped), so an engine installed after that moment does not apply to it.
+    func transcribe(audioURL: URL, configuration: Configuration) async -> TranscriptionResult {
         pendingTranscriptions += 1
         defer { pendingTranscriptions -= 1 }
         await transcriptionGate.acquire()

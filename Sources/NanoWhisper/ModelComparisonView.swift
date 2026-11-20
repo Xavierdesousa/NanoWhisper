@@ -43,6 +43,7 @@ struct ModelComparisonView: View {
             switch whisperModelSize {
             case .tiny, .base: return .high
             case .small, .largev3Turbo: return .medium
+            case .medium: return .low
             case .largev3: return .lowest
             }
         }
@@ -60,7 +61,7 @@ struct ModelComparisonView: View {
             case .tiny: return .lowest
             case .base: return .low
             case .small: return .medium
-            case .largev3Turbo: return .high
+            case .medium, .largev3Turbo: return .high
             case .largev3: return .highest
             }
         }
@@ -89,13 +90,18 @@ struct ModelComparisonView: View {
                 "99 languages; set the language for best results on short clips",
                 "Vocabulary hints help with names and technical terms",
             ]
+            if let replacement = whisperModelSize.replacement {
+                // Obsolete sizes are not offered; shown only if a stored choice still names one.
+                points.append("No longer offered; replaced by \(replacement.displayName)")
+                return points
+            }
             switch whisperModelSize {
-            case .tiny, .base:
+            case .tiny, .medium, .largev3:
+                break // handled above
+            case .base:
                 points.append("Small and fast, but noticeably less accurate than larger sizes")
             case .small:
                 points.append("Balanced size, speed and accuracy")
-            case .largev3:
-                points.append("Most accurate Whisper size, also the slowest and largest")
             case .largev3Turbo:
                 points.append("OpenAI's turbo model: accuracy close to Large v3, much faster, a fifth of the download")
             }

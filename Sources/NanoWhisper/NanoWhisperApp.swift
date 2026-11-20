@@ -90,6 +90,13 @@ struct NanoWhisperApp: App {
                 }
             }
 
+            // A migration's new model downloading while the previous one is in use. A failed
+            // or offline download is not shown here: dictation works, it retries at next launch.
+            if let upgrade = appState.setupManager.upgrade, upgrade.isDownloading {
+                Label(ModelUpgradeText.progress(upgrade), systemImage: "arrow.down.circle")
+                    .foregroundColor(.secondary)
+            }
+
             // Error
             if let error = appState.lastError {
                 Divider()
