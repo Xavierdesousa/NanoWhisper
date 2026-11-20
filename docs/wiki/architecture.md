@@ -212,12 +212,15 @@ environment values forced in a test host).
   `RecorderPositionPicker.swift`.
 - **Shape:** compact capsule 184 × 36 pt (radius 18); with live text a card 380 × 106 pt (36
   header + 57 text for three lines + 13), same radius, so the header never moves. Always dark:
-  `NSVisualEffectView` `.hudWindow` behind the window (masked by a stretchable rounded-rect
-  `maskImage`) under the icon tile's deep violet `#261445` at 76 %; Reduce Transparency: solid
-  `#24123F`. A 1 pt rim inside, a vertical gradient `#A88BD6` 90 % → `#7A56AE` 75 %, after the
-  lighter edge around the app icon's inner tile (`#8C66B4` on `Resources/AppIcon.png`, lighter
-  at the top). Window shadow on, `invalidateShadow()` after each resize and once the appear
+  black at 75 % with no blur (the production overlay's surface, so the desktop shows through
+  darkened); Reduce Transparency: an opaque `#1C1C1E`. A 0.5 pt hairline rim, white at 8 %. The
+  record capsule and caret keep the icon's violet; nothing else on the surface is violet. Window
+  shadow on, `invalidateShadow()` after each resize and once the appear
   animation settled.
+  - **Changed again 2026-11-20 (maintainer, after trying PR #27):** "j'aime pas l'overlay en
+    violet" — the surface went back to the production overlay's translucent black (no blur,
+    hairline rim) instead of the icon tile's violet `#261445` at 76 % over a `.hudWindow` blur
+    with a violet rim. The contrast rule and text opacities below still apply.
   - **Changed 2026-11-20 (maintainer's feedback on PR #24):** the near-opaque `#120826` at 86 %
     "felt too AI"; now slightly translucent so the blurred desktop shows through, with the rim.
     Text opacities were raised so every text stays at 4.5:1 or more on the worst wallpaper with

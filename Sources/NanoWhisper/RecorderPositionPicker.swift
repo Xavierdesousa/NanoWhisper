@@ -153,7 +153,7 @@ struct RecordingOverlayPreview: View {
     ])
 
     var body: some View {
-        RecordingOverlayView(viewModel: model, onStop: {}, showsMaterial: false)
+        RecordingOverlayView(viewModel: model, onStop: {})
             .fixedSize()
             .transaction { $0.animation = nil }
     }

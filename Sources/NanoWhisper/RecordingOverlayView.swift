@@ -13,19 +13,16 @@ enum OverlayPalette {
               opacity: opacity)
     }
 
-    /// The surface over the HUD material: the deep violet of the app icon's tile, slightly
-    /// translucent, so the blurred desktop shows through (2026-11-20 feedback: the opaque
-    /// violet "felt too AI"). Opacity chosen for text contrast with the material ignored
-    /// (the worst case): see `OverlayContrastTests`.
-    static let surfaceColor: UInt32 = 0x261445
-    static let surfaceOpacity = 0.76
+    /// The surface: the production overlay's neutral translucent black (black at 75 %, no
+    /// blur), so the desktop shows through darkened. 2026-11-20: the maintainer preferred it to
+    /// the icon's violet. Text contrast is checked on the worst wallpaper: `OverlayContrastTests`.
+    static let surfaceColor: UInt32 = 0x000000
+    static let surfaceOpacity = 0.75
     static let surface = rgb(surfaceColor, surfaceOpacity)
-    /// Surface with Reduce Transparency (no material): the same violet, opaque.
-    static let solidSurface = rgb(0x24123F)
-    /// The rim, after the lighter edge around the app icon's inner tile (#8C66B4 on the
-    /// icon): lighter at the top, like the icon's.
-    static let rimTop = rgb(0xA88BD6, 0.9)
-    static let rimBottom = rgb(0x7A56AE, 0.75)
+    /// Surface with Reduce Transparency: an opaque near-black.
+    static let solidSurface = rgb(0x1C1C1E)
+    /// The rim: a hairline, as on the production overlay.
+    static let rim = Color.white.opacity(0.08)
     /// nwOverlayText: stable text.
     static let textOpacity = 0.94
     static let text = Color.white.opacity(textOpacity)
@@ -86,9 +83,6 @@ enum OverlayMetrics {
 struct RecordingOverlayView: View {
     @ObservedObject var viewModel: RecordingOverlayViewModel
     var onStop: () -> Void
-    /// False in previews inside other windows (Settings): a solid fill instead of the
-    /// behind-window material.
-    var showsMaterial = true
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -113,7 +107,7 @@ struct RecordingOverlayView: View {
         }
         .frame(width: transcript != nil ? OverlayMetrics.cardWidth : nil)
         .frame(minWidth: OverlayMetrics.compactWidth)
-        .background(OverlayBackground(cornerRadius: OverlayMetrics.cornerRadius, showsMaterial: showsMaterial))
+        .background(OverlayBackground(cornerRadius: OverlayMetrics.cornerRadius))
         .clipShape(RoundedRectangle(cornerRadius: OverlayMetrics.cornerRadius, style: .circular))
         .environment(\.colorScheme, .dark)
         // Appear: scale 0.96 → 1 from the pinned edge (the window fades in meanwhile).
@@ -214,60 +208,16 @@ struct RecordingOverlayView: View {
 
 // MARK: - Background
 
-/// HUD material (behind the window) under the translucent violet fill, or a solid fill with
-/// Reduce Transparency; a 1 pt rim inside, after the app icon's tile edge.
+/// The translucent black surface, or an opaque one with Reduce Transparency, with a hairline
+/// rim (the production overlay's look).
 private struct OverlayBackground: View {
     let cornerRadius: CGFloat
-    var showsMaterial = true
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .circular)
-        ZStack {
-            if reduceTransparency {
-                shape.fill(OverlayPalette.solidSurface)
-            } else {
-                if showsMaterial {
-                    OverlayMaterial(cornerRadius: cornerRadius)
-                }
-                shape.fill(OverlayPalette.surface)
-            }
-        }
-        .overlay(shape.strokeBorder(
-            LinearGradient(colors: [OverlayPalette.rimTop, OverlayPalette.rimBottom],
-                           startPoint: .top, endPoint: .bottom),
-            lineWidth: 1
-        ))
-    }
-}
-
-/// `NSVisualEffectView` with the HUD material, always dark, masked to the overlay's shape.
-private struct OverlayMaterial: NSViewRepresentable {
-    let cornerRadius: CGFloat
-
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = .hudWindow
-        view.blendingMode = .behindWindow
-        view.state = .active
-        view.appearance = NSAppearance(named: .darkAqua)
-        view.maskImage = Self.mask(cornerRadius: cornerRadius)
-        return view
-    }
-
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
-
-    /// A stretchable rounded rectangle: the corners keep their radius at any size.
-    private static func mask(cornerRadius radius: CGFloat) -> NSImage {
-        let edge = radius * 2 + 1
-        let image = NSImage(size: NSSize(width: edge, height: edge), flipped: false) { rect in
-            NSColor.black.setFill()
-            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
-            return true
-        }
-        image.capInsets = NSEdgeInsets(top: radius, left: radius, bottom: radius, right: radius)
-        image.resizingMode = .stretch
-        return image
+        shape.fill(reduceTransparency ? OverlayPalette.solidSurface : OverlayPalette.surface)
+            .overlay(shape.strokeBorder(OverlayPalette.rim, lineWidth: 0.5))
     }
 }
 
