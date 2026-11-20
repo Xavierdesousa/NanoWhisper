@@ -10,10 +10,10 @@ private class OverlayPanel: NSPanel {
 
 /// Hosting view that reports when its SwiftUI content's ideal size changes.
 ///
-/// The controller sizes the panel itself (keeping its top edge in place), so it must know when
-/// the content grows or shrinks. Reading `fittingSize` right after changing the view model is
-/// not enough: SwiftUI has not re-rendered yet and returns the previous size, which left the
-/// panel compact while the content had expanded (clipped text, no corners).
+/// The controller sizes the panel itself (keeping its pinned edges in place), so it must know
+/// when the content grows or shrinks. Reading `fittingSize` right after changing the view
+/// model is not enough: SwiftUI has not re-rendered yet and returns the previous size, which
+/// left the panel compact while the content had expanded (clipped text, no corners).
 private final class OverlayHostingView: NSHostingView<RecordingOverlayView> {
     var onIdealSizeChange: (() -> Void)?
 
@@ -27,9 +27,11 @@ private final class OverlayHostingView: NSHostingView<RecordingOverlayView> {
 
 @MainActor
 class RecordingOverlayController {
-    private var window: NSWindow?
-    private var viewModel = RecordingOverlayViewModel()
-    private var levelCancellable: AnyCancellable?
+    /// The panel while it is shown (internal for the window tests).
+    private(set) var window: NSWindow?
+    /// Internal for the window tests, which put it in states (pointer over it) they cannot
+    /// produce with events.
+    let viewModel = RecordingOverlayViewModel()
     nonisolated(unsafe) private var screenObserver: Any?
     var onStop: (() -> Void)?
 
@@ -43,6 +45,11 @@ class RecordingOverlayController {
     private var presentation = 0
     /// A resize to the content's new ideal size is scheduled (see `scheduleFit()`).
     private var fitScheduled = false
+
+    /// How long the result stays before the fade-out: longer when final text is shown, to
+    /// leave time to read its start.
+    static let resultHold: TimeInterval = 0.8
+    static let resultHoldWithText: TimeInterval = 1.2
 
     init() {
         // Watch for display configuration changes (plug/unplug monitor, arrangement change)
@@ -83,32 +90,35 @@ class RecordingOverlayController {
         window.orderFrontRegardless()
     }
 
-    /// - Parameter transcriptID: the live transcription of this recording, if any; only its
-    ///   updates are shown.
-    func show(audioLevelPublisher: PassthroughSubject<Float, Never>, transcriptID: UUID? = nil) {
+    /// - Parameters:
+    ///   - transcriptID: the live transcription of this recording, if any; only its updates
+    ///     are shown.
+    ///   - position: where the overlay appears (`AppState.recorderPosition`).
+    func show(
+        audioLevelPublisher: PassthroughSubject<Float, Never>,
+        transcriptID: UUID? = nil,
+        position: RecorderPosition = .defaultPosition
+    ) {
         activeRecordings += 1
         presentation += 1
         self.transcriptID = transcriptID
         viewModel.transcript = nil
+        viewModel.position = position
         viewModel.state = .recording
-        viewModel.audioLevel = 0
         viewModel.startTimer()
+        viewModel.waveform.start(levels: audioLevelPublisher)
 
-        // Subscribe to audio levels
-        levelCancellable = audioLevelPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] level in
-                self?.viewModel.audioLevel = level
-            }
-
-        if window == nil {
+        let isNewWindow = window == nil
+        if isNewWindow {
+            // Drawn at the start of its appear animation, then animated in below.
+            viewModel.isPresented = false
             let view = RecordingOverlayView(viewModel: viewModel, onStop: { [weak self] in
                 self?.onStop?()
             })
             let hosting = OverlayHostingView(rootView: view)
-            // The controller sizes the window itself, keeping its top edge in place when the
-            // transcript appears. With the default options the hosting view would also resize
-            // it, anchored at the bottom-left corner; the intrinsic size alone keeps
+            // The controller sizes the window itself, keeping its pinned edges in place when
+            // the transcript appears. With the default options the hosting view would also
+            // resize it, anchored at the bottom-left corner; the intrinsic size alone keeps
             // `fittingSize` accurate without that, and its changes are reported.
             hosting.sizingOptions = [.intrinsicContentSize]
             hosting.onIdealSizeChange = { [weak self] in self?.scheduleFit() }
@@ -149,6 +159,22 @@ class RecordingOverlayController {
             ctx.duration = 0.15
             window?.animator().alphaValue = 1
         }
+        if isNewWindow {
+            // The next turn, so SwiftUI has drawn the start state first.
+            let presentation = self.presentation
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, self.presentation == presentation else { return }
+                    self.viewModel.isPresented = true
+                }
+            }
+            // The appear scale changes the drawn shape: recompute the shadow once it settled.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                MainActor.assumeIsolated { self?.window?.invalidateShadow() }
+            }
+        } else {
+            viewModel.isPresented = true
+        }
     }
 
     /// Show `transcript` (or remove the live text with `nil`) if `id` is the live
@@ -160,22 +186,36 @@ class RecordingOverlayController {
     }
 
     func transitionToLoading() {
-        levelCancellable?.cancel()
-        levelCancellable = nil
+        viewModel.waveform.markStopped()
         viewModel.stopTimer()
         viewModel.state = .loading
     }
 
-    func dismiss() {
+    /// Show the result of a recording, hold it, then fade out. Ignored while a newer recording
+    /// still uses the overlay.
+    func dismiss(showing result: OverlayResult = .done) {
         activeRecordings = max(0, activeRecordings - 1)
         // A newer recording is still using the overlay.
         guard activeRecordings == 0 else { return }
-        viewModel.state = .done
+        viewModel.waveform.stop()
+        viewModel.stopTimer()
+        viewModel.state = .finished(result)
         let presentation = self.presentation
+        let hold = viewModel.visibleTranscript == nil ? Self.resultHold : Self.resultHoldWithText
+        if window != nil {
+            NSAccessibility.post(
+                element: NSApp as Any,
+                notification: .announcementRequested,
+                userInfo: [
+                    .announcement: result.title,
+                    .priority: NSAccessibilityPriorityLevel.high.rawValue,
+                ]
+            )
+        }
 
-        // Hold the checkmark, then fade out
+        // Hold the result, then fade out
         Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 800_000_000)
+            try? await Task.sleep(nanoseconds: UInt64(hold * 1_000_000_000))
             guard let self, self.presentation == presentation else { return }
             NSAnimationContext.runAnimationGroup({ ctx in
                 ctx.duration = 0.25
@@ -186,8 +226,9 @@ class RecordingOverlayController {
                     self.window?.orderOut(nil)
                     self.window = nil
                     self.viewModel.state = .idle
-                    self.viewModel.audioLevel = 0
                     self.viewModel.transcript = nil
+                    self.viewModel.isPresented = false
+                    self.viewModel.isPointerOver = false
                     self.transcriptID = nil
                 }
             })
@@ -213,35 +254,20 @@ class RecordingOverlayController {
         }
     }
 
-    /// Resize for the transcript appearing or disappearing, keeping the top edge and the
-    /// horizontal center where they are (the overlay may have been dragged), on its screen.
+    /// Resize for the transcript appearing or disappearing, keeping the edges pinned by the
+    /// recorder position where they are (the overlay may have been dragged), on its screen.
     ///
     /// Not animated: the content is laid out at its new size at once, so during an animated
     /// window resize it was clipped by the smaller window (square corners, cut text).
     private func fitWindowToContent() {
         guard let window, let size = fittingSize(), size != window.frame.size else { return }
         let visible = (window.screen ?? NSScreen.main)?.visibleFrame
-        window.setFrame(Self.frame(fitting: size, from: window.frame, within: visible), display: true)
+        window.setFrame(viewModel.position.frame(fitting: size, from: window.frame, within: visible), display: true)
         // The shadow of a transparent window follows its drawn shape, computed once.
         window.invalidateShadow()
     }
 
-    /// Frame of `size` with the same top edge and horizontal center as `current`, moved back
-    /// inside `visible` if it would stick out.
-    static func frame(fitting size: NSSize, from current: NSRect, within visible: NSRect?) -> NSRect {
-        var frame = NSRect(
-            x: (current.midX - size.width / 2).rounded(),
-            y: current.maxY - size.height,
-            width: size.width,
-            height: size.height
-        )
-        if let visible {
-            frame.origin.x = min(max(frame.minX, visible.minX), visible.maxX - frame.width)
-            frame.origin.y = min(max(frame.minY, visible.minY), visible.maxY - frame.height)
-        }
-        return frame
-    }
-
+    /// Place the overlay at the recorder position on the screen that has the pointer.
     private func positionWindow() {
         guard let window = window else { return }
         let mouseLocation = NSEvent.mouseLocation
@@ -249,26 +275,81 @@ class RecordingOverlayController {
             ?? NSScreen.main
             ?? NSScreen.screens.first
         guard let screen = screen else { return }
+        window.setFrame(viewModel.position.initialFrame(size: window.frame.size, in: screen.visibleFrame), display: true)
+    }
+}
 
-        let x = screen.frame.midX - window.frame.width / 2
-        let y = screen.visibleFrame.maxY - window.frame.height - 12
-        window.setFrameOrigin(NSPoint(x: x, y: y))
+// MARK: - Result
+
+/// What the overlay shows when a recording is over, before it fades out.
+enum OverlayResult: Equatable, Sendable {
+    /// The text was pasted into the frontmost app.
+    case pasted
+    /// The text went elsewhere (onboarding's Try-it box), or nowhere because that box is gone.
+    case done
+    /// The engine ran and recognized nothing.
+    case noSpeech
+    /// The recording produced no audio file.
+    case noAudio
+    /// The engine failed (see `TranscriptionFailure`).
+    case failed
+
+    init(_ outcome: DictationOutcome) {
+        switch outcome {
+        case .deliver: self = .pasted
+        case .showTestResult(let text): self = text.isEmpty ? .noSpeech : .done
+        case .discard: self = .done
+        case .noResult: self = .noSpeech
+        case .failed: self = .failed
+        }
+    }
+
+    /// Header text, also announced to VoiceOver.
+    var title: String {
+        switch self {
+        case .pasted: return "Pasted"
+        case .done: return "Done"
+        case .noSpeech: return "No speech detected"
+        case .noAudio: return "No audio recorded"
+        case .failed: return "Transcription failed"
+        }
+    }
+
+    /// A check (success) or a warning sign.
+    var isSuccess: Bool {
+        switch self {
+        case .pasted, .done: return true
+        case .noSpeech, .noAudio, .failed: return false
+        }
     }
 }
 
 // MARK: - View Model
 
-enum OverlayState {
-    case idle, recording, loading, done
+enum OverlayState: Equatable {
+    case idle, recording, loading
+    case finished(OverlayResult)
 }
 
 @MainActor
 class RecordingOverlayViewModel: ObservableObject {
     @Published var state: OverlayState = .idle
-    @Published var audioLevel: Float = 0
     @Published var elapsedSeconds: Int = 0
     /// Live transcript of the recording, if live transcription is on.
     @Published var transcript: LiveTranscript?
+    /// Where the overlay is pinned: the anchor of its appear animation.
+    @Published var position: RecorderPosition = .defaultPosition
+    /// False while the panel appears (drawn slightly smaller), true once shown.
+    @Published var isPresented = true
+    /// The pointer is over the overlay: a recording shows Stop instead of the timer.
+    @Published var isPointerOver = false
+
+    /// Waveform data; redrawn by its own timeline, not through this object's updates.
+    let waveform: OverlayWaveform
+
+    init(waveform: OverlayWaveform = OverlayWaveform()) {
+        self.waveform = waveform
+    }
 
     /// The transcript when it has text to show; the overlay is compact otherwise.
     var visibleTranscript: LiveTranscript? {
@@ -299,251 +380,5 @@ class RecordingOverlayViewModel: ObservableObject {
         let m = elapsedSeconds / 60
         let s = elapsedSeconds % 60
         return String(format: "%d:%02d", m, s)
-    }
-}
-
-// MARK: - SwiftUI View
-
-struct RecordingOverlayView: View {
-    @ObservedObject var viewModel: RecordingOverlayViewModel
-    var onStop: () -> Void
-
-    @State private var isHovering = false
-
-    private let barCount = 10
-    private let barWidth: CGFloat = 2.5
-    private let barSpacing: CGFloat = 2
-    private let maxBarHeight: CGFloat = 20
-    private let minBarHeight: CGFloat = 3
-
-    /// Width of the transcript text when the overlay shows live text.
-    static let transcriptWidth: CGFloat = 360
-
-    var body: some View {
-        Group {
-            if let transcript = viewModel.visibleTranscript {
-                // Live text: same controls on top, the last lines of the transcript below.
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 10) {
-                        PulsingDot(state: viewModel.state)
-                        bars
-                        Spacer(minLength: 0)
-                        timerOrStopButton
-                    }
-                    LiveTranscriptText(stableText: transcript.stableText, volatileText: transcript.volatileText)
-                }
-                .frame(width: Self.transcriptWidth)
-            } else {
-                HStack(spacing: 10) {
-                    // Dot indicator with pulse
-                    PulsingDot(state: viewModel.state)
-                    bars
-                    timerOrStopButton
-                }
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.black.opacity(0.75))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
-        )
-        .onHover { hovering in
-            isHovering = hovering
-        }
-    }
-
-    // Bars — fixed height container
-    private var bars: some View {
-        Group {
-            if viewModel.state == .loading {
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
-                    HStack(spacing: barSpacing) {
-                        ForEach(0..<barCount, id: \.self) { index in
-                            let phase = timeline.date.timeIntervalSinceReferenceDate
-                            let wave = sin(phase * 3.0 + Double(index) * 0.7)
-                            let height = minBarHeight + (maxBarHeight - minBarHeight) * 0.45 * (wave + 1) / 2
-                            RoundedRectangle(cornerRadius: barWidth / 2)
-                                .fill(Color.orange)
-                                .frame(width: barWidth, height: height)
-                        }
-                    }
-                }
-            } else {
-                HStack(spacing: barSpacing) {
-                    ForEach(0..<barCount, id: \.self) { index in
-                        BarView(
-                            index: index,
-                            state: viewModel.state,
-                            audioLevel: viewModel.audioLevel,
-                            minHeight: minBarHeight,
-                            maxHeight: maxBarHeight,
-                            barWidth: barWidth
-                        )
-                    }
-                }
-            }
-        }
-        .frame(height: maxBarHeight)
-    }
-
-    // Timer or stop button
-    private var timerOrStopButton: some View {
-        ZStack {
-            Text(viewModel.elapsedFormatted)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundColor(.secondary)
-                .opacity(isHovering && viewModel.state == .recording ? 0 : 1)
-
-            Button(action: onStop) {
-                Image(systemName: "stop.fill")
-                    .font(.system(size: 9))
-                    .foregroundColor(.white)
-                    .frame(width: 18, height: 18)
-                    .background(Color.red)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
-            }
-            .buttonStyle(.plain)
-            .opacity(isHovering && viewModel.state == .recording ? 1 : 0)
-        }
-        .frame(minWidth: 28)
-        .animation(.easeOut(duration: 0.15), value: isHovering)
-    }
-}
-
-// MARK: - Live transcript
-
-/// The last lines of the live transcript: final text in the primary color, the tail that may
-/// still change dimmed. Fixed height, so updates never resize the overlay; older lines scroll
-/// out at the top.
-struct LiveTranscriptText: View {
-    let stableText: String
-    let volatileText: String
-
-    static let lineCount = 2
-    static let fontSize: CGFloat = 13
-    static let lineSpacing: CGFloat = 2
-    /// Height of `lineCount` lines of the transcript font.
-    static let height: CGFloat = {
-        let lineHeight = NSLayoutManager().defaultLineHeight(for: .systemFont(ofSize: fontSize))
-        return ceil(lineHeight * CGFloat(lineCount) + lineSpacing * CGFloat(lineCount - 1))
-    }()
-
-    var body: some View {
-        LatestLinesLayout {
-            (Text(stableText).foregroundStyle(.primary) + Text(volatileText).foregroundStyle(.secondary))
-                .font(.system(size: Self.fontSize))
-                .lineSpacing(Self.lineSpacing)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: Self.height)
-        .clipped()
-        // The overlay background is always dark.
-        .environment(\.colorScheme, .dark)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(stableText + volatileText)
-    }
-}
-
-/// Lays out its content at full height: from the top while it fits, and aligned to the
-/// bottom once it is taller, so the latest lines stay visible and older ones move out above.
-private struct LatestLinesLayout: Layout {
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        proposal.replacingUnspecifiedDimensions()
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        for subview in subviews {
-            let height = subview.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil)).height
-            subview.place(
-                at: CGPoint(x: bounds.minX, y: bounds.minY + min(0, bounds.height - height)),
-                anchor: .topLeading,
-                proposal: ProposedViewSize(width: bounds.width, height: height)
-            )
-        }
-    }
-}
-
-// MARK: - Individual Bar
-
-struct BarView: View {
-    let index: Int
-    let state: OverlayState
-    let audioLevel: Float
-    let minHeight: CGFloat
-    let maxHeight: CGFloat
-    let barWidth: CGFloat
-
-    // Each bar gets a slightly different weight for a natural look
-    private var barWeight: CGFloat {
-        let weights: [CGFloat] = [0.5, 0.7, 0.85, 1.0, 0.9, 0.75, 0.95, 0.8, 0.65, 0.55]
-        return weights[index % weights.count]
-    }
-
-    private var barHeight: CGFloat {
-        switch state {
-        case .idle, .done, .loading:
-            return minHeight
-        case .recording:
-            let level = CGFloat(audioLevel) * barWeight
-            return minHeight + (maxHeight - minHeight) * level
-        }
-    }
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: barWidth / 2)
-            .fill(barColor)
-            .frame(width: barWidth, height: barHeight)
-            .animation(.easeOut(duration: 0.08), value: audioLevel)
-    }
-
-    private var barColor: Color {
-        switch state {
-        case .recording: return .red
-        case .loading: return .orange
-        case .done: return .green
-        case .idle: return .gray
-        }
-    }
-}
-
-// MARK: - Pulsing Dot
-
-struct PulsingDot: View {
-    let state: OverlayState
-    @State private var pulsing = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private var dotColor: Color {
-        switch state {
-        case .recording: return .red
-        case .loading: return .orange
-        case .done: return .green
-        case .idle: return .gray
-        }
-    }
-
-    private var scale: CGFloat {
-        pulsing ? 1.15 : 0.9
-    }
-
-    var body: some View {
-        Circle()
-            .fill(dotColor)
-            .frame(width: 8, height: 8)
-            // The repeating animation applies to the scale and opacity only. Attached to the
-            // whole view (`.animation(_:value:)`), it also picked up the dot's position when
-            // `onAppear` ran while the overlay was being laid out (a recording started from a
-            // SwiftUI button, as in onboarding's Try-it), and the dot slid back and forth.
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { content in
-                content
-                    .scaleEffect(reduceMotion ? 1 : scale)
-                    .opacity(reduceMotion ? 1 : (pulsing ? 1.0 : 0.65))
-            }
-            .onAppear { pulsing = true }
     }
 }
