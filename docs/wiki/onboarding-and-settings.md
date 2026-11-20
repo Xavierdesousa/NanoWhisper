@@ -53,7 +53,11 @@ Design: Claude Design canvas "NanoWhisper Redesign", Settings page, proposal 1 "
 - **Last pane remembered**: UserDefaults `settingsPane`; `SettingsPane.restored(_:from:)` falls
   back to General when the stored pane is not shown.
 - **Recorder pane**: the recorder position (the overlay PR's `RecorderPositionPicker`, its
-  footnote under the group) in both builds, then live transcription in debug builds.
+  footnote under the group) in both builds, then live transcription in debug builds. In the
+  renders the picker's radio buttons sit at the trailing edge of their labels (the board draws
+  them before the labels); hosting the picker in a separate `NSHostingView` or forcing
+  `.formStyle(.columns)` did not change it. Not changed here: the picker belongs to the overlay
+  work.
 - **Fresh content at each opening**, so the Engine draft starts from the applied settings
   (unapplied changes are dropped when the window closes). On close the controller stops the
   `PermissionMonitor` and drops the content; the Permissions pane also starts/stops polling on
