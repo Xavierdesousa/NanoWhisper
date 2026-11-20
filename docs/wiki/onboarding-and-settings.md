@@ -1,6 +1,6 @@
 # Onboarding and Settings
 
-Last verified against the code: 2026-11-20 (`feat/settings-and-menu-redesign`; the Settings window, colors and sizing again in `feat/redesign-feedback`), with unit tests and offscreen renders; the Settings redesign was not run in the app (see Known limits). Source: PR #15, the model migration PR, the Settings and menu redesign PR and the code.
+Last verified against the code: 2026-11-20 (`feat/settings-and-menu-redesign`; End of onboarding against `feat/menu-bar-handoff`; the Settings window, colors and sizing again in `feat/redesign-feedback`), with unit tests and offscreen renders; the Settings redesign was not run in the app (see Known limits). Source: PR #15, the model migration PR, the Settings and menu redesign PR and the code.
 
 ## What it is
 
@@ -214,6 +214,50 @@ want, or [esc] to cancel."
 - Closing the window without finishing on a first launch leaves `onboardingComplete` unset, so
   onboarding shows again at the next launch.
 
+## End of onboarding: the menu bar takes over
+
+Design: "After setup: the menu bar takes over" board and the prototype's last step (approved
+2026-11-20). Implementation: [architecture.md](architecture.md#end-of-onboarding-the-handoff-popover).
+
+When the user clicks Finish Setup, onboarding calls `MenuBarController.showOnboardingHandoff()`:
+a popover under the status item, once per completed onboarding (a replay shows it again; nothing
+is persisted). It closes on OK, Escape, a click anywhere else, or when the menu opens; clicking
+the icon then opens the menu as usual. It never activates NanoWhisper.
+
+Wording (`HandoffMessage.make`; the shortcut as the menu writes it, `Shortcut.menuEquivalentString`,
+e.g. "⌥ Space"; the position from Settings › Recorder):
+
+| State at Finish Setup | Title | Text |
+|---|---|---|
+| Model ready | "NanoWhisper is in the menu bar" | "Press ⌥ Space in any app to dictate, and again to stop. The recorder appears at the top center of the screen. History and Settings are in this menu." |
+| Downloading | same | "Parakeet Ultra is still downloading (48%). When it is ready, press ⌥ Space in any app to dictate." (no percentage when unknown) |
+| Optimizing, loading | same | "… is being optimized for this Mac." / "… is still loading.", then the same "When it is ready…" |
+| Setup failed, not downloaded | same | "… could not be set up. Open this menu to try again." / "… is not downloaded yet. Open this menu to download it." |
+| Ready later (only if it was not ready at Finish Setup) | "Parakeet Ultra is ready" | "Press ⌥ Space in any app to dictate, and again to stop. The recorder appears at the top center of the screen." |
+
+- The "ready later" popover replaces the first one if it is still open, and is skipped if the
+  menu is open at that moment (its model line says it). Shown once.
+- **Differences from the board:** the title uses the build's name ("NanoWhisper Debug is in the
+  menu bar" in the debug app); the model is named in full ("Parakeet Ultra", as in the menu);
+  the recorder position is the user's, not always "top center"; "The icon fills as it
+  downloads" is dropped (the capsule icon is a proposal, not built; the icon shows
+  `arrow.down.circle` while downloading); OK is the system accent, not the board's color; the
+  states the board does not draw (optimizing, loading, failed, not downloaded) got the plain
+  texts above.
+- Not on the board, so not built: closing the popover when a dictation starts.
+- Debug builds: `--show-handoff` (`make handoff`) shows it about a second after launch, to try
+  it without going through onboarding (`MenuBarHandoff.isRequestedAtLaunch`; ignored in
+  production).
+- **Verified:** unit tests (state and text); offscreen renders of the content in light and dark
+  (`ViewRender`, `handoff-*.png`); the real `NSPopover` anchored to a real status item in a test
+  process, captured in light and dark, placed under the item, following a text change in place,
+  closed by a synthesized click on OK while the app is inactive and by Escape
+  (`HandoffPopoverWindowTests`, opt-in); in the debug app (`--show-handoff`), the app's log shows
+  the popover window on screen right under the status item and its dismissal when the menu was
+  opened through the Accessibility API. **Not verified:** what it looks like on the real screen
+  (no screen capture), a real click on OK or elsewhere, the "ready later" popover after a real
+  download, VoiceOver.
+
 ## Replay
 
 | How | Effect |
@@ -221,8 +265,9 @@ want, or [esc] to cancel."
 | Settings › Advanced › "Show Onboarding Again…" | Opens onboarding; settings kept. |
 | `--onboarding` launch argument (`make onboarding` for the debug app) | Shows onboarding at launch even if completed; settings kept. |
 | `--reset-onboarding` | Clears only the `onboardingComplete` flag (before `AppState` reads it). |
+| `--show-handoff` (debug builds only; `make handoff`) | Shows the end-of-onboarding popover about a second after launch; nothing else changes. Parsed by `MenuBarHandoff.isRequestedAtLaunch`, not `LaunchOptions`. |
 
-Parsed by `LaunchOptions` (`OnboardingFlow.swift`); unknown arguments are ignored. A replay never
+The first three are parsed by `LaunchOptions` (`OnboardingFlow.swift`); unknown arguments are ignored. A replay never
 re-downloads anything unless the user applies another model.
 
 ## Why it is this way

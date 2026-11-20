@@ -27,6 +27,8 @@ Swift Testing (`@Suite`, `@Test`) in `Tests/NanoWhisperTests/`. CI runs `swift t
 | `SettingsWindowTests.swift` | Opt-in (`NANOWHISPER_WINDOW_TESTS`): the real Settings window on screen. Every pane switch ends at the pane's height with the top edge fixed and one pane shown; each frame of a resize (forced heights, with a layout pass) keeps the window's height and never puts pane content above the content area; the real animation (sampled every 16 ms) is monotonic with the pane hidden until the end; content height changes are followed. With `NANOWHISPER_CAPTURE_DIR`, PNGs of all of it |
 | `OverlayContrastTests.swift` | Overlay text contrast ≥ 4.5:1 over light and dark wallpapers with the material ignored |
 | `MenuContentTests.swift` | Menu bar menu lines for every app state |
+| `MenuBarHandoffTests.swift` | End-of-onboarding popover: when it shows (model ready or not, menu open, replay), the "ready later" popover once, its text with the current shortcut and recorder position, `--show-handoff` debug-only |
+| `HandoffPopoverWindowTests.swift` | Opt-in (`NANOWHISPER_WINDOW_TESTS`): the real handoff `NSPopover` anchored to a real status item of the test process, light and dark: placed under the item, 300 pt wide, shown without activating the app, follows a text change in place, closed by a synthesized click on OK and by Escape. With `NANOWHISPER_CAPTURE_DIR`, PNGs of the popover window |
 | `AudioRecorderTests.swift` | `RecordingWriter`: 16 kHz mono conversion (48 kHz mono, 44.1 kHz stereo), WAV header final once `finish()` returns, nothing written after it, input format change mid-recording, appends racing `finish()`; the level curve. `AudioRecorder` with `FakeInputEngine` (no real input): stop order (engine stopped before the tap is removed, never a tap removed from a running engine), WAV complete when returned, late tap buffers ignored, input change continuing in the same file, input change that cannot restart (`onInputLost`, file finalized), start failure leaving no file. Swapping the stop order back makes two of these fail (checked) |
 | `SettingsPaneTests.swift` | Visible panes and the remembered pane, Recorder pane's live toggle per flavor, shortcut keys, Engine pane status and apply wording, update status |
 
@@ -74,6 +76,13 @@ Agents have **no screen capture**. These worked on 2026-11-19:
      the earlier "alpha animations never run" gotcha; with `await Task.sleep` the real animation
      can be sampled frame by frame. `CALayer.render(in:)` honours alpha but drew no SwiftUI
      content inside a clipping view; `cacheDisplay` draws it but ignores view alpha.
+   - **Popovers (feat/menu-bar-handoff, 2026-11-20):** a test process can create a real
+     `NSStatusItem` and show an `NSPopover` from it; `cacheDisplay` of the popover window's frame
+     view captures the frame, arrow and content (the glass edge comes out as a colored fringe).
+     The hosting view inside a popover is flipped: compute click points from the top. In another
+     running app, the popover is visible neither to the Accessibility API nor to
+     `CGWindowListCopyWindowInfo`; log its window frame from the app instead
+     (`log show --info --predicate 'subsystem == "com.moonji.nanowhisper.debug"'`).
    - **Design reference:** the design canvas's HTML can be rendered with headless Chrome
      (`--headless=new --screenshot --force-device-scale-factor=2 --user-data-dir=<scratch>`) to
      compare with the captures side by side.

@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import Combine
+import os
 import SwiftUI
 
 extension AppState {
@@ -32,7 +33,7 @@ extension AppState {
 /// commands are native `NSMenuItem`s, except the two with something on the right (the
 /// shortcut, the reason setup is unfinished) and the progress lines, which are views.
 @MainActor
-final class MenuBarController: NSObject, NSMenuDelegate {
+final class MenuBarController: NSObject, NSMenuDelegate, NSPopoverDelegate {
     private let appState: AppState
     private let statusItem: NSStatusItem
     private let menu = NSMenu()
@@ -40,6 +41,15 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private var isMenuOpen = false
     private var iconKey: String?
     private var cancellables = Set<AnyCancellable>()
+
+    /// End of onboarding: the popover under the status item (see `MenuBarHandoff`).
+    private var handoff = MenuBarHandoff()
+    private var popover: NSPopover?
+    private var popoverContent: HandoffPopoverController?
+    /// Close the popover on a click anywhere outside it: in another app (global) or in one of
+    /// NanoWhisper's own windows, the status item included (local).
+    private var clickMonitors: [Any] = []
+    private static let logger = Logger(subsystem: BuildFlavor.current.logSubsystem, category: "MenuBar")
 
     init(appState: AppState) {
         self.appState = appState
@@ -63,6 +73,8 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private func stateDidChange() {
         updateIcon()
         if isMenuOpen { refreshMenu() }
+        handoff.engineChanged(isReady: appState.isEngineReady, menuIsOpen: isMenuOpen)
+        updateHandoffPopover()
     }
 
     // MARK: Menu
@@ -73,6 +85,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         isMenuOpen = true
+        dismissHandoff("menu opened")
     }
 
     func menuDidClose(_ menu: NSMenu) {
@@ -190,6 +203,120 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         case .showSettings: appState.showSettings()
         case .quit: NSApplication.shared.terminate(nil)
         }
+    }
+
+    // MARK: Onboarding handoff
+
+    /// Called when the user finishes onboarding (Finish Setup), each time, replays included:
+    /// a popover under the status item says where NanoWhisper lives and how to start. It
+    /// closes on OK, on a click anywhere else and when the menu opens; if the model is not
+    /// ready yet, one more popover says when it is. It never activates the app, so the user
+    /// stays in the app they go back to.
+    func showOnboardingHandoff() {
+        // After the onboarding window has gone, as on the board ("When the window closes…").
+        DispatchQueue.main.asyncAfter(deadline: .now() + MenuBarHandoff.showDelay) { [weak self] in
+            guard let self else { return }
+            self.handoff.setupFinished(engineReady: self.appState.isEngineReady)
+            // The menu is already open: no popover over it, but a model that is not ready yet
+            // is still announced once it is.
+            if self.isMenuOpen { self.handoff.dismiss() }
+            self.updateHandoffPopover()
+        }
+    }
+
+    private func dismissHandoff(_ reason: StaticString) {
+        if handoff.popover != .none {
+            Self.logger.info("Handoff popover dismissed: \(reason, privacy: .public)")
+        }
+        handoff.dismiss()
+        updateHandoffPopover()
+    }
+
+    private var handoffMessage: HandoffMessage? {
+        HandoffMessage.make(
+            handoff.popover,
+            appName: BuildFlavor.current.displayName,
+            modelName: appState.engineConfiguration.modelName,
+            engine: appState.engineState,
+            shortcut: appState.shortcut,
+            recorderPosition: appState.recorderPosition
+        )
+    }
+
+    /// Shows, updates (a download's percentage, the switch to "ready") or closes the popover
+    /// to match `handoff`.
+    private func updateHandoffPopover() {
+        guard let message = handoffMessage else {
+            closeHandoffPopover()
+            return
+        }
+        if let popoverContent, popover?.isShown == true {
+            popoverContent.update(message)
+            return
+        }
+        guard let button = statusItem.button, button.window != nil else {
+            Self.logger.info("Handoff popover not shown: the status item has no window")
+            handoff.dismiss()
+            return
+        }
+        let content = HandoffPopoverController(message: message)
+        content.onDismiss = { [weak self] in self?.dismissHandoff("OK or Escape") }
+        let popover = content.makePopover()
+        popover.delegate = self
+        self.popover = popover
+        popoverContent = content
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        button.highlight(true)
+        installClickMonitors()
+        let itemFrame = button.window.map { $0.convertToScreen(button.convert(button.bounds, to: nil)) } ?? .zero
+        let popoverFrame = content.view.window?.frame ?? .zero
+        Self.logger.info("Handoff popover shown (\(String(describing: self.handoff.popover), privacy: .public)): popover \(NSStringFromRect(popoverFrame), privacy: .public) under item \(NSStringFromRect(itemFrame), privacy: .public)")
+    }
+
+    private func closeHandoffPopover() {
+        removeClickMonitors()
+        guard let popover else { return }
+        self.popover = nil
+        popoverContent = nil
+        popover.close()
+        if !isMenuOpen { statusItem.button?.highlight(false) }
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        // Closed by the system (e.g. the status item went away): forget it.
+        guard let closed = notification.object as? NSPopover, closed === popover else { return }
+        Self.logger.info("Handoff popover closed by the system")
+        popover = nil
+        popoverContent = nil
+        removeClickMonitors()
+        handoff.dismiss()
+        if !isMenuOpen { statusItem.button?.highlight(false) }
+    }
+
+    private func installClickMonitors() {
+        guard clickMonitors.isEmpty else { return }
+        let clicks: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: clicks, handler: { [weak self] _ in
+            MainActor.assumeIsolated { self?.dismissHandoff("click in another app") }
+        }) {
+            clickMonitors.append(global)
+        }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: clicks, handler: { [weak self] event in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if event.window == nil || event.window !== self.popoverContent?.view.window {
+                    self.dismissHandoff("click outside the popover")
+                }
+            }
+            return event
+        }) {
+            clickMonitors.append(local)
+        }
+    }
+
+    private func removeClickMonitors() {
+        clickMonitors.forEach(NSEvent.removeMonitor)
+        clickMonitors = []
     }
 
     // MARK: Icon

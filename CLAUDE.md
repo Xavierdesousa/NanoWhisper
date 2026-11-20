@@ -23,6 +23,7 @@ WhisperKit, both Core ML), and the text is pasted into the frontmost app.
 | `NANOWHISPER_RENDER_DIR=<dir> swift test --filter ViewRender` | Renders onboarding, every Settings pane (the real window, light and dark) and the menu states to PNGs in `<dir>` (offscreen; the suite is skipped without the variable). |
 | `make app` | Builds, signs and (re)launches **NanoWhisper Debug.app**. See the flavor rules below. |
 | `make onboarding` | Same as `make app`, launched with `--onboarding`. |
+| `make handoff` | Same as `make app`, launched with `--show-handoff` (the end-of-onboarding popover, debug builds only). |
 | `make ci SIGN_IDENTITY=` | Production bundle, ad-hoc signed, no launch (what CI builds). |
 | `make release` | Production bundle + `NanoWhisper-v<version>.zip`. Launches nothing. |
 | `make publish` | Creates the GitHub release for the current tag. **Only when the maintainer asks.** |
@@ -71,7 +72,7 @@ State in the PR what was not verified. See [testing](docs/wiki/testing-and-verif
 
 | Area | Files |
 |---|---|
-| App entry, menu bar | `NanoWhisperApp.swift` (`NanoWhisperApp`, `AppDelegate`), `MenuBarController.swift` (status item, `NSMenu`, item views), `MenuBarMenu.swift` (`MenuContent`: menu lines per state), `MenuBarIcon.swift` |
+| App entry, menu bar | `NanoWhisperApp.swift` (`NanoWhisperApp`, `AppDelegate`), `MenuBarController.swift` (status item, `NSMenu`, item views), `MenuBarMenu.swift` (`MenuContent`: menu lines per state), `MenuBarHandoff.swift` (end-of-onboarding popover), `MenuBarIcon.swift` |
 | Orchestration, state | `AppState.swift` (`AppState`), `AppState+LiveTranscription.swift`, `DictationDestination.swift` (`DictationDestination`, `DictationOutcome`, `TranscriptionFailure`) |
 | History, temp recordings | `HistoryStore.swift` (`HistoryStore`, `HistoryCrypto`, `HistoryEntry`), `TemporaryRecordings.swift`, `InterruptedRecordings.swift` (leftovers of a crash, `WAVHeader`), `InterruptedRecordingRecovery.swift` |
 | Recording, hotkey, paste, sounds | `AudioRecorder.swift`, `HotkeyManager.swift`, `PasteManager.swift`, `SoundManager.swift` |
