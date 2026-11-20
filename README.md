@@ -26,7 +26,7 @@
 |---|---|
 | **Dual engine** | [Parakeet](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) via [FluidAudio](https://github.com/FluidInference/FluidAudio) (fastest, 25 European languages) or Whisper via [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift) (99 languages) — both run on-device via CoreML |
 | **Global shortcut** | Customizable hotkey (default **⌥ Space**) to start/stop recording from anywhere |
-| **Recording overlay** | Floating visualizer with live audio bars, timer, and stop button |
+| **Recording overlay** | Small dark capsule with a scrolling waveform of your voice, a timer and a stop button; it then says "Pasted" or "No speech detected" |
 | **Auto-paste** | Transcribed text goes straight to your clipboard and active text field |
 | **Encrypted history** | Transcriptions stored locally with AES-256-GCM, key derived from your Mac's hardware UUID: protects the file at rest (a copy, a backup) and from casual reading, not from other software running under your account |
 | **Media auto-pause** | Pauses playing media during recording, resumes after transcription |

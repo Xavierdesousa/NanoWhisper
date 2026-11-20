@@ -16,7 +16,8 @@ Swift Testing (`@Suite`, `@Test`) in `Tests/NanoWhisperTests/`. CI runs `swift t
 | `NowPlayingTests.swift` | JXA output parsing (real macOS 27.2 outputs), resume rule, `NowPlayingPlaybackController`, `Subprocess` |
 | `OnboardingSettingsTests.swift` | Onboarding flow, launch options, permission status, Model section logic, dictation destination |
 | `BuildFlavorTests.swift` | Flavor resolution, paths, prefixes, shortcuts, `BuildInfo`, debug menu bar band pixels (light and dark) |
-| `OverlayWindowTests.swift` | Opt-in (`NANOWHISPER_WINDOW_TESTS`): the real overlay panel grows with live text; the record dot stays in place when started from a SwiftUI button |
+| `OverlayWindowTests.swift` | Opt-in (`NANOWHISPER_WINDOW_TESTS`): the real overlay panel grows with live text from its pinned edges at each position; the record capsule stays in place when started from a SwiftUI button; the header does not move across states. With `NANOWHISPER_CAPTURE_DIR` too: PNGs of every state over light and dark wallpapers, each position on a whole screen, Reduce Motion/Transparency variants and the position picker |
+| `RecorderPositionTests.swift`, `OverlayWaveformTests.swift` | Position persistence and default, placement and growth maths, picker geometry; level ring buffer, bar mapping, transcribing sweep, `OverlayResult` |
 | `CodableModelTests.swift`, `GitHubReleaseTests.swift`, `VersionComparisonTests.swift` | Persistence formats, updater parsing and version comparison |
 | `TranscriptionFailureTests.swift` | Engine error and missing engine reported as a failure, not as empty text; `DictationOutcome` with a failure |
 | `HistoryStoreTests.swift` | Encrypted round trip (no plain text on disk), trimming, unreadable file ⇒ unavailable and never overwritten, plain-text file never read, pinned key derivation |
@@ -54,6 +55,17 @@ Agents have **no screen capture**. These worked on 2026-11-19:
    test process). To reproduce the onboarding path, start the recording from a SwiftUI `Button`
    in a key window of an active `.regular` app, clicked with a synthesized `NSEvent` sent to that
    window (fix/overlay-and-debug-marker, 2026-11-20).
+   - **Gotchas (feat/voice-note-overlay, 2026-11-20):** in a test process `animator()` alpha
+     animations never run, so a dismissed panel stays ordered in at alpha 0; look up a test's
+     own panel through `controller.window`, never "the first visible overlay panel" (that found
+     an earlier test's panel). The behind-window material and the window shadow are drawn by the
+     window server and are not in `cacheDisplay`; the capture harness composites the panel over
+     a drawn wallpaper with a drawn shadow. Reduce Motion/Transparency cannot be switched on for
+     the test process; the views read them from the environment, so a test host sets
+     `_accessibilityReduceMotion` / `_accessibilityReduceTransparency` (settable, underscored).
+   - **Design reference:** the design canvas's HTML can be rendered with headless Chrome
+     (`--headless=new --screenshot --force-device-scale-factor=2 --user-data-dir=<scratch>`) to
+     compare with the captures side by side.
 3. **Standalone harnesses compiling the app's own sources.** Compile selected files from
    `Sources/NanoWhisper/` with a small `main.swift` against the same dependency versions, to run
    real models or real subprocesses outside the app. Used for: Parakeet v3 loading from a cloned

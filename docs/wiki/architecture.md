@@ -1,6 +1,7 @@
 # Architecture and recording pipeline
 
-Last verified against the code: 2026-11-20 (`chore/cleanup`, on top of `main` at 935e191).
+Last verified against the code: 2026-11-20 (`chore/cleanup`, on top of `main` at 935e191); the
+Recording overlay section on 2026-11-20 against `feat/voice-note-overlay` (on `main` at 43c1f2d).
 
 ## What it is
 
@@ -19,7 +20,7 @@ There is no Xcode project and no app sandbox; the bundle is assembled and signed
 | Menu bar UI | `MenuBarController` (`MenuBarController.swift`), `MenuContent` (`MenuBarMenu.swift`) | `NSStatusItem` and its `NSMenu`, built from `MenuContent.lines(for:)` (see below). `AppDelegate` (`NanoWhisperApp.swift`) creates `AppState` and the controller at launch. |
 | Hotkey | `HotkeyManager` (`HotkeyManager.swift`) | Carbon `RegisterEventHotKey`; `Shortcut` persisted in `UserDefaults` (`shortcut_keyCode`, `shortcut_modifiers`). |
 | Recorder | `AudioRecorder` (`AudioRecorder.swift`) | `AVAudioEngine` input tap, converted to 16 kHz mono Float32 and written to a WAV in the temp dir; publishes an RMS level for the overlay. |
-| Overlay | `RecordingOverlayController` (`RecordingOverlay.swift`) | Floating panel with level bars and timer; follows display changes. |
+| Overlay | `RecordingOverlayController` (`RecordingOverlay.swift`) | Floating panel ("Voice note" design): record capsule, scrolling waveform, timer, result; placed by `RecorderPosition`; follows display changes. See [Recording overlay](#recording-overlay) below. |
 | Model setup | `SetupManager` (`SetupManager.swift`) | Downloads and loads the selected model. See [transcription-engines.md](transcription-engines.md). |
 | Transcription | `Transcriber` (`Transcriber.swift`) | Serial queue of transcriptions over the installed engine. An engine error is logged and returned as `TranscriptionResult.failure`, never as empty text. |
 | History | `HistoryStore` (`HistoryStore.swift`) | Encrypted history file: entries, load/save, max-count trimming, unavailable state. See below. |
@@ -103,6 +104,65 @@ text button, so it cannot draw the download bar or the shortcut as key caps.
 
 Several recordings can be in flight: a new one may start while the previous one is still
 being transcribed. Each keeps its own media session and destination.
+
+## Recording overlay
+
+Design: "Voice note" (proposal 1) from the maintainer's design canvas, page "Recording overlay"
+(developer notes board for sizes, colours and motion). Implemented in `feat/voice-note-overlay`
+(2026-11-20). What follows is what the code does; on screen only still captures of the real
+panel were checked. **Unverified on screen:** the HUD blur and the window shadow (not in
+captures), every animation (spring, breathing, glide, sweep, fades), and the Reduce Motion /
+Reduce Transparency fallbacks with the real system settings (captured only with the
+environment values forced in a test host).
+
+- **Files:** `RecordingOverlay.swift` (`RecordingOverlayController`, `RecordingOverlayViewModel`,
+  `OverlayState`, `OverlayResult`), `RecordingOverlayView.swift` (views, `OverlayPalette`,
+  `OverlayMetrics`, `LiveTranscriptText`, `Caret`), `OverlayWaveform.swift` (`LevelHistory`,
+  `WaveformMetrics`, `OverlayWaveform`, `OverlayWaveformView`), `RecorderPosition.swift`,
+  `RecorderPositionPicker.swift`.
+- **Shape:** compact capsule 184 × 36 pt (radius 18); with live text a card 380 × 87 pt (36 header +
+  38 text + 13), same radius, so the header never moves. Always dark: `NSVisualEffectView`
+  `.hudWindow` behind the window (masked by a stretchable rounded-rect `maskImage`) under
+  `#120826` at 86 %; Reduce Transparency: solid `#1A1029`. White 16 % 0.5 pt inner edge; window
+  shadow on, `invalidateShadow()` after each resize and once the appear animation settled.
+- **Header:** record capsule 6 × 14 pt (violet gradient, glow that breathes over 2.4 s; lilac without
+  glow while transcribing; static with Reduce Motion), waveform, then the timer (or Stop under the
+  pointer, or "Transcribing…" when there is text or Reduce Motion is on). The trailing item takes
+  the remaining width with `.frame(maxWidth: .infinity)`, not a `Spacer`: the `HStack` spacing on
+  both sides of a `Spacer` made the capsule 194 pt instead of 184.
+- **Waveform** (`OverlayWaveform`): the peak of the levels of each 50 ms slot, 26 slots (1.3 s),
+  starting full of silence. Height `v < 0.06 ? 2 : min(20, 3 + 17 × v^0.85)`; the oldest 7 bars
+  fade from 22 %. One `Canvas` in `TimelineView(.animation)`; the row glides `4 pt × progress`
+  between slots; Reduce Motion: 10 Hz, no glide. At stop the bars sink to dots in 0.25 s, then a
+  highlight sweeps every 1.2 s (none with Reduce Motion). The meter is a plain class, not an
+  `ObservableObject`, so the rest of the overlay does not re-render 20 times a second.
+  - **Decision (agent): an empty slot repeats the previous value** (up to 2 slots, then
+    silence). `AudioRecorder` sends one level per 4096-frame tap buffer (about 85–93 ms), so
+    about 40 % of the 50 ms slots get no level; read as silence, steady speech came out as a
+    dotted line. The 0.06 silence floor is the design's guess, not tuned on a real microphone.
+- **Result** (`OverlayResult`, from `DictationOutcome`): check + "Pasted" (delivered), "Done"
+  (onboarding Try-it, or a test whose box is gone; the design has no state for these), warning +
+  "No speech detected" (empty), "No audio recorded", "Transcription failed". Held 0.8 s, 1.2 s when
+  final text is shown, then a 0.25 s fade. The title is also posted as a VoiceOver announcement.
+  `AppState.stopRecording()` now resolves the outcome before dismissing the overlay.
+- **Motion:** appear = window alpha 0.15 s + content scale 0.96 → 1 from the pinned edge (spring
+  0.3/0.85; none with Reduce Motion); the card's text fades in 0.12 s; the result badge scales in
+  0.2 s; the caret blinks (steady with Reduce Motion). Every animation is scoped with
+  `.animation(_:body:)` to one modifier, so none can pick up the panel's layout (the PR #20 slide).
+  Not done: the word colour change tail → stable is not a separate 0.2 s fade; the text uses
+  `.contentTransition(.interpolate)` with a 0.2 s animation keyed on the text instead.
+- **Position** (`RecorderPosition`, `AppState.recorderPosition`, `UserDefaults` key
+  `recorderPosition`, default `.topCenter`): Top Left, Top Center, Top Right, Bottom Center, 12 pt
+  inside the visible frame of the screen with the pointer (`initialFrame(size:in:)`). Growth
+  keeps the pinned edges (`frame(fitting:from:within:)`: top or bottom × left, center or right),
+  then clamps to the visible frame; a drag lasts for that recording only. Top Center used to
+  centre on `screen.frame.midX`; it now uses `visibleFrame.midX` (differs only with a side Dock).
+  Bottom corners and the screen middle are not offered (design decision). The design's notes
+  call it `OverlayPosition`/`overlayPosition`; the maintainer's brief named it `RecorderPosition`.
+- **Picker** (`RecorderPositionPicker(selection:)`): a 300 × 186 pt dark mini screen with the
+  still recorder (`RecordingOverlayPreview`, no material) at 0.555 and clickable spots for the
+  other positions, beside a `.radioGroup` picker and the caption. Not placed in Settings yet:
+  the Settings redesign (separate PR) puts it in its Recorder pane.
 
 ## History storage
 

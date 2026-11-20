@@ -1,7 +1,7 @@
 # Live transcription (beta)
 
-Last verified: 2026-11-20, against `fix/overlay-and-debug-marker` (feature from PR #16, debug-only
-since PR #18).
+Last verified: 2026-11-20, against `feat/voice-note-overlay` (feature from PR #16, debug-only
+since PR #18, overlay redesigned in that branch).
 
 ## Debug build only
 
@@ -75,9 +75,17 @@ longer offered since the model migration PR, see [transcription-engines.md](tran
   and its final pass are unaffected.
 - **Lifecycle glue** is in `AppState+LiveTranscription.swift`: `beginLiveTranscription()`,
   `cancelLiveTranscription()`, `showFinalLiveText(_:for:)`, and cancellation on quit.
-- **Overlay:**
-  - It grows once to 384×82 pt when text appears, keeps its top edge and center, and shows the
-    last two lines.
+- **Overlay** (design and details in [architecture.md](architecture.md#recording-overlay)):
+  - The compact capsule grows once into a 380 × 87 pt card when text appears, keeping the edges
+    pinned by the recorder position (Bottom Center grows upward), and shows the last two lines
+    (19 pt line height, 38 pt). Settled words white 94 %, the tail white 55 % (50 % while
+    transcribing), a glowing caret after the last word while recording; older lines fade out
+    under a 9 pt top mask instead of being cut.
+  - The caret is an `NSImage` inside the `Text` (`Caret`), no taller than the 14 pt caret: a
+    taller image (room for the glow) made the last line taller, and the bottom-aligned text then
+    cut the first visible line. `Text.LayoutKey` would allow an overlay instead, but needs macOS 15.
+  - Transcribing with text: "Transcribing…" replaces the timer; the final text then replaces the
+    preview (interpolated, 0.15 s) under "Pasted", held 1.2 s.
   - **The panel follows the SwiftUI content's ideal size** (`OverlayHostingView` reports
     `invalidateIntrinsicContentSize()`, the controller resizes on the next main-queue turn).
     Until 2026-11-20 the controller read `fittingSize` right after setting the view model, got
@@ -85,8 +93,6 @@ longer offered since the model migration PR, see [transcription-engines.md](tran
     square dark rectangle, one line cut on both sides, the bars row out of view.
   - **The resize is not animated:** during an animated window resize the content, already at
     its new size, was clipped by the smaller window.
-  - Reduce Motion disables the dot pulse.
-  - Without text it is exactly the pre-PR overlay.
 
 ## Decisions and rejected alternatives
 
@@ -163,6 +169,8 @@ Final text was identical to live off for both.
 - Several screens, and hover-to-stop with text. Whether a single frame of the expanded content
   in the compact panel shows between the text update and the resize (they are one main-queue
   turn apart) was not checked on screen.
+- The "Voice note" card was checked only in captures of the real panel (no behind-window blur in
+  them, no live motion), not in the debug app.
 - Onboarding's Try-it with live on.
 - Whisper Small.
 - Parakeet v3: Ultra only, because the v3 cache lacked `JointDecisionv3.mlmodelc`.

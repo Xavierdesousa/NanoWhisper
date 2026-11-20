@@ -10,8 +10,8 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
   bar takes over"); the onboarding redesign was not approved and is postponed.
   - Settings: five toolbar panes (General, Engine, Recorder, Permissions, Advanced) in an
     `NSTabViewController` inside the existing `SettingsWindowController`; a SwiftUI `Settings`
-    scene was rejected (opening and teardown in a menu bar app). Recorder is hidden while empty
-    (production, until the recorder position picker from the Voice note overlay is wired).
+    scene was rejected (opening and teardown in a menu bar app). Recorder hosts the recorder
+    position picker from the Voice note overlay (PR #24, merged into this branch).
   - Menu: `MenuBarExtra` replaced by an AppKit `NSStatusItem` menu (`MenuBarController`) built
     from `MenuContent.lines(for:)`, for the download bar and the key caps.
   - The shortcut is drawn as flat key caps (`ShortcutKeysView`), in Settings, the menu and
@@ -23,6 +23,16 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
     "4 models, 1.7 GB" (would need reading `~/Documents`). Details:
     [onboarding-and-settings.md](onboarding-and-settings.md), [architecture.md](architecture.md#menu-bar-menu).
 
+- **Recording overlay redesign, "Voice note", and the recorder position** (`feat/voice-note-overlay`, PR #24):
+  the overlay now follows the approved design (capsule, 26-bar scrolling waveform at 50 ms,
+  card for live text with a top fade and a caret, result states with a VoiceOver announcement,
+  Reduce Motion and Reduce Transparency fallbacks). New setting `RecorderPosition`
+  (`recorderPosition`, Top Center by default; Top Left, Top Right, Bottom Center) with placement
+  and growth from the pinned edges, and a standalone `RecorderPositionPicker` for the Settings
+  redesign to place. Decisions: empty 50 ms slots repeat the last level (the tap delivers about
+  every 85 ms); "Done" for Try-it results (not drawn). Details in
+  [architecture.md](architecture.md#recording-overlay). Verified by captures of the real panel
+  only.
 - **Release 0.0.6**: version bumped in `Resources/Info.plist` (build 6). Released without a
   manual production test, at the maintainer's request. Checked in the debug app on the
   maintainer's Mac before tagging: a launch on Ultra deletes nothing (v3, Ultra, Whisper Base and

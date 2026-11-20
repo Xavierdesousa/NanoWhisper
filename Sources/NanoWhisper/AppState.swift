@@ -48,6 +48,12 @@ class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(liveTranscriptionEnabled, forKey: Self.liveTranscriptionKey) }
     }
 
+    /// Where the recording overlay appears (`RecorderPosition.defaultsKey`, Top Center by
+    /// default). Applies from the next recording.
+    @Published var recorderPosition: RecorderPosition = RecorderPosition.load(from: .standard) {
+        didSet { recorderPosition.save(to: .standard) }
+    }
+
     /// Live transcription of the recording in progress, if any.
     var liveSession: LiveTranscriptionSession?
 
@@ -489,7 +495,9 @@ class AppState: ObservableObject {
                 testBoxShowing: capturesTestTranscription, appIsActive: NSApp.isActive
             )
             isRecording = true
-            recordingOverlay.show(audioLevelPublisher: audioRecorder.audioLevelSubject, transcriptID: live?.id)
+            recordingOverlay.show(
+                audioLevelPublisher: audioRecorder.audioLevelSubject, transcriptID: live?.id, position: recorderPosition
+            )
         } catch {
             cancelLiveTranscription()
             mediaController.endSession(mediaSession)
@@ -514,7 +522,7 @@ class AppState: ObservableObject {
         guard let audioURL = audioRecorder.stopRecording() else {
             if let mediaSession { mediaController.endSession(mediaSession) }
             lastError = "No audio recorded"
-            recordingOverlay.dismiss()
+            recordingOverlay.dismiss(showing: .noAudio)
             return
         }
 
@@ -532,18 +540,19 @@ class AppState: ObservableObject {
             }
 
             let result = await transcriber.transcribe(audioURL: audioURL, configuration: configuration)
+            let outcome = DictationOutcome.resolve(
+                destination: destination, text: result.text, failure: result.failure,
+                testBoxShowing: capturesTestTranscription
+            )
             // The overlay shows exactly the text delivered (pasted, or the Try-it box's).
             showFinalLiveText(result.text, for: live)
             isTranscribing = false
-            recordingOverlay.dismiss()
+            recordingOverlay.dismiss(showing: OverlayResult(outcome))
             if obsoleteModelCleanupDeferred {
                 removeObsoleteModelsInBackground()
             }
 
-            switch DictationOutcome.resolve(
-                destination: destination, text: result.text, failure: result.failure,
-                testBoxShowing: capturesTestTranscription
-            ) {
+            switch outcome {
             case .showTestResult(let text):
                 testTranscription = text
                 return

@@ -588,7 +588,7 @@ struct RecordingOverlayFrameTests {
     @Test("Growing for the transcript keeps the top edge and the horizontal center")
     @MainActor func keepsTopCenter() {
         let current = NSRect(x: 694, y: 860, width: 123, height: 40)
-        let frame = RecordingOverlayController.frame(
+        let frame = RecorderPosition.topCenter.frame(
             fitting: NSSize(width: 384, height: 82), from: current, within: NSRect(x: 0, y: 0, width: 1512, height: 912))
         #expect(frame.maxY == current.maxY)
         #expect(abs(frame.midX - current.midX) <= 0.5)
@@ -600,7 +600,7 @@ struct RecordingOverlayFrameTests {
         // Dragged to the bottom-right corner of a secondary screen placed left of the main one.
         let visible = NSRect(x: -1920, y: 0, width: 1920, height: 1055)
         let current = NSRect(x: -140, y: 10, width: 123, height: 40)
-        let frame = RecordingOverlayController.frame(fitting: NSSize(width: 384, height: 82), from: current, within: visible)
+        let frame = RecorderPosition.topCenter.frame(fitting: NSSize(width: 384, height: 82), from: current, within: visible)
         #expect(visible.contains(frame))
     }
 }
