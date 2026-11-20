@@ -5,6 +5,16 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-20
 
+- **Recording overlay redesign, "Voice note", and the recorder position** (`feat/voice-note-overlay`, PR #24):
+  the overlay now follows the approved design (capsule, 26-bar scrolling waveform at 50 ms,
+  card for live text with a top fade and a caret, result states with a VoiceOver announcement,
+  Reduce Motion and Reduce Transparency fallbacks). New setting `RecorderPosition`
+  (`recorderPosition`, Top Center by default; Top Left, Top Right, Bottom Center) with placement
+  and growth from the pinned edges, and a standalone `RecorderPositionPicker` for the Settings
+  redesign to place. Decisions: empty 50 ms slots repeat the last level (the tap delivers about
+  every 85 ms); "Done" for Try-it results (not drawn). Details in
+  [architecture.md](architecture.md#recording-overlay). Verified by captures of the real panel
+  only.
 - **Release 0.0.6**: version bumped in `Resources/Info.plist` (build 6). Released without a
   manual production test, at the maintainer's request. Checked in the debug app on the
   maintainer's Mac before tagging: a launch on Ultra deletes nothing (v3, Ultra, Whisper Base and
