@@ -5,7 +5,7 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-20
 
-- **Settings and menu redesign** (`feat/settings-and-menu-redesign`): approved designs from the
+- **Settings and menu redesign** (`feat/settings-and-menu-redesign`, PR #25): approved designs from the
   Claude Design canvas (Settings proposal 1 "Toolbar panes"; the menu of "After setup: the menu
   bar takes over"); the onboarding redesign was not approved and is postponed.
   - Settings: five toolbar panes (General, Engine, Recorder, Permissions, Advanced) in an
