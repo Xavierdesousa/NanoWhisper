@@ -16,7 +16,7 @@ There is no Xcode project and no app sandbox; the bundle is assembled and signed
 
 | Component | Type (file) | Role |
 |---|---|---|
-| Menu bar UI | `NanoWhisperApp` (`NanoWhisperApp.swift`) | `MenuBarExtra` menu; status line chosen from `AppState`/`SetupManager` state. |
+| Menu bar UI | `MenuBarController` (`MenuBarController.swift`), `MenuContent` (`MenuBarMenu.swift`) | `NSStatusItem` and its `NSMenu`, built from `MenuContent.lines(for:)` (see below). `AppDelegate` (`NanoWhisperApp.swift`) creates `AppState` and the controller at launch. |
 | Hotkey | `HotkeyManager` (`HotkeyManager.swift`) | Carbon `RegisterEventHotKey`; `Shortcut` persisted in `UserDefaults` (`shortcut_keyCode`, `shortcut_modifiers`). |
 | Recorder | `AudioRecorder` (`AudioRecorder.swift`) | `AVAudioEngine` input tap, converted to 16 kHz mono Float32 and written to a WAV in the temp dir; publishes an RMS level for the overlay. |
 | Overlay | `RecordingOverlayController` (`RecordingOverlay.swift`) | Floating panel with level bars and timer; follows display changes. |
@@ -29,6 +29,50 @@ There is no Xcode project and no app sandbox; the bundle is assembled and signed
 | Sounds | `SoundManager` (`SoundManager.swift`) | Start, stop and no-result cues. |
 | Settings, onboarding, history windows | `SettingsWindowController`, `OnboardingWindowController`, `HistoryWindowController` | See [onboarding-and-settings.md](onboarding-and-settings.md). |
 | Updates | `AutoUpdater` (`AutoUpdater.swift`) | See [build-and-release.md](build-and-release.md). |
+
+## Menu bar menu
+
+Design: "After setup: the menu bar takes over" board (approved 2026-11-20). Built in AppKit
+(`MenuBarController`), not SwiftUI's `MenuBarExtra`: in its menu style every item is a plain
+text button, so it cannot draw the download bar or the shortcut as key caps.
+
+- **Content is pure:** `AppState.menuState(...)` → `MenuState` → `MenuContent.lines(for:)` →
+  `[MenuLine]` (tested in `MenuContentTests`). The controller rebuilds the menu when it opens
+  (`menuNeedsUpdate`) and, while it is open, on every `AppState` change (delivered on the main
+  queue, which runs during menu tracking); with the same structure it updates items in place.
+- **Order:** debug builds only: name and `v<version> · <commit>`; "Finish Setup…" with the
+  first missing permission on the right ("Microphone is off", "Accessibility is off") while
+  onboarding was never finished and its window is closed; "Start Dictation" / "Stop Dictation"
+  with the shortcut as key caps (disabled until the model is ready); one line for the model
+  state; the last error; an update line; History…, Settings… ⌘,; Quit <app> ⌘Q.
+- **Model line by state** (from `EngineState`, same precedence as before the redesign):
+  downloading → "Downloading <model>, 64%" with a bar (no percentage: "Downloading <model>…"
+  and an indeterminate bar); compiling → "Optimizing <model> for this Mac…"; setup error →
+  "Could not set up <model>", the message, Retry; engine start error → "<model> could not
+  start", the message, Retry; first launch before the download → "<model> is not downloaded"
+  and "Download <model> (<size>)"; loading → "Loading <model>…"; recording → "Recording…"
+  (red); transcribing → "Transcribing…"; else "<model in use> is ready" (during a migration's
+  switchover the previous model, plus "Downloading <new>, 42%" with a bar; nothing after a
+  failed background download). Update: "Install Update <v> and Relaunch", or "Downloading
+  update <v>…" with a bar.
+- The board draws only "ready" and "setup not finished"; the other states keep their previous
+  content in the board's form. Changed from before: "Show Setup…" is now "Finish Setup…"
+  (it still opens onboarding at its first step: the onboarding redesign that would reopen at
+  the first unfinished step is not approved); History lost its ⌘H (not on the board); the
+  app-name header is shown in debug builds only.
+- **View-based items:** Start/Stop Dictation and Finish Setup… are `MenuRowView`s (they draw
+  something on the right), progress lines are `MenuProgressView`s; the rest are native
+  `NSMenuItem`s. `MenuRowView` draws its own selection (`NSVisualEffectView`, `.selection`
+  material) from `menu(_:willHighlight:)`, handles the click in `mouseUp` and closes the menu.
+  The menu has no state column (`showsStateColumn = false`) and the views' text starts 14 pt
+  from the menu edge (`MenuMetrics`), an estimate of where native titles start.
+- **Icon:** unchanged (glyph; `arrow.down.circle` while setting up, `mic.slash` while not
+  ready; debug band). The board's capsule glyph that fills while downloading is marked as a
+  proposal on the board, so it is not implemented.
+- **Not verified in the app** (renders use `MenuPreview`, an approximation drawn from the same
+  lines; an `NSMenu` cannot be drawn offscreen): alignment of the view-based items with native
+  ones, their highlight and click, Return on a highlighted view-based item, live updates of the
+  bar while the menu is open, VoiceOver.
 
 ## Recording pipeline (today)
 

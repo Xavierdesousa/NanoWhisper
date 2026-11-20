@@ -1,29 +1,106 @@
 # Onboarding and Settings
 
-Last verified against the code: 2026-11-20 (`feat/model-migration-and-cleanup`). Source: PR #15, the model migration PR and the code.
+Last verified against the code: 2026-11-20 (`feat/settings-and-menu-redesign`). Source: PR #15, the model migration PR, the Settings and menu redesign PR and the code.
 
 ## What it is
 
-Settings and onboarding are built from the **same sections**, with the same wording and
-behavior. `SettingsView` and `OnboardingView` only assemble them.
+Settings and onboarding read the same `SettingsContext` and share their wording
+(`SettingsText`, `ShortcutRecorderRow`, `DictationBehaviorToggles`, `HistorySettingsRows`).
+Since the redesign (2026-11-20) Settings has its own pane views; onboarding keeps the sections
+it had (its redesign was not approved and is postponed).
 
-| Section | View (file) |
-|---|---|
-| Model: engine, Parakeet version, Whisper size/language/hint, status, apply row, comparison | `ModelSettingsSection` (`SettingsModelSection.swift`), `ModelComparisonView` |
-| Permissions: Microphone, Accessibility, live status | `PermissionsSettingsSection` (`SettingsPermissionsSection.swift`), `PermissionMonitor` (`Permissions.swift`) |
-| Shortcut recorder | `ShortcutSettingsSection` (`SettingsShortcutSection.swift`) |
-| General: launch at login, sounds, pause media, history | `GeneralSettingsSection` (`SettingsGeneralSection.swift`); the history size shows in Settings only (`showsHistoryLimit`) |
-| Settings only: Downloaded Models ("Remove Unused Models…") | `ModelStorageSection`, `UnusedModelsSheet` (`SettingsStorageSection.swift`) |
-| Settings only: Updates, Debug | `UpdatesSettingsSection`, `Section("Debug")` in `SettingsForm` (`SettingsView.swift`) |
+| Area | Settings pane (file) | Onboarding |
+|---|---|---|
+| Shortcut (`ShortcutRecorderRow`, `SettingsShortcutSection.swift`) | General | Shortcut step (`ShortcutSettingsSection`) |
+| Open at login, sounds, pause media, history on/off (`DictationBehaviorToggles`, `HistorySettingsRows`, `SettingsGeneralSection.swift`) | General, plus "Keep the last N" (disabled while history is off) | Shortcut step (`GeneralSettingsSection`) |
+| Engine, model, status, apply row, Whisper language and vocabulary | Engine (`EnginePane`, `SettingsEnginePane.swift`) | Model step (`ModelSettingsSection`, `SettingsModelSection.swift`) |
+| Downloaded models, "Remove Unused Models…" (`ModelStorageRow`, `UnusedModelsSheet`, `SettingsStorageSection.swift`) | Engine | — |
+| Live transcription (beta, debug builds only) | Recorder (`RecorderPane`, `SettingsRecorderPane.swift`) | Shortcut step |
+| Recorder position | Recorder (spot marked `RECORDER POSITION`; the picker comes from the Voice note overlay work) | — |
+| Microphone, Accessibility with live status | Permissions (`PermissionsPane`, `SettingsPermissionsSection.swift`) | Permissions step (`PermissionsSettingsSection`) |
+| Updates, "Show debug info in history", "Show Onboarding Again…" | Advanced (`AdvancedPane`, `UpdateStatus`, `SettingsAdvancedPane.swift`) | — |
 
-The Settings "Debug" section ("Show debug info in history", `AppState.debugMode`, and "Show
-Onboarding Again…") exists in both builds. It is unrelated to the debug **build flavor**
-([build-and-release.md](build-and-release.md)).
+The Advanced "Debug" group exists in both builds; it is unrelated to the debug **build
+flavor** ([build-and-release.md](build-and-release.md)).
 
-Every section reads a `SettingsContext` (`SettingsContext.swift`): plain values, bindings and
-closures. `AppState.settingsContext(permissions:)` builds the live one; render tests build fixed
-ones, so each section can be drawn without a running app
+`AppState.settingsContext(permissions:)` builds the live context; render tests build fixed ones
+(`Fixtures`, `SettingsFixture`), so each pane can be drawn without a running app
 ([testing-and-verification.md](testing-and-verification.md)).
+
+## Settings window (toolbar panes)
+
+Design: Claude Design canvas "NanoWhisper Redesign", Settings page, proposal 1 "Toolbar panes"
+(approved 2026-11-20).
+
+- **Window technology: `NSTabViewController` with `tabStyle = .toolbar`** in the existing
+  `SettingsWindowController` (`SettingsView.swift`), one `NSHostingController` per pane
+  (`SettingsTabViewController`). The toolbar style draws the pane items, and the window title is
+  the pane name. The window is `toolbarStyle = .preference`, width 640 pt
+  (`SettingsPane.width`), height fitted to the pane.
+  - **Rejected: a SwiftUI `Settings` scene** (what the design notes suggested). In a menu bar app
+    (accessory policy) it can only be opened through `SettingsLink` / `openSettings`, the window
+    does not come to the front by itself, and the app has no hook to rebuild the content at each
+    opening or to stop the permission polling when the window closes (a closed window keeps its
+    view; `onDisappear` does not run). The window controller already did all of that. The app
+    keeps an empty `Settings` scene only as its Scene; its "Settings…" command (app menu,
+    visible while onboarding shows the Dock icon) opens the real window.
+  - **Sizing:** each pane is a grouped `Form` with `.scrollDisabled(true)` and
+    `.fixedSize(horizontal: false, vertical: true)` (`SettingsPaneForm`), so its fitting size is
+    its content. `NSTabViewController` did not resize the window on every pane switch (it kept
+    the previous height in the sizing test), so `SettingsTabViewController` fits the window
+    itself on selection and when the selected pane's `preferredContentSize` changes (Whisper
+    options, pending change, update states), keeping the top edge in place.
+- **Last pane remembered**: UserDefaults `settingsPane`; `SettingsPane.restored(_:from:)` falls
+  back to General when the stored pane is not shown.
+- **Recorder pane** is hidden while it would be empty (production before the recorder position
+  picker is wired: `SettingsPane.visible(recorderHasContent:)`, `RecorderPane.hasContent`).
+- **Fresh content at each opening**, so the Engine draft starts from the applied settings
+  (unapplied changes are dropped when the window closes). On close the controller stops the
+  `PermissionMonitor` and drops the content; the Permissions pane also starts/stops polling on
+  appear/disappear, so it polls only while visible.
+- **Brand color:** violet (`Color.nwAccent`, `nwAccentText`, `SettingsStyle.swift`) for the
+  engine radio marks, "Recommended", "Beta", Change… and the tint. The toolbar selection keeps
+  the system look (`NSTabViewController` draws it).
+- **Engine pane wording** (pure, tested): `EngineStatusDisplay.resolve` (status row: Ready,
+  Downloading <model> with "42% of ~630 MB.", migration download with "<previous> stays in use
+  until it is ready.", Optimizing, Loading, "Could not set up <model>" / "<model> could not
+  start" with **Try Again**, not downloaded with Download/Load) and `EngineApplyDisplay.resolve`
+  (pending change: "<model> needs a ~480 MB download" + "Dictation pauses until it is ready."
+  when it downloads, else "Changes not applied" with `ModelActionText.applyDetail`). As drawn,
+  a pending change replaces the status row while the model in use is ready; otherwise both
+  rows show.
+  - The model line under the selected engine is quiet ("Parakeet Ultra, ~630 MB. Change…");
+    Change… shows the picker and the speed/accuracy comparison (`ModelComparisonView`, kept from
+    the old Settings). It stays open while the draft names another model.
+  - **Whisper language and vocabulary apply right away in Settings** (`SettingsContext
+    .setWhisperOptions`), as the design asks: they never load a model. Onboarding still applies
+    them with the draft.
+  - "Recommended" also marks the Parakeet engine (`TranscriptionModelType.isRecommended`; its
+    default model, Ultra, is the recommended one).
+  - Not drawn as designed: "4 models, 1.7 GB on this Mac" (counting needs a scan of the Whisper
+    cache under `~/Documents`, which would trigger the privacy prompt), byte counts and time
+    left in the download line (FluidAudio reports a fraction only), "Download stopped at
+    312 MB" (no byte count), and "Parakeet stays in use until Whisper is ready" for a pending
+    engine switch (false: `switchModel` releases the current model).
+- **Permissions pane**: "Typing in other apps" (Recommended, "macOS calls this Accessibility").
+  The design's "Without it, text is copied for you to paste with ⌘V" is not true
+  (`PasteManager` restores the previous clipboard after 3 s); the caption says nothing is pasted
+  and the text is kept in History if it is on. Buttons: "Allow…" (not asked yet: system
+  request) or "Open System Settings" (denied).
+- **Advanced pane**: `UpdateStatus` (disabled in debug builds, checking, downloading with a
+  bar, available with "Install and Relaunch", up to date with the last check time,
+  `AutoUpdater.lastCheckDate`, not persisted).
+
+### Shortcut display
+
+`ShortcutKeysView` (`ShortcutKeysView.swift`): one flat rounded box per key (`KeyCapView`), thin
+border, glyph inside, no fill or shadow (maintainer's request, reference: ⌥ ⌘ Y boxes). Spec
+from the design notes: 20 pt caps, 11.5 pt medium glyph, radius 5, 3 pt apart; border black
+22 % / white 28 %, glyph #3C3C43 / white 85 % (light / dark); 16 pt caps with a 10 pt glyph in
+captions and menus. Keys come from `Shortcut.keys` (⌃ ⌥ ⇧ ⌘, then the key). Used in Settings ›
+General, the menu's Start Dictation item and onboarding's Try-it row. Change… swaps the caps
+for a 150 × 22 pt "Press a shortcut…" field and Cancel; the caption becomes "Press the keys you
+want, or [esc] to cancel."
 
 ## The apply rule
 
@@ -51,9 +128,9 @@ ones, so each section can be drawn without a running app
 - Applying a different Parakeet variant or Whisper size clears that engine's pending migration
   move: the user keeps what they picked ([transcription-engines.md](transcription-engines.md#model-migrations-modelmigrationsswift)).
 
-## Downloaded Models (Settings only)
+## Downloaded models (Settings › Engine only)
 
-"Remove Unused Models…" (`ModelStorageSection`), not in onboarding:
+"Remove Unused Models…" (`ModelStorageRow`), not in onboarding:
 
 1. Disabled, with the reason in the caption, while a download or model switch runs or nothing is
    loaded (`ModelStorageContext.unavailableReason`): "unused" is defined relative to the loaded
@@ -64,7 +141,9 @@ ones, so each section can be drawn without a running app
    Documents folder could not be read.
 3. Confirm ("Remove <total>"): removal under the shared lock; what is kept is recomputed at that
    moment, so the model in use is never removed even if it changed after the preview. The caption
-   then reports "Removed N models and freed X." and any failure.
+   then reports "Removed N models and freed X." and any failure. Sheet wording since the
+   redesign: "Remove unused models?", the list with the total, "Kept: <model> (<size>), in use.",
+   Cancel / "Remove <total>".
 - Removable = every folder of the allow-list (`ModelFolder.all`) on disk, except the selected and
   loaded models, pending-migration fallbacks, and what the other flavor may use. Rules and lock:
   [transcription-engines.md](transcription-engines.md#removing-models-modelstoreswift).
@@ -87,7 +166,7 @@ ones, so each section can be drawn without a running app
   NanoWhisper is the active app is a test (`DictationDestination.onboardingTest`): its text shows
   in the window, is not pasted, not saved. A dictation into another app still pastes.
   - The button and the shortcut are shown as two equal ways to start it ("Record a Test or
-    press ⌃⌥Space", the shortcut as a key cap, `KeyCap`).
+    press ⌃⌥Space", the shortcut as key caps, `ShortcutKeysView`).
   - **Hotkey path (checked in code, 2026-11-20):** Carbon hotkey → `HotkeyManager.onHotkeyPressed`
     → `AppState.toggleRecording()` → `startRecording()` → `DictationDestination.atStart(testBoxShowing:
     capturesTestTranscription, appIsActive: NSApp.isActive)`. With the onboarding window in front
@@ -105,7 +184,7 @@ ones, so each section can be drawn without a running app
 
 | How | Effect |
 |---|---|
-| Settings → Debug → "Show Onboarding Again…" | Opens onboarding; settings kept. |
+| Settings › Advanced › "Show Onboarding Again…" | Opens onboarding; settings kept. |
 | `--onboarding` launch argument (`make onboarding` for the debug app) | Shows onboarding at launch even if completed; settings kept. |
 | `--reset-onboarding` | Clears only the `onboardingComplete` flag (before `AppState` reads it). |
 
@@ -121,9 +200,19 @@ re-downloads anything unless the user applies another model.
   window closed, because a closed window keeps its SwiftUI view and `onDisappear` never ran; it
   now stops when the window closes. The menu said "Loading model..." during the deferred
   first-launch state; it now offers the download.
+- Onboarding wording changed with the Settings redesign only where a row is shared: the
+  shortcut row (key caps and Change…) and the toggle labels ("Open at login", "Play a sound
+  when recording starts and stops", "Pause music and videos while recording", "Keep a history
+  of what you dictate"). The steps and their order did not change.
 
 ## Known limits / not verified
 
 - Not checked in the app: the Try it recording (button and hotkey), and Grant changing to
   Granted — both need microphone and Accessibility granted to the debug app.
-- `PermissionMonitor` polls every second while a window showing it is open.
+- `PermissionMonitor` polls every second while onboarding is open, and in Settings while the
+  Permissions pane is showing.
+- Settings redesign (2026-11-20): verified with offscreen renders of the real window (toolbar,
+  title, size) in light and dark and a sizing test; **not run in the app**: real clicks, the
+  window's resize animation, focus and keyboard navigation between panes, VoiceOver on the key
+  caps and the engine radio rows. Offscreen windows are never key, so controls render in their
+  inactive look (grey switches and progress bars): the violet tint is not verified.
