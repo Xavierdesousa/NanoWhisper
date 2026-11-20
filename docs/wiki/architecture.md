@@ -1,7 +1,9 @@
 # Architecture and recording pipeline
 
 Last verified against the code: 2026-11-20 (`chore/cleanup`, on top of `main` at 935e191); the
-Recording overlay section on 2026-11-20 against `feat/voice-note-overlay` (on `main` at 43c1f2d).
+Recording overlay section on 2026-11-20 against `feat/voice-note-overlay` (on `main` at 43c1f2d);
+the recorder (Recording pipeline, Stopping the recorder) on 2026-11-20 against
+`fix/stop-recording-crash` (on `main` at b15be20).
 
 ## What it is
 
@@ -19,7 +21,7 @@ There is no Xcode project and no app sandbox; the bundle is assembled and signed
 |---|---|---|
 | Menu bar UI | `MenuBarController` (`MenuBarController.swift`), `MenuContent` (`MenuBarMenu.swift`) | `NSStatusItem` and its `NSMenu`, built from `MenuContent.lines(for:)` (see below). `AppDelegate` (`NanoWhisperApp.swift`) creates `AppState` and the controller at launch. |
 | Hotkey | `HotkeyManager` (`HotkeyManager.swift`) | Carbon `RegisterEventHotKey`; `Shortcut` persisted in `UserDefaults` (`shortcut_keyCode`, `shortcut_modifiers`). |
-| Recorder | `AudioRecorder` (`AudioRecorder.swift`) | `AVAudioEngine` input tap, converted to 16 kHz mono Float32 and written to a WAV in the temp dir; publishes an RMS level for the overlay. |
+| Recorder | `AudioRecorder`, `RecordingWriter` (`AudioRecorder.swift`) | One `AVAudioEngine` per recording; its input tap hands buffers to `RecordingWriter`, which converts them to 16 kHz mono Float32 and writes the WAV in the temp dir; publishes an RMS level for the overlay. Stop order and input changes: [Stopping the recorder](#stopping-the-recorder-crash-of-2026-11-20). |
 | Overlay | `RecordingOverlayController` (`RecordingOverlay.swift`) | Floating panel ("Voice note" design): record capsule, scrolling waveform, timer, result; placed by `RecorderPosition`; follows display changes. See [Recording overlay](#recording-overlay) below. |
 | Model setup | `SetupManager` (`SetupManager.swift`) | Downloads and loads the selected model. See [transcription-engines.md](transcription-engines.md). |
 | Transcription | `Transcriber` (`Transcriber.swift`) | Serial queue of transcriptions over the installed engine. An engine error is logged and returned as `TranscriptionResult.failure`, never as empty text. |
@@ -87,8 +89,9 @@ text button, so it cannot draw the download bar or the shortcut as key caps.
    - `DictationDestination.atStart(testBoxShowing:appIsActive:)` decides whether this is a
      normal dictation or an onboarding "Try it" test;
    - overlay shown. On a microphone error the media session is ended at once.
-3. `AppState.stopRecording()`: stop sound, overlay switches to loading, the WAV URL is taken,
-   then in a `Task`:
+3. `AppState.stopRecording()`: stop sound, overlay switches to loading,
+   `audioRecorder.stopRecording()` stops the engine, removes the tap and closes the WAV (in that
+   order, see below) and returns its URL, then in a `Task`:
    - `transcriber.transcribe(audioURL:)` (queued, see
      [transcription-engines.md](transcription-engines.md#concurrency-model));
    - the overlay shows the final text (live preview, debug build) and is dismissed, whatever
@@ -104,6 +107,92 @@ text button, so it cannot draw the download bar or the shortcut as key caps.
 
 Several recordings can be in flight: a new one may start while the previous one is still
 being transcribed. Each keeps its own media session and destination.
+
+If the input changes during a recording and the recorder cannot continue on the new one,
+`AudioRecorder.onInputLost` makes `AppState` stop the recording (what was recorded is
+transcribed) and show "Recording stopped: the microphone changed" in the menu's error line.
+
+## Stopping the recorder (crash of 2026-11-20)
+
+**The crash.** The debug app (build b15be20, macOS 27.2, Apple Silicon) crashed when the
+maintainer stopped a 2 min 44 s dictation with live transcription on:
+`EXC_BAD_ACCESS` at address 0 on `com.apple.audio.IOThread.client`, pc = 0, called from the HAL
+output unit (AUHAL, `/System/Library/Components/CoreAudio.component`, offset 0xa934) inside
+`HALC_ProxyIOContext::IOWorkLoop()`, while the main thread waited in `-[AVAudioEngine stop]` →
+`AudioOutputUnitStop` → `usleep`. The WAV header still said 0 bytes of audio (the file is only
+finalized when `AVAudioFile` is closed), so the recording was lost for the app.
+
+**Root cause (confirmed).** The old `AudioRecorder.stopRecording()` called
+`inputNode.removeTap(onBus: 0)` and then `audioEngine.stop()`. On a running engine,
+`removeTap` re-initializes the input chain (`AVAudioEngineImpl::RemoveTapOnNode` →
+`AUGraphParser::InitializeActiveNodesInInputChain` → `AUGraphNodeIOV3::DeallocateInputHandler`
+→ `AUInterfaceIOV3::SetInputHandler(nil)`), which sets the AUHAL's
+`kAudioOutputUnitProperty_SetInputCallback` (property 2005) to {NULL, NULL} from the main
+thread while CoreAudio's IO thread keeps running. The AUHAL's IO proc reads the callback
+pointer, checks it is not null, does some timestamp work, then **reads it again and calls it
+without checking** (disassembly of the component: `ldr x8, [x19, #0x5e0]; cbz` at 0xa894,
+`ldr x8, [x19, #0x5e0]; blraaz x8` at 0xa914–0xa930). If the main thread clears it in between,
+the IO thread calls address 0. The crash report's registers match this call exactly: x0 (refCon)
+= 0, x3 (bus) = 1, x4 (frames) = 512, x5 (ioData) = NULL, lr = component + 0xa934.
+- How it was established: the old order traced under lldb in a harness compiling the app's
+  `AudioRecorder.swift` (breakpoints on the functions above: `SetInputHandler(nil)` runs inside
+  `removeTap`, before `stop`); the writers of the AUHAL field found in the component's
+  disassembly (only the constructor and the `SetProperty` case for 2005).
+- **Reproduced:** a stress harness that calls `removeTap`/`installTap` repeatedly on a running
+  engine with the built-in microphone crashed within 0.4–0.6 s (2,000–4,000 cycles) in four runs
+  out of four, with the same signature (pc = 0, AUHAL + 0xa934, `IOWorkLoop` + 10376, same
+  registers). The same harness stopping the engine before `removeTap` ran 60 s (474
+  stop/remove/install/start cycles) without a crash.
+- Not reproduced through the app's own `AudioRecorder` start/stop cycles (old order, 1,467
+  cycles of 0.05–0.1 s, no crash, run stopped early; plus one 175 s recording with a
+  live-transcription-like consumer on the new code, WAV complete): the window is a few
+  instructions per IO cycle (512 frames, 10.7 ms at 48 kHz), so each stop has a small chance.
+  These harnesses opened the real microphone; that is no longer allowed (see
+  [testing](testing-and-verification.md)), and the fix is now covered by fake-engine tests.
+  Nothing points at the recording's length or at live transcription; the extra CPU load of a
+  live decode may widen the window (not measured). Whether the input device changed during the
+  maintainer's recording is unknown; the log of that session shows no device change, only the
+  stop sound's engine starting just before the stop.
+- The usual Speech-framework teardown in Apple developer forum answers stops the engine before
+  removing the tap; Apple's reference for `removeTap(onBus:)` states no ordering requirement.
+  (Apple's SpokenWord sample itself was not re-read.)
+
+**What the recorder does now** (`AudioRecorder.stopRecording()`):
+1. `engine.stop()` first. It returns once `AudioOutputUnitStop` has waited for the IO thread to
+   stop, so nothing can be cleared under a running IO proc. Traced: with this order,
+   `removeTap` on the stopped engine does not touch the input callback at all; the callback is
+   only cleared when the engine is deallocated, IO already stopped.
+2. `removeTap(onBus: 0)`.
+3. `RecordingWriter.finish()`: closes the `AVAudioFile` (`close()` on macOS 15+, release before),
+   so the header has its final sizes before the URL is returned. The writer's lock makes
+   `finish()` wait for an `append` in progress, and any tap block delivered after it writes
+   nothing. Tap blocks are delivered on AVAudioEngine's `RealtimeMessenger.mServiceQueue`, not
+   on the IO thread.
+- `AudioInputEngine` is the seam: `SystemAudioInputEngine` wraps `AVAudioEngine.inputNode`;
+  tests inject `FakeInputEngine`, which flags a tap removed from a running engine.
+- The tap block captures the `RecordingWriter` (a `Sendable` class whose file and converter sit
+  in an `OSAllocatedUnfairLock`), not the recorder, and is built in a `nonisolated static`
+  function: formed inside the `@MainActor` recorder it would inherit main-actor isolation and
+  trap in Swift 6's runtime isolation check on the tap queue (seen in the harness with a Combine
+  sink formed on the main actor).
+- **Input changes:** the recorder observes `AVAudioEngineConfigurationChange` for its engine
+  (the engine stops itself when the input's format or device changes). It reinstalls the tap
+  with a new converter for the new input format and restarts the engine, writing on in the same
+  file; if that fails, it closes the file and calls `onInputLost`. The observer is registered
+  with `queue: nil` and only schedules the recovery on the main actor: with `queue: .main` the
+  engine's posting thread would wait while the recovery calls back into the engine (CodeRabbit
+  finding). Before any tap, `isInputAvailable` checks the input node's hardware format
+  (`inputFormat(forBus: 0)`, input scope): a tap in a format the input cannot deliver raises an
+  Objective-C exception that Swift cannot catch. Checked in the harness by
+  moving the running engine's input to another device (`AUAudioUnit.setDeviceID`, process-local):
+  AVAudioEngine posted the notification, recording continued in the same file (3.87 s of audio
+  for a 4.05 s recording) and the WAV was complete. **Not verified:** a real change of the
+  system default input or a Bluetooth headset connecting (an attempt to switch the system
+  default input from the harness did not take effect, and it was not pushed further while the
+  maintainer was testing).
+- Converter priming drops about 240 frames (15 ms) once per converter (at the start, and after
+  an input change); later buffers convert without loss (measured: 10 × 4,800 frames at 48 kHz →
+  15,760 frames at 16 kHz, then 1,600 per buffer).
 
 ## Recording overlay
 
@@ -196,7 +285,15 @@ makes existing history unreadable. Both flavors keep it.
 - Prefix `nanowhisper_` (production) or `nanowhisper-debug_` (debug), from
   `BuildFlavor.temporaryAudioFilePrefix`.
 - At launch, `TemporaryRecordings.removeOrphans()` deletes leftovers with its own prefix only
-  (`BuildFlavor.ownsTemporaryAudioFile(named:)`).
+  (`BuildFlavor.ownsTemporaryAudioFile(named:)`). A leftover is a recording whose app crashed
+  before it was transcribed; its header usually says 0 bytes of audio (closed only at stop), but
+  the samples are in the file.
+- **Recommendation, not implemented (2026-11-20):** instead of deleting a leftover that holds
+  audio, repair its header (data size from the file length), keep it, and offer it once at the
+  next launch ("Transcribe the recording interrupted by a crash", menu line or notification),
+  deleting it after it is transcribed or dismissed, or after a day. Not done in the crash fix
+  because it needs a UI decision and care: a recording that crashed the transcription itself
+  must not be retried automatically at every launch.
 - The debug prefix deliberately does not start with `nanowhisper_`: the released v0.0.4 deletes
   every `nanowhisper_*.wav` at launch and would otherwise delete a debug recording in progress.
 
