@@ -5,6 +5,13 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-20
 
+- **Release 0.0.6**: version bumped in `Resources/Info.plist` (build 6). Released without a
+  manual production test, at the maintainer's request. Checked in the debug app on the
+  maintainer's Mac before tagging: a launch on Ultra deletes nothing (v3, Ultra, Whisper Base and
+  Turbo all kept) and records migration step 1; an install set to v3 with no step recorded is
+  moved to Ultra once and v3's files are kept; going back to v3 afterwards is respected on the
+  next launch. Not exercised for real: the background download of Ultra while v3 is in use, and
+  the removal of obsolete folders (none were present).
 - **Model migrations, obsolete models, "Remove Unused Models…"** (`feat/model-migration-and-cleanup`):
   - **Decision reversal:** 0.0.5 kept existing installs on Parakeet v3; the maintainer now wants
     updates to move people to the better model automatically. Rules recorded in
