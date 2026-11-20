@@ -78,6 +78,16 @@ struct MenuBarHandoffTests {
         #expect(!handoff.announcesReady)
     }
 
+    @Test("Menu already open at Finish Setup: no first popover, the ready one still comes")
+    func menuOpenAtFinish() {
+        var handoff = MenuBarHandoff()
+        handoff.setupFinished(engineReady: false)
+        handoff.dismiss() // what the controller does when the menu is open
+        #expect(handoff.popover == .none)
+        handoff.engineChanged(isReady: true, menuIsOpen: false)
+        #expect(handoff.popover == .modelReady)
+    }
+
     @Test("A replay shows it again")
     func replay() {
         var handoff = MenuBarHandoff()

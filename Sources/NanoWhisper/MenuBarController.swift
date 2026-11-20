@@ -215,8 +215,11 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSPopoverDelegate {
     func showOnboardingHandoff() {
         // After the onboarding window has gone, as on the board ("When the window closes…").
         DispatchQueue.main.asyncAfter(deadline: .now() + MenuBarHandoff.showDelay) { [weak self] in
-            guard let self, !self.isMenuOpen else { return }
+            guard let self else { return }
             self.handoff.setupFinished(engineReady: self.appState.isEngineReady)
+            // The menu is already open: no popover over it, but a model that is not ready yet
+            // is still announced once it is.
+            if self.isMenuOpen { self.handoff.dismiss() }
             self.updateHandoffPopover()
         }
     }
