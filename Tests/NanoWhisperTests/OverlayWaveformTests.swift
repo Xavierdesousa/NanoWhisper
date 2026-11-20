@@ -8,10 +8,11 @@ struct OverlayWaveformTests {
 
     // MARK: - Ring buffer
 
-    @Test("Starts with 26 slots of silence: the waveform appears at its final width")
+    @Test("Starts full of silence (80 slots, 4 s): the waveform appears at its final width")
     func startsFull() {
         let history = LevelHistory()
-        #expect(history.values.count == 26)
+        #expect(history.values.count == LevelHistory.capacity)
+        #expect(LevelHistory.capacity == 80)
         #expect(history.values.allSatisfy { $0 == 0 })
         #expect(LevelHistory.slotDuration == 0.05)
         #expect(Double(LevelHistory.barCount) * LevelHistory.slotDuration == 1.3)
@@ -28,19 +29,19 @@ struct OverlayWaveformTests {
         history.record(0.1)
         history.advance()
         #expect(Array(history.values.suffix(2)) == [0.7, 0.1])
-        #expect(history.values.count == 26)
+        #expect(history.values.count == LevelHistory.capacity)
     }
 
-    @Test("The oldest value drops out after 26 slots")
+    @Test("The oldest value drops out after 80 slots")
     func ringBuffer() {
         var history = LevelHistory()
-        for index in 0..<30 {
+        for index in 0..<84 {
             history.record(Float(index) / 100)
             history.advance()
         }
-        #expect(history.values.count == 26)
+        #expect(history.values.count == 80)
         #expect(history.values.first == 0.04)
-        #expect(history.values.last == 0.29)
+        #expect(history.values.last == 0.83)
     }
 
     @Test("A slot without a level repeats the previous one, at most twice, then silence")
@@ -74,25 +75,36 @@ struct OverlayWaveformTests {
         #expect(LevelHistory(values: [2, -1]).values.suffix(2) == [1, 0])
     }
 
-    @Test("A fixed history keeps its last 26 values, padded with silence on the left")
+    @Test("A fixed history keeps its last 80 values, padded with silence on the left")
     func fixedHistory() {
-        #expect(LevelHistory(values: [0.5]).values == Array(repeating: 0, count: 25) + [0.5])
-        let long = (0..<40).map { Float($0) / 40 }
-        #expect(LevelHistory(values: long).values == Array(long.suffix(26)))
+        #expect(LevelHistory(values: [0.5]).values == Array(repeating: 0, count: 79) + [0.5])
+        let long = (0..<100).map { Float($0) / 100 }
+        #expect(LevelHistory(values: long).values == Array(long.suffix(80)))
     }
 
     // MARK: - Level to bar
 
-    @Test("Bar height: a 2 pt dot below 0.06, else 3 + 17 × level^0.85, at most 20 pt")
+    @Test("Bar height: a 1.5 pt mark below 0.35, else 4 to 20 pt over the levels above it")
     func barHeights() {
-        #expect(WaveformMetrics.barHeight(for: 0) == 2)
-        #expect(WaveformMetrics.barHeight(for: 0.059) == 2)
-        #expect(abs(WaveformMetrics.barHeight(for: 0.06) - (3 + 17 * pow(0.06, 0.85))) < 1e-6)
-        #expect(abs(WaveformMetrics.barHeight(for: 0.5) - (3 + 17 * pow(0.5, 0.85))) < 1e-6)
+        #expect(WaveformMetrics.barHeight(for: 0) == 1.5)
+        // A quiet room (−50 dBFS reads 0.28) is silence, not a bar.
+        #expect(WaveformMetrics.barHeight(for: 0.28) == 1.5)
+        #expect(WaveformMetrics.barHeight(for: 0.349) == 1.5)
+        #expect(WaveformMetrics.barHeight(for: 0.35) == 4)
+        let mid = 4 + 16 * pow((0.675 - 0.35) / 0.65, 0.85)
+        #expect(abs(WaveformMetrics.barHeight(for: 0.675) - mid) < 1e-4)
         #expect(WaveformMetrics.barHeight(for: 1) == 20)
         // Monotonic over speech levels.
-        let heights = stride(from: Float(0.06), through: 1, by: 0.01).map(WaveformMetrics.barHeight(for:))
+        let heights = stride(from: Float(0.35), through: 1, by: 0.01).map(WaveformMetrics.barHeight(for:))
         #expect(zip(heights, heights.dropFirst()).allSatisfy { $0 <= $1 })
+    }
+
+    @Test("Silence and speech are clearly different: the quietest speech bar is over 2.5 times a silence mark, which is dimmer")
+    func silenceVersusSpeech() {
+        let bars = WaveformMetrics.bars(for: LevelHistory(values: Array(repeating: 0.1, count: 13) + Array(repeating: 0.36, count: 13)))
+        let silence = bars[10], speech = bars[20]
+        #expect(speech.height / silence.height > 2.5)
+        #expect(silence.opacity < 0.5 && speech.opacity > 0.9)
     }
 
     @Test("Opacity: the oldest 7 bars ramp from 0.22, the rest are 0.92")
@@ -111,7 +123,20 @@ struct OverlayWaveformTests {
         let bars = WaveformMetrics.bars(for: LevelHistory(values: [1]))
         #expect(bars.count == 26)
         #expect(bars.last?.height == 20)
-        #expect(bars.first?.height == 2)
+        #expect(bars.first?.height == 1.5)
+    }
+
+    @Test("The card's waveform: as many bars as fit its width, from the same history")
+    func cardRow() {
+        #expect(WaveformMetrics.barCount(fitting: 102) == 26)
+        #expect(WaveformMetrics.barCount(fitting: 298) == 75)
+        #expect(WaveformMetrics.barCount(fitting: 10_000) == LevelHistory.capacity)
+        let history = LevelHistory(values: (0..<80).map { Float($0) / 80 })
+        let wide = WaveformMetrics.bars(for: history, count: 75)
+        #expect(wide.count == 75)
+        // The newest bars are the same in both rows; only the fade moves with the left edge.
+        #expect(wide.suffix(10).map(\.height) == WaveformMetrics.bars(for: history).suffix(10).map(\.height))
+        #expect(wide.first?.opacity ?? 1 < 0.25)
     }
 
     // MARK: - Transcribing
@@ -130,7 +155,10 @@ struct OverlayWaveformTests {
         let lit = mid.enumerated().filter { $0.element.isLit }
         #expect(lit.count == 7)
         #expect(lit.map(\.element.height).max() == 6)
-        #expect(mid.filter { !$0.isLit }.allSatisfy { $0.height == 2 && $0.opacity == 0.32 })
+        #expect(mid.filter { !$0.isLit }.allSatisfy { $0.height == 1.5 && $0.opacity == 0.32 })
+        // A wider row keeps its bar count.
+        let wide = WaveformMetrics.bars(for: LevelHistory(values: Array(repeating: 1, count: 80)), count: 75)
+        #expect(WaveformMetrics.transcribingBars(from: wide, elapsed: 0.9, reduceMotion: false).count == 75)
     }
 
     @Test("The sweep crosses the row once every 1.2 s")
@@ -145,7 +173,7 @@ struct OverlayWaveformTests {
         let last = WaveformMetrics.bars(for: LevelHistory(values: Array(repeating: 1, count: 26)))
         for elapsed in [0, 0.1, 0.9, 5] as [TimeInterval] {
             let bars = WaveformMetrics.transcribingBars(from: last, elapsed: elapsed, reduceMotion: true)
-            #expect(bars.allSatisfy { $0.height == 2 && !$0.isLit })
+            #expect(bars.allSatisfy { $0.height == 1.5 && !$0.isLit })
         }
     }
 
@@ -162,7 +190,8 @@ struct OverlayWaveformTests {
         }
         waveform.markStopped()
         #expect(waveform.history.values.contains(0.9))
-        #expect(waveform.barsAtStop.count == 26)
+        #expect(waveform.barsAtStop().count == 26)
+        #expect(waveform.barsAtStop(count: 75).count == 75)
         #expect(waveform.stoppedAt != nil)
         #expect(waveform.glideProgress(at: Date()) == 0, "no glide once stopped")
     }

@@ -13,20 +13,34 @@ enum OverlayPalette {
               opacity: opacity)
     }
 
-    /// nwOverlay: the surface over the HUD material.
-    static let surface = rgb(0x120826, 0.86)
-    /// Surface with Reduce Transparency (no material).
-    static let solidSurface = rgb(0x1A1029)
-    static let edge = Color.white.opacity(0.16)
+    /// The surface over the HUD material: the deep violet of the app icon's tile, slightly
+    /// translucent, so the blurred desktop shows through (2026-11-20 feedback: the opaque
+    /// violet "felt too AI"). Opacity chosen for text contrast with the material ignored
+    /// (the worst case): see `OverlayContrastTests`.
+    static let surfaceColor: UInt32 = 0x261445
+    static let surfaceOpacity = 0.76
+    static let surface = rgb(surfaceColor, surfaceOpacity)
+    /// Surface with Reduce Transparency (no material): the same violet, opaque.
+    static let solidSurface = rgb(0x24123F)
+    /// The rim, after the lighter edge around the app icon's inner tile (#8C66B4 on the
+    /// icon): lighter at the top, like the icon's.
+    static let rimTop = rgb(0xA88BD6, 0.9)
+    static let rimBottom = rgb(0x7A56AE, 0.75)
     /// nwOverlayText: stable text.
-    static let text = Color.white.opacity(0.94)
+    static let textOpacity = 0.94
+    static let text = Color.white.opacity(textOpacity)
     /// Result label ("Pasted").
     static let label = Color.white.opacity(0.92)
-    static let timer = Color.white.opacity(0.62)
-    static let timerStopped = Color.white.opacity(0.5)
-    static let tailOpacity = 0.55
-    static let tailOpacityTranscribing = 0.5
-    static let transcribingLabel = rgb(0xDB98FE, 0.85)
+    static let timerOpacity = 0.72
+    static let timer = Color.white.opacity(timerOpacity)
+    static let timerStoppedOpacity = 0.68
+    static let timerStopped = Color.white.opacity(timerStoppedOpacity)
+    /// The tail of the live text that may still change: dimmer than the stable text, still
+    /// at least 4.5:1.
+    static let tailOpacity = 0.68
+    static let tailOpacityTranscribing = 0.68
+    static let transcribingLabelColor: UInt32 = 0xE9C4FE
+    static let transcribingLabel = rgb(transcribingLabelColor)
     /// nwStop (systemRed, dark).
     static let stop = rgb(0xFF453A)
     static let success = rgb(0x30D158)
@@ -89,7 +103,8 @@ struct RecordingOverlayView: View {
                     tailOpacity: viewModel.state == .loading
                         ? OverlayPalette.tailOpacityTranscribing : OverlayPalette.tailOpacity,
                     showsCaret: viewModel.state == .recording,
-                    isFinal: transcript.isFinal
+                    isFinal: transcript.isFinal,
+                    lineCount: viewModel.transcriptLineCount
                 )
                 .padding(.horizontal, OverlayMetrics.textInset)
                 .padding(.bottom, OverlayMetrics.textBottomInset)
@@ -129,8 +144,10 @@ struct RecordingOverlayView: View {
                 }
             case .idle, .recording, .loading:
                 RecordIndicator(isTranscribing: isTranscribing)
-                OverlayWaveformView(waveform: viewModel.waveform, isTranscribing: isTranscribing)
-                trailing {
+                // In the card the waveform takes the header's whole width (2026-11-20
+                // feedback); in the capsule it keeps its 26 bars.
+                OverlayWaveformView(waveform: viewModel.waveform, isTranscribing: isTranscribing, fillsWidth: hasText)
+                trailing(flexible: !hasText) {
                     if isTranscribing && (hasText || reduceMotion) {
                         Text("Transcribing…")
                             .font(.system(size: 11, weight: .medium))
@@ -149,8 +166,14 @@ struct RecordingOverlayView: View {
         .frame(height: OverlayMetrics.headerHeight)
     }
 
-    private func trailing(@ViewBuilder _ content: () -> some View) -> some View {
-        content().frame(maxWidth: .infinity, alignment: .trailing)
+    /// The trailing item: it takes the remaining width, unless the waveform does.
+    @ViewBuilder
+    private func trailing(flexible: Bool = true, @ViewBuilder _ content: () -> some View) -> some View {
+        if flexible {
+            content().frame(maxWidth: .infinity, alignment: .trailing)
+        } else {
+            content().fixedSize()
+        }
     }
 
     private func timerText(color: Color) -> some View {
@@ -191,8 +214,8 @@ struct RecordingOverlayView: View {
 
 // MARK: - Background
 
-/// HUD material (behind the window) under the nwOverlay fill, or a solid fill with Reduce
-/// Transparency; a 0.5 pt white edge inside.
+/// HUD material (behind the window) under the translucent violet fill, or a solid fill with
+/// Reduce Transparency; a 1 pt rim inside, after the app icon's tile edge.
 private struct OverlayBackground: View {
     let cornerRadius: CGFloat
     var showsMaterial = true
@@ -210,7 +233,11 @@ private struct OverlayBackground: View {
                 shape.fill(OverlayPalette.surface)
             }
         }
-        .overlay(shape.strokeBorder(OverlayPalette.edge, lineWidth: 0.5))
+        .overlay(shape.strokeBorder(
+            LinearGradient(colors: [OverlayPalette.rimTop, OverlayPalette.rimBottom],
+                           startPoint: .top, endPoint: .bottom),
+            lineWidth: 1
+        ))
     }
 }
 
@@ -360,8 +387,8 @@ private struct FadeIn: ViewModifier {
 
 /// The last lines of the live transcript: settled words in white, the tail that may still
 /// change dimmed (never another hue), and the glowing caret where the next words will land.
-/// Fixed height (two lines), so updates never resize the overlay; the newest line sits at the
-/// bottom and older lines fade out at the top edge.
+/// Fixed height (`lineCount` lines), so updates never resize the overlay; the newest line sits
+/// at the bottom and older lines fade out at the top edge.
 struct LiveTranscriptText: View {
     let stableText: String
     let volatileText: String
@@ -370,15 +397,19 @@ struct LiveTranscriptText: View {
     var showsCaret = false
     /// The final text (what is pasted): cross-faded in.
     var isFinal = false
+    var lineCount = LiveTranscriptText.defaultLineCount
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    static let lineCount = 2
+    /// Three lines (2026-11-20 feedback: two were cramped). The layout follows `lineCount`;
+    /// four also fits (captured in `OverlayWindowTests`).
+    static let defaultLineCount = 3
     static let fontSize: CGFloat = 13
     /// Distance from one baseline to the next.
     static let lineHeight: CGFloat = 19
-    /// Height of `lineCount` lines.
-    static let height: CGFloat = lineHeight * CGFloat(lineCount)
+    /// Height of `lines` lines.
+    static func height(lines: Int) -> CGFloat { lineHeight * CGFloat(lines) }
+    var height: CGFloat { Self.height(lines: lineCount) }
     /// Height of the top fade.
     static let fadeHeight: CGFloat = 9
 
@@ -399,11 +430,11 @@ struct LiveTranscriptText: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: Self.height)
+        .frame(height: height)
         .mask(
             LinearGradient(
                 stops: [.init(color: .clear, location: 0),
-                        .init(color: .black, location: Self.fadeHeight / Self.height)],
+                        .init(color: .black, location: Self.fadeHeight / height)],
                 startPoint: .top, endPoint: .bottom)
         )
         .accessibilityElement(children: .ignore)

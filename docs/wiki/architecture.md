@@ -1,7 +1,8 @@
 # Architecture and recording pipeline
 
 Last verified against the code: 2026-11-20 (`chore/cleanup`, on top of `main` at 935e191); the
-Recording overlay section on 2026-11-20 against `feat/voice-note-overlay` (on `main` at 43c1f2d);
+Recording overlay section on 2026-11-20 against `feat/voice-note-overlay` (on `main` at 43c1f2d)
+and again against `feat/redesign-feedback` (on `main` at d6320b5);
 the recorder (Recording pipeline, Stopping the recorder) on 2026-11-20 against
 `fix/stop-recording-crash` (on `main` at b15be20).
 
@@ -209,26 +210,45 @@ environment values forced in a test host).
   `OverlayMetrics`, `LiveTranscriptText`, `Caret`), `OverlayWaveform.swift` (`LevelHistory`,
   `WaveformMetrics`, `OverlayWaveform`, `OverlayWaveformView`), `RecorderPosition.swift`,
   `RecorderPositionPicker.swift`.
-- **Shape:** compact capsule 184 × 36 pt (radius 18); with live text a card 380 × 87 pt (36 header +
-  38 text + 13), same radius, so the header never moves. Always dark: `NSVisualEffectView`
-  `.hudWindow` behind the window (masked by a stretchable rounded-rect `maskImage`) under
-  `#120826` at 86 %; Reduce Transparency: solid `#1A1029`. White 16 % 0.5 pt inner edge; window
-  shadow on, `invalidateShadow()` after each resize and once the appear animation settled.
+- **Shape:** compact capsule 184 × 36 pt (radius 18); with live text a card 380 × 106 pt (36
+  header + 57 text for three lines + 13), same radius, so the header never moves. Always dark:
+  `NSVisualEffectView` `.hudWindow` behind the window (masked by a stretchable rounded-rect
+  `maskImage`) under the icon tile's deep violet `#261445` at 76 %; Reduce Transparency: solid
+  `#24123F`. A 1 pt rim inside, a vertical gradient `#A88BD6` 90 % → `#7A56AE` 75 %, after the
+  lighter edge around the app icon's inner tile (`#8C66B4` on `Resources/AppIcon.png`, lighter
+  at the top). Window shadow on, `invalidateShadow()` after each resize and once the appear
+  animation settled.
+  - **Changed 2026-11-20 (maintainer's feedback on PR #24):** the near-opaque `#120826` at 86 %
+    "felt too AI"; now slightly translucent so the blurred desktop shows through, with the rim.
+    Text opacities were raised so every text stays at 4.5:1 or more on the worst wallpaper with
+    the material ignored (white, light gray, pale yellow, sky blue, black; `OverlayContrastTests`):
+    text 94 %, tail 68 % (was 55 %), timer 72 % (was 62 %), stopped timer 68 %, "Transcribing…"
+    `#E9C4FE` (was `#DB98FE` 85 %, 3.1:1). The material darkens the wallpaper first, so the real
+    contrast is higher; the blur itself is not in the captures (window server).
 - **Header:** record capsule 6 × 14 pt (violet gradient, glow that breathes over 2.4 s; lilac without
   glow while transcribing; static with Reduce Motion), waveform, then the timer (or Stop under the
   pointer, or "Transcribing…" when there is text or Reduce Motion is on). The trailing item takes
   the remaining width with `.frame(maxWidth: .infinity)`, not a `Spacer`: the `HStack` spacing on
   both sides of a `Spacer` made the capsule 194 pt instead of 184.
-- **Waveform** (`OverlayWaveform`): the peak of the levels of each 50 ms slot, 26 slots (1.3 s),
-  starting full of silence. Height `v < 0.06 ? 2 : min(20, 3 + 17 × v^0.85)`; the oldest 7 bars
-  fade from 22 %. One `Canvas` in `TimelineView(.animation)`; the row glides `4 pt × progress`
+- **Waveform** (`OverlayWaveform`): the peak of the levels of each 50 ms slot, the last 80 slots
+  kept (`LevelHistory.capacity`, 4 s), starting full of silence. The capsule shows the last 26
+  (1.3 s, 102 pt); in the card the waveform takes the header's width between the record capsule
+  and the timer (75 bars at 380 pt, right-aligned; feedback 2026-11-20). Silence (below 0.35)
+  is a dim 2 × 1.5 pt mark (45 % of the bar opacity); speech `4 + 16 × ((v − 0.35) / 0.65)^0.85`
+  pt, at most 20. The oldest 7 bars shown fade from 22 %. One `Canvas` in `TimelineView(.animation)`; the row glides `4 pt × progress`
   between slots; Reduce Motion: 10 Hz, no glide. At stop the bars sink to dots in 0.25 s, then a
   highlight sweeps every 1.2 s (none with Reduce Motion). The meter is a plain class, not an
   `ObservableObject`, so the rest of the overlay does not re-render 20 times a second.
   - **Decision (agent): an empty slot repeats the previous value** (up to 2 slots, then
     silence). `AudioRecorder` sends one level per 4096-frame tap buffer (about 85–93 ms), so
     about 40 % of the 50 ms slots get no level; read as silence, steady speech came out as a
-    dotted line. The 0.06 silence floor is the design's guess, not tuned on a real microphone.
+    dotted line.
+  - **Silence floor 0.35 (2026-11-20, feedback "the silence bars are too big").** The level is
+    `sqrt(min(25 × RMS, 1))`, so a quiet room (RMS 0.001–0.003, −60 to −50 dBFS) reads
+    0.16–0.28: with the design's 0.06 floor, room noise was drawn as 6–8 pt bars, hardly lower
+    than speech. 0.35 is RMS ≈ 0.005 (−46 dBFS); soft speech (−40 dBFS) reads 0.5, normal
+    speech 0.7–1. Typical levels, **not measured on a real microphone** (agents must not open
+    it); tune `WaveformMetrics.silenceFloor` if speech reads as silence.
 - **Result** (`OverlayResult`, from `DictationOutcome`): check + "Pasted" (delivered), "Done"
   (onboarding Try-it, or a test whose box is gone; the design has no state for these), warning +
   "No speech detected" (empty), "No audio recorded", "Transcription failed". Held 0.8 s, 1.2 s when

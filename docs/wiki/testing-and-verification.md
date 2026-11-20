@@ -23,7 +23,9 @@ Swift Testing (`@Suite`, `@Test`) in `Tests/NanoWhisperTests/`. CI runs `swift t
 | `InterruptedRecordingsTests.swift` | Recordings left by a crash: header repair of the crash state (copied from an open `RecordingWriter` file), what is kept or deleted (too short, too old, unreadable, already attempted, history off; the other build's files untouched), the silent recovery to History at the recording's date, exactly once (a crash during the attempt is not retried), the user's dictation first (a real `Transcriber` queue with its test handler), `HistoryStore.insert` order |
 | `HistoryStoreTests.swift` | Encrypted round trip (no plain text on disk), trimming, unreadable file ⇒ unavailable and never overwritten, plain-text file never read, pinned key derivation |
 | `LiveTranscriptionTests.swift`, `LiveTranscriptionFlavorTests.swift` | Live preview schedule, window, joins, transcript; availability per engine; debug-only flag and hidden toggle |
-| `ViewRenderTests.swift`, `RenderFixtures.swift` | Offscreen renders (below) and the Settings window sizing test; skipped unless `NANOWHISPER_RENDER_DIR` is set |
+| `ViewRenderTests.swift`, `RenderFixtures.swift` | Offscreen renders (below); skipped unless `NANOWHISPER_RENDER_DIR` is set |
+| `SettingsWindowTests.swift` | Opt-in (`NANOWHISPER_WINDOW_TESTS`): the real Settings window on screen. Every pane switch ends at the pane's height with the top edge fixed and one pane shown; each frame of a resize (forced heights, with a layout pass) keeps the window's height and never puts pane content above the content area; the real animation (sampled every 16 ms) is monotonic with the pane hidden until the end; content height changes are followed. With `NANOWHISPER_CAPTURE_DIR`, PNGs of all of it |
+| `OverlayContrastTests.swift` | Overlay text contrast ≥ 4.5:1 over light and dark wallpapers with the material ignored |
 | `MenuContentTests.swift` | Menu bar menu lines for every app state |
 | `AudioRecorderTests.swift` | `RecordingWriter`: 16 kHz mono conversion (48 kHz mono, 44.1 kHz stereo), WAV header final once `finish()` returns, nothing written after it, input format change mid-recording, appends racing `finish()`; the level curve. `AudioRecorder` with `FakeInputEngine` (no real input): stop order (engine stopped before the tap is removed, never a tap removed from a running engine), WAV complete when returned, late tap buffers ignored, input change continuing in the same file, input change that cannot restart (`onInputLost`, file finalized), start failure leaving no file. Swapping the stop order back makes two of these fail (checked) |
 | `SettingsPaneTests.swift` | Visible panes and the remembered pane, Recorder pane's live toggle per flavor, shortcut keys, Engine pane status and apply wording, update status |
@@ -65,6 +67,13 @@ Agents have **no screen capture**. These worked on 2026-11-19:
      a drawn wallpaper with a drawn shadow. Reduce Motion/Transparency cannot be switched on for
      the test process; the views read them from the environment, so a test host sets
      `_accessibilityReduceMotion` / `_accessibilityReduceTransparency` (settable, underscored).
+   - **Animations in tests (2026-11-20):** AppKit animations (`animator()`, `NSTabViewController`
+     transitions, `NSAnimationContext` completions) only progress while a `@MainActor` test is
+     **suspended** (`try await Task.sleep`): their completions are delivered on the main queue,
+     which the test's job occupies while it spins `RunLoop.current.run(until:)`. That explains
+     the earlier "alpha animations never run" gotcha; with `await Task.sleep` the real animation
+     can be sampled frame by frame. `CALayer.render(in:)` honours alpha but drew no SwiftUI
+     content inside a clipping view; `cacheDisplay` draws it but ignores view alpha.
    - **Design reference:** the design canvas's HTML can be rendered with headless Chrome
      (`--headless=new --screenshot --force-device-scale-factor=2 --user-data-dir=<scratch>`) to
      compare with the captures side by side.
