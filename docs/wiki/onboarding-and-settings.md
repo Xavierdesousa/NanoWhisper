@@ -16,7 +16,7 @@ it had (its redesign was not approved and is postponed).
 | Engine, model, status, apply row, Whisper language and vocabulary | Engine (`EnginePane`, `SettingsEnginePane.swift`) | Model step (`ModelSettingsSection`, `SettingsModelSection.swift`) |
 | Downloaded models, "Remove Unused Models…" (`ModelStorageRow`, `UnusedModelsSheet`, `SettingsStorageSection.swift`) | Engine | — |
 | Live transcription (beta, debug builds only) | Recorder (`RecorderPane`, `SettingsRecorderPane.swift`) | Shortcut step |
-| Recorder position | Recorder (spot marked `RECORDER POSITION`; the picker comes from the Voice note overlay work) | — |
+| Recorder position (`RecorderPositionPicker` from the Voice note overlay, PR #24; `AppState.recorderPosition` through `SettingsContext.recorderPosition`) | Recorder | — |
 | Microphone, Accessibility with live status | Permissions (`PermissionsPane`, `SettingsPermissionsSection.swift`) | Permissions step (`PermissionsSettingsSection`) |
 | Updates, "Show debug info in history", "Show Onboarding Again…" | Advanced (`AdvancedPane`, `UpdateStatus`, `SettingsAdvancedPane.swift`) | — |
 
@@ -52,8 +52,8 @@ Design: Claude Design canvas "NanoWhisper Redesign", Settings page, proposal 1 "
     options, pending change, update states), keeping the top edge in place.
 - **Last pane remembered**: UserDefaults `settingsPane`; `SettingsPane.restored(_:from:)` falls
   back to General when the stored pane is not shown.
-- **Recorder pane** is hidden while it would be empty (production before the recorder position
-  picker is wired: `SettingsPane.visible(recorderHasContent:)`, `RecorderPane.hasContent`).
+- **Recorder pane**: the recorder position (the overlay PR's `RecorderPositionPicker`, its
+  footnote under the group) in both builds, then live transcription in debug builds.
 - **Fresh content at each opening**, so the Engine draft starts from the applied settings
   (unapplied changes are dropped when the window closes). On close the controller stops the
   `PermissionMonitor` and drops the content; the Permissions pane also starts/stops polling on

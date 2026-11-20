@@ -60,7 +60,7 @@ On first launch, an onboarding window walks you through model download, permissi
 | Open settings | Menubar → Settings… (⌘,) |
 | Quit | Menubar → Quit |
 
-Settings has one pane per topic: **General** (shortcut, open at login, sounds, pausing media, history), **Engine** (speech model, its download, Whisper language and vocabulary, removing unused models), **Permissions**, **Advanced** (updates, debug options). Debug builds also have **Recorder** (live transcription).
+Settings has one pane per topic: **General** (shortcut, open at login, sounds, pausing media, history), **Engine** (speech model, its download, Whisper language and vocabulary, removing unused models), **Recorder** (where the recorder appears; live transcription in debug builds), **Permissions**, **Advanced** (updates, debug options).
 
 ## Permissions
 

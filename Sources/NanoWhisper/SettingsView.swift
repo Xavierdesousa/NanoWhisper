@@ -38,13 +38,6 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         }
     }
 
-    /// The panes shown, in order. The Recorder pane is left out while it would be empty.
-    // RECORDER POSITION: once `RecorderPositionPicker` is wired into `RecorderPane`, the
-    // Recorder pane always has content: drop `recorderHasContent` and show every case.
-    static func visible(recorderHasContent: Bool) -> [SettingsPane] {
-        allCases.filter { $0 != .recorder || recorderHasContent }
-    }
-
     /// The pane to open: the stored one if it is still shown, else General.
     static func restored(_ storedValue: String?, from visible: [SettingsPane]) -> SettingsPane {
         if let storedValue, let pane = SettingsPane(rawValue: storedValue), visible.contains(pane) {
@@ -203,15 +196,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         window = w
     }
 
-    /// The panes shown by this build (the render tests build the same window from fixtures).
-    static var visiblePanes: [SettingsPane] {
-        SettingsPane.visible(recorderHasContent: RecorderPane.hasContent(
-            offersLiveTranscription: BuildFlavor.current.supportsLiveTranscription
-        ))
-    }
-
     static func makeTabs(
-        panes: [SettingsPane] = visiblePanes,
+        panes: [SettingsPane] = SettingsPane.allCases,
         selectedFrom defaults: UserDefaults,
         content: (SettingsPane) -> AnyView
     ) -> SettingsTabViewController {

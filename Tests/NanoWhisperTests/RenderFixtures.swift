@@ -15,6 +15,7 @@ struct SettingsFixture {
     var shortcut: Shortcut = Fixtures.productionShortcut
     var historyEnabled = true
     var showsModelPicker = false
+    var recorderPosition: RecorderPosition = .defaultPosition
     var updates = Fixtures.updates(.upToDate(lastChecked: Fixtures.checkDate))
 
     init(applied: EngineConfiguration = Fixtures.parakeetUltra) {
@@ -25,7 +26,7 @@ struct SettingsFixture {
         Fixtures.context(
             applied: applied, state: state, microphone: microphone, accessibility: accessibility,
             offersLiveTranscription: offersLiveTranscription, shortcut: shortcut,
-            historyEnabled: historyEnabled
+            historyEnabled: historyEnabled, recorderPosition: recorderPosition
         )
     }
 

@@ -6,21 +6,22 @@ struct RecorderPane: View {
 
     static let liveTranscriptionLabel = "Show words in the recorder as you speak"
 
-    /// Whether the pane has anything to show in this build (it is hidden otherwise).
-    // RECORDER POSITION: return true once `RecorderPositionPicker` is wired below.
-    static func hasContent(offersLiveTranscription: Bool) -> Bool {
-        offersLiveTranscription
-    }
-
     private var liveTranscriptionAvailable: Bool {
         LiveTranscriptionSupport.isAvailable(for: context.appliedEngine)
     }
 
     var body: some View {
         SettingsPaneForm {
-            // RECORDER POSITION: the "Recorder position" section goes here, first in the pane.
-            // `RecorderPositionPicker(selection:)` and `AppState.recorderPosition` come from
-            // the Voice note overlay (feat/voice-note-overlay); not implemented here on purpose.
+            // The picker is the Voice note overlay's own control (`RecorderPositionPicker.swift`).
+            Section {
+                RecorderPositionPicker(selection: context.recorderPosition)
+                    .padding(.vertical, 4)
+            } header: {
+                Text("Recorder position")
+            } footer: {
+                SettingsCaption(RecorderPositionPicker.footnote)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             if context.offersLiveTranscription {
                 Section {
                     SettingsToggle(

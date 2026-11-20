@@ -230,6 +230,10 @@ struct SettingsContext {
     var historyUnavailable: Bool
     var maxHistoryCount: Binding<Int>
 
+    // Recorder
+    /// Where the recording overlay appears (`AppState.recorderPosition`).
+    var recorderPosition: Binding<RecorderPosition>
+
     // Downloaded models (Settings only)
     var storage: ModelStorageContext
 
@@ -323,6 +327,7 @@ extension AppState {
             historyEnabled: binding(\.historyEnabled),
             historyUnavailable: historyUnavailable,
             maxHistoryCount: binding(\.maxHistoryCount),
+            recorderPosition: binding(\.recorderPosition),
             storage: modelStorageContext
         )
     }

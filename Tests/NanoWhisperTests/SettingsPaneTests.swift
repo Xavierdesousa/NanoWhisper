@@ -6,12 +6,9 @@ import Testing
 
 @Suite("Settings panes")
 struct SettingsPaneTests {
-    @Test("The Recorder pane is shown only when it has content")
-    func visiblePanes() {
-        #expect(SettingsPane.visible(recorderHasContent: true) == SettingsPane.allCases)
-        #expect(SettingsPane.visible(recorderHasContent: false) == [.general, .engine, .permissions, .advanced])
-        #expect(RecorderPane.hasContent(offersLiveTranscription: true))
-        #expect(!RecorderPane.hasContent(offersLiveTranscription: false))
+    @Test("Five panes, in the designed order")
+    func panes() {
+        #expect(SettingsPane.allCases.map(\.title) == ["General", "Engine", "Recorder", "Permissions", "Advanced"])
     }
 
     @Test("Settings reopens on the last pane while it is shown, else on General")
@@ -20,7 +17,7 @@ struct SettingsPaneTests {
         #expect(SettingsPane.restored(nil, from: all) == .general)
         #expect(SettingsPane.restored("advanced", from: all) == .advanced)
         #expect(SettingsPane.restored("unknown", from: all) == .general)
-        #expect(SettingsPane.restored("recorder", from: SettingsPane.visible(recorderHasContent: false)) == .general)
+        #expect(SettingsPane.restored("recorder", from: [.general, .engine]) == .general)
     }
 
     @Test("Debug builds offer live transcription in the Recorder pane; production hides it", arguments: [false, true])
@@ -31,6 +28,8 @@ struct SettingsPaneTests {
         )
         var tree = ""
         dump(RecorderPane(context: context).body, to: &tree)
+        // Positive control: the recorder position section is there in both builds.
+        #expect(tree.contains("RecorderPositionPicker"))
         #expect(tree.contains("\"\(RecorderPane.liveTranscriptionLabel)\"") == offered)
     }
 }

@@ -153,8 +153,9 @@ struct ViewRenderTests {
 
         var production = SettingsFixture()
         production.offersLiveTranscription = false
-        try renderSettings(.general, "settings-general-production-no-recorder", production,
-                           panes: SettingsPane.visible(recorderHasContent: RecorderPane.hasContent(offersLiveTranscription: false)))
+        try renderSettings(.recorder, "settings-recorder-release", production)
+        production.recorderPosition = .topRight
+        try renderSettings(.recorder, "settings-recorder-release-top-right-dark", production, dark: true)
 
         try renderSettings(.permissions, "settings-permissions-not-asked", SettingsFixture())
         var historyOff = SettingsFixture()
@@ -332,7 +333,8 @@ enum Fixtures {
         liveTranscriptionEnabled: Binding<Bool> = .constant(false),
         offersLiveTranscription: Bool = true,
         shortcut: Shortcut = .default,
-        historyEnabled: Bool = true
+        historyEnabled: Bool = true,
+        recorderPosition: RecorderPosition = .defaultPosition
     ) -> SettingsContext {
         SettingsContext(
             appliedEngine: applied,
@@ -361,6 +363,7 @@ enum Fixtures {
             historyEnabled: .constant(historyEnabled),
             historyUnavailable: false,
             maxHistoryCount: .constant(15),
+            recorderPosition: .constant(recorderPosition),
             storage: ModelStorageContext(
                 unavailableReason: ModelStorageContext.unavailableReason(state),
                 preview: { samplePreview },
