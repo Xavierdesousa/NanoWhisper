@@ -1,23 +1,9 @@
 import AppKit
 import SwiftUI
 
-// MARK: - Brand colors
-
-extension Color {
-    /// Brand violet for selection and prominent controls (design token `accent-fill`).
-    static let nwAccent = Color(nsColor: NSColor(name: "nwAccent") { appearance in
-        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            ? NSColor(srgbRed: 0x76 / 255, green: 0x50 / 255, blue: 0xE6 / 255, alpha: 1)
-            : NSColor(srgbRed: 0x66 / 255, green: 0x33 / 255, blue: 0xD6 / 255, alpha: 1)
-    })
-
-    /// Brand violet for text and small marks (design token `accent`): lighter on dark.
-    static let nwAccentText = Color(nsColor: NSColor(name: "nwAccentText") { appearance in
-        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            ? NSColor(srgbRed: 0xB3 / 255, green: 0x9B / 255, blue: 0xFF / 255, alpha: 1)
-            : NSColor(srgbRed: 0x66 / 255, green: 0x33 / 255, blue: 0xD6 / 255, alpha: 1)
-    })
-}
+// Settings, onboarding and the menu use the system accent color (the user's choice in System
+// Settings › Appearance), never the brand violet: the maintainer's feedback of 2026-11-20.
+// The brand colors stay in the recording overlay (`OverlayPalette`).
 
 // MARK: - Rows
 
@@ -85,10 +71,10 @@ struct SettingsBadge: View {
     var body: some View {
         Text(text)
             .font(.system(size: 10.5, weight: .semibold))
-            .foregroundStyle(Color.nwAccentText)
+            .foregroundStyle(Color.accentColor)
             .padding(.horizontal, 7)
             .padding(.vertical, 1)
-            .background(Capsule().fill(Color.nwAccent.opacity(0.12)))
+            .background(Capsule().fill(Color.accentColor.opacity(0.14)))
     }
 }
 
@@ -101,7 +87,6 @@ struct SettingsPaneForm<Content: View>: View {
         Form { content }
             .formStyle(.grouped)
             .scrollDisabled(true)
-            .tint(.nwAccent)
             .frame(width: SettingsPane.width)
             .fixedSize(horizontal: false, vertical: true)
     }

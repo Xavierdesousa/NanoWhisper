@@ -5,6 +5,18 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-20
 
+- **Feedback on the redesign** (`feat/redesign-feedback`, PR #TBD): the maintainer's notes after
+  trying PRs #24 and #25. Overlay: three lines of live text (card 380 × 106), the waveform takes
+  the card's width, silence drawn as dim 1.5 pt marks with a 0.35 floor (room noise was drawn as
+  bars), a translucent icon-violet surface with a rim after the icon's tile edge, text opacities
+  raised to keep 4.5:1. Settings: the dark band across the toolbar on pane switches is fixed
+  (cause: crossfaded panes laid out at the other pane's height overflowing under the toolbar,
+  plus `NSTabViewController`'s 501-priority size constraint fighting the manual resize); no
+  violet left in Settings, onboarding or the menu (system accent). New opt-in
+  `SettingsWindowTests`; animations in tests progress only while the test is suspended. Details:
+  [onboarding-and-settings.md](onboarding-and-settings.md#settings-window-toolbar-panes),
+  [architecture.md](architecture.md#recording-overlay).
+
 - **Crash when stopping a recording** (`fix/stop-recording-crash`, PR #26): the debug app crashed
   at the end of a 2 min 44 s dictation. Cause: `removeTap` on the running engine cleared the
   AUHAL input callback while CoreAudio's IO thread was about to call it (null call); confirmed

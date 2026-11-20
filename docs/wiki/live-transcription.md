@@ -77,10 +77,10 @@ longer offered since the model migration PR, see [transcription-engines.md](tran
 - **Lifecycle glue** is in `AppState+LiveTranscription.swift`: `beginLiveTranscription()`,
   `cancelLiveTranscription()`, `showFinalLiveText(_:for:)`, and cancellation on quit.
 - **Overlay** (design and details in [architecture.md](architecture.md#recording-overlay)):
-  - The compact capsule grows once into a 380 × 87 pt card when text appears, keeping the edges
-    pinned by the recorder position (Bottom Center grows upward), and shows the last two lines
-    (19 pt line height, 38 pt). Settled words white 94 %, the tail white 55 % (50 % while
-    transcribing), a glowing caret after the last word while recording; older lines fade out
+  - The compact capsule grows once into a 380 × 106 pt card when text appears, keeping the edges
+    pinned by the recorder position (Bottom Center grows upward), and shows the last three lines
+    (19 pt line height, 57 pt; two until 2026-11-20, "cramped"; `LiveTranscriptText` takes a line
+    count, four also fits and was captured). Settled words white 94 %, the tail white 68 %, a glowing caret after the last word while recording; older lines fade out
     under a 9 pt top mask instead of being cut.
   - The caret is an `NSImage` inside the `Text` (`Caret`), no taller than the 14 pt caret: a
     taller image (room for the glow) made the last line taller, and the bottom-aligned text then

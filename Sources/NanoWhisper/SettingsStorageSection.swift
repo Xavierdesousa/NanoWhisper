@@ -224,7 +224,6 @@ struct UnusedModelsSheet: View {
             }
             .padding(.top, 16)
         }
-        .tint(.nwAccent)
         .padding(20)
         .frame(width: 430)
     }

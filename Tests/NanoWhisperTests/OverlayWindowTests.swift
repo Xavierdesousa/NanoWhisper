@@ -37,7 +37,7 @@ struct OverlayWindowTests {
         let window = try #require(controller.window)
         let content = try #require(window.contentView)
         #expect(window.frame.size == content.fittingSize)
-        #expect(window.frame.size == NSSize(width: 380, height: 87))
+        #expect(window.frame.size == NSSize(width: 380, height: 106), "the card with three lines of text")
         switch position.verticalAnchor {
         case .top: #expect(window.frame.maxY == compact.maxY, "the top edge stays in place")
         case .bottom: #expect(window.frame.minY == compact.minY, "the bottom edge stays in place")
@@ -225,6 +225,15 @@ struct OverlayWindowTests {
         controller.updateTranscript(transcript, for: id)
         try await Task.sleep(nanoseconds: 600_000_000)
         try OverlayCapture.save(controller, name("8-live-long"), wallpaper: wallpaper, in: directory)
+        // The four-line variant, to judge whether it reads well (three by default).
+        transcript.update(partial: Self.finalText + " Then we ship it on Friday morning")
+        controller.updateTranscript(transcript, for: id)
+        controller.viewModel.transcriptLineCount = 4
+        try await Task.sleep(nanoseconds: 500_000_000)
+        try OverlayCapture.save(controller, name("8b-live-long-4-lines"), wallpaper: wallpaper, in: directory)
+        controller.viewModel.transcriptLineCount = LiveTranscriptText.defaultLineCount
+        try await Task.sleep(nanoseconds: 300_000_000)
+        try OverlayCapture.save(controller, name("8c-live-longer-3-lines"), wallpaper: wallpaper, in: directory)
         feeder.stop()
         controller.transitionToLoading()
         try await Task.sleep(nanoseconds: 800_000_000)
@@ -329,9 +338,11 @@ struct OverlayWindowTests {
         let scale = CGFloat(rep.pixelsWide) / window.frame.width
         let minRun = Int(6 * 0.7 * scale)
         var minX = Int.max, minY = Int.max, maxX = -1, maxY = -1
+        // Only the header's leading 30 pt: the "Transcribing…" label is light lilac too.
+        let columns = min(rep.pixelsWide, Int(30 * scale))
         for y in 0..<rep.pixelsHigh {
             var run = 0
-            for x in 0..<rep.pixelsWide {
+            for x in 0..<columns {
                 let match = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB).map { c in
                     transcribing
                         ? c.blueComponent > 0.85 && c.redComponent > 0.8 && c.greenComponent > 0.55 && c.greenComponent < 0.9
