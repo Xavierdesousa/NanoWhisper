@@ -5,7 +5,7 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-20
 
-- **Feedback on the redesign** (`feat/redesign-feedback`, PR #TBD): the maintainer's notes after
+- **Feedback on the redesign** (`feat/redesign-feedback`, PR #27): the maintainer's notes after
   trying PRs #24 and #25. Overlay: three lines of live text (card 380 × 106), the waveform takes
   the card's width, silence drawn as dim 1.5 pt marks with a 0.35 floor (room noise was drawn as
   bars), a translucent icon-violet surface with a rim after the icon's tile edge, text opacities
