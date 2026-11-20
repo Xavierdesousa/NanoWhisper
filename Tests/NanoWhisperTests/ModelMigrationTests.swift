@@ -16,6 +16,32 @@ struct ModelMigrationTests {
         ModelChoices(parakeet: parakeet, whisper: whisper)
     }
 
+    /// `ModelMigrations.run`, persisting the Parakeet choice as the app does.
+    private func runMigrations(on defaults: UserDefaults, choices: ModelChoices, isExistingInstall: Bool) -> ModelMigrations.Outcome {
+        ModelMigrations.run(on: defaults, choices: choices, isExistingInstall: isExistingInstall) {
+            defaults.set($0.parakeet.rawValue, forKey: ParakeetVariant.defaultsKey)
+        }
+    }
+
+    @Test("Persistence order: fallback, then choices, then the step (a stop in between re-runs it safely)")
+    func persistenceOrder() {
+        let defaults = makeDefaults()
+        defaults.set("v3", forKey: ParakeetVariant.defaultsKey)
+        var seenWhenPersisting: (pending: ParakeetVariant?, step: Int?)?
+        _ = ModelMigrations.run(on: defaults, choices: choices(.v3, .base), isExistingInstall: true) { _ in
+            seenWhenPersisting = (PendingModelMoves.load(from: defaults).parakeet,
+                                  defaults.object(forKey: ModelMigrations.lastAppliedKey) as? Int)
+        }
+        #expect(seenWhenPersisting?.pending == .v3)
+        #expect(seenWhenPersisting?.step == nil)
+
+        // Stopped after the choice was written but before the step: the re-run keeps the fallback.
+        defaults.removeObject(forKey: ModelMigrations.lastAppliedKey)
+        let rerun = runMigrations(on: defaults, choices: choices(.ultra, .base), isExistingInstall: true)
+        #expect(rerun.choices.parakeet == .ultra)
+        #expect(rerun.pending.parakeet == .v3)
+    }
+
     // MARK: - Schema
 
     @Test("The schema: ids strictly increasing; step 1 moves Parakeet to Ultra and leaves Whisper out")
@@ -87,7 +113,7 @@ struct ModelMigrationTests {
         let existing = ModelMigrations.isExistingInstall(defaults)
         let variant = ParakeetVariant.loadOrMigrate(from: defaults) // what 0.0.5 resolved: v3
         #expect(variant == .v3)
-        let outcome = ModelMigrations.run(on: defaults, choices: choices(variant, .base), isExistingInstall: existing)
+        let outcome = runMigrations(on: defaults, choices: choices(variant, .base), isExistingInstall: existing)
         #expect(outcome.choices.parakeet == .ultra)
         #expect(defaults.integer(forKey: ModelMigrations.lastAppliedKey) == 1)
         #expect(PendingModelMoves.load(from: defaults).parakeet == .v3)
@@ -97,7 +123,7 @@ struct ModelMigrationTests {
     func runOnNewInstall() {
         let defaults = makeDefaults()
         #expect(!ModelMigrations.isExistingInstall(defaults))
-        let outcome = ModelMigrations.run(on: defaults, choices: choices(.v3, .base), isExistingInstall: false)
+        let outcome = runMigrations(on: defaults, choices: choices(.v3, .base), isExistingInstall: false)
         #expect(outcome.choices.parakeet == .v3) // untouched: a new install's v3 would be a choice
         #expect(outcome.applied.isEmpty)
         #expect(defaults.integer(forKey: ModelMigrations.lastAppliedKey) == ModelMigrations.latestStepID)
@@ -108,7 +134,7 @@ struct ModelMigrationTests {
     func runOnUltraInstall() {
         let defaults = makeDefaults()
         defaults.set("ultra", forKey: ParakeetVariant.defaultsKey)
-        let outcome = ModelMigrations.run(on: defaults, choices: choices(.ultra, .largev3Turbo),
+        let outcome = runMigrations(on: defaults, choices: choices(.ultra, .largev3Turbo),
                                           isExistingInstall: ModelMigrations.isExistingInstall(defaults))
         #expect(outcome.applied.isEmpty)
         #expect(outcome.pending.isEmpty)
@@ -120,7 +146,7 @@ struct ModelMigrationTests {
         defaults.set("v3", forKey: ParakeetVariant.defaultsKey)
 
         // Launch 1: step 1 moves v3 → Ultra.
-        var outcome = ModelMigrations.run(on: defaults, choices: choices(.v3, .base), isExistingInstall: true)
+        var outcome = runMigrations(on: defaults, choices: choices(.v3, .base), isExistingInstall: true)
         #expect(outcome.choices.parakeet == .ultra)
 
         // The user deliberately applies v3 again (AppState clears the engine's pending move).
@@ -130,7 +156,7 @@ struct ModelMigrationTests {
         defaults.set("v3", forKey: ParakeetVariant.defaultsKey)
 
         // Launch 2: nothing happens.
-        outcome = ModelMigrations.run(on: defaults, choices: choices(.v3, .base), isExistingInstall: true)
+        outcome = runMigrations(on: defaults, choices: choices(.v3, .base), isExistingInstall: true)
         #expect(outcome.choices.parakeet == .v3)
         #expect(outcome.applied.isEmpty)
         #expect(outcome.pending.isEmpty)
@@ -154,7 +180,7 @@ struct ModelMigrationTests {
     func obsoleteReplaced(old: WhisperModelSize, replacement: WhisperModelSize) {
         let defaults = makeDefaults()
         defaults.set(ModelMigrations.latestStepID, forKey: ModelMigrations.lastAppliedKey) // steps all done
-        let outcome = ModelMigrations.run(on: defaults, choices: choices(.ultra, old), isExistingInstall: true)
+        let outcome = runMigrations(on: defaults, choices: choices(.ultra, old), isExistingInstall: true)
         #expect(outcome.choices.whisper == replacement)
         #expect(outcome.pending.whisper == old)
         #expect(PendingModelMoves.load(from: defaults).whisper == old)
@@ -162,7 +188,7 @@ struct ModelMigrationTests {
 
     @Test("0.0.5 already rewrote Medium to Large v3 Turbo: not replaced again")
     func mediumAlreadyRewritten() {
-        let outcome = ModelMigrations.run(on: makeDefaults(), choices: choices(.ultra, .largev3Turbo), isExistingInstall: true)
+        let outcome = runMigrations(on: makeDefaults(), choices: choices(.ultra, .largev3Turbo), isExistingInstall: true)
         #expect(outcome.choices.whisper == .largev3Turbo)
         #expect(outcome.pending.whisper == nil)
     }

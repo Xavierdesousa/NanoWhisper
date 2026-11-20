@@ -241,6 +241,9 @@ struct ModelStoreTests {
         }
         try makeFolder("parakeet-tdt-0.6b-v3-coreml", in: store.fluidAudioDirectory)
         let medium = try makeFolder("openai_whisper-medium", in: store.whisperKitDirectory)
+        // The lock file exists (as it does once any process used it), so the locked path runs.
+        let lockPath = store.fluidAudioDirectory.appendingPathComponent(ModelStore.lockFileName).path
+        #expect(fm.createFile(atPath: lockPath, contents: nil))
         // Read-only parent: the Parakeet removal fails.
         try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: store.fluidAudioDirectory.path)
         let report = store.removeObsoleteModels(keeping: [], includeWhisperCache: true)

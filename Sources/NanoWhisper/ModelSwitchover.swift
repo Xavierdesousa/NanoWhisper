@@ -69,6 +69,7 @@ enum ModelSwitchover {
                 _ = onReady(loaded, selected)
                 return
             }
+            try Task.checkCancellation()
             guard onReady(first, previous) else { return }
             onUpgradeStarted(previous, selected)
             do {

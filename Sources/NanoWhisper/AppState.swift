@@ -72,6 +72,8 @@ class AppState: ObservableObject {
         case whisper(WhisperEngine)
     }
     private var pendingEngine: PendingEngine?
+    /// The obsolete-model cleanup waits for recordings and transcriptions in flight.
+    private var obsoleteModelCleanupDeferred = false
 
     /// File operations on the downloaded models (shared with `setupManager`).
     var modelStore: ModelStore { setupManager.store }
@@ -234,17 +236,19 @@ class AppState: ObservableObject {
             on: .standard,
             choices: ModelChoices(parakeet: storedParakeet, whisper: (storedWhisper ?? WhisperSettings()).modelSize),
             isExistingInstall: isExistingInstall
-        )
+        ) { choices in
+            // Written by the property observers, before the step is recorded as applied.
+            parakeetVariant = choices.parakeet
+            if var settings = storedWhisper {
+                // Only the size changes; language and vocabulary hint are kept.
+                settings.modelSize = choices.whisper
+                whisperSettings = settings
+            } else if choices.whisper != whisperSettings.modelSize {
+                whisperSettings.modelSize = choices.whisper
+            }
+        }
         for move in migration.applied {
             Self.logger.info("Model migration: \(move.from.displayName, privacy: .public) → \(move.to.displayName, privacy: .public)")
-        }
-        parakeetVariant = migration.choices.parakeet
-        if var settings = storedWhisper {
-            // Only the size changes; language and vocabulary hint are kept.
-            settings.modelSize = migration.choices.whisper
-            whisperSettings = settings
-        } else if migration.choices.whisper != whisperSettings.modelSize {
-            whisperSettings.modelSize = migration.choices.whisper
         }
         pendingModelMoves = migration.pending
 
@@ -408,6 +412,13 @@ class AppState: ObservableObject {
     /// Whisper cache (~/Documents) is touched only when the user is on Whisper.
     private func removeObsoleteModelsInBackground() {
         guard isEngineReady else { return }
+        // A recording or queued transcription may still hold the previous engine (whose model
+        // may be the obsolete one): wait until they are done.
+        guard !isRecording, transcriber.pendingTranscriptions == 0 else {
+            obsoleteModelCleanupDeferred = true
+            return
+        }
+        obsoleteModelCleanupDeferred = false
         let keep = modelFoldersInUse.union(modelFoldersOfOtherFlavor)
         let includeWhisper = selectedModelType == .whisper
         let store = modelStore
@@ -525,6 +536,9 @@ class AppState: ObservableObject {
             showFinalLiveText(result.text, for: live)
             isTranscribing = false
             recordingOverlay.dismiss()
+            if obsoleteModelCleanupDeferred {
+                removeObsoleteModelsInBackground()
+            }
 
             switch DictationOutcome.resolve(
                 destination: destination, text: result.text, failure: result.failure,

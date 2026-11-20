@@ -219,15 +219,28 @@ enum ModelMigrations {
     }
 
     /// Run the pending steps against the persisted state and persist the result.
-    /// - Parameter isExistingInstall: from `isExistingInstall(_:)`, read before launch writes.
-    ///   A new install starts at the latest step.
-    static func run(on defaults: UserDefaults, choices: ModelChoices, isExistingInstall: Bool) -> Outcome {
+    ///
+    /// Persisted in a recoverable order: the fallback models first, then the new choices
+    /// (`persistChoices`), then the last step applied. If the app stops in between, the next
+    /// launch runs the step again; a choice already moved is a no-op and the recorded
+    /// fallback is kept.
+    /// - Parameters:
+    ///   - isExistingInstall: from `isExistingInstall(_:)`, read before launch writes. A new
+    ///     install starts at the latest step.
+    ///   - persistChoices: stores the resulting choices (the app writes its settings here).
+    static func run(
+        on defaults: UserDefaults,
+        choices: ModelChoices,
+        isExistingInstall: Bool,
+        persistChoices: (ModelChoices) -> Void
+    ) -> Outcome {
         let stored = defaults.object(forKey: lastAppliedKey) as? Int
         let lastApplied = stored ?? (isExistingInstall ? 0 : latestStepID)
         var outcome = apply(after: lastApplied, choices: choices, pending: PendingModelMoves.load(from: defaults))
         ObsoleteModels.replace(in: &outcome)
-        defaults.set(outcome.lastApplied, forKey: lastAppliedKey)
         outcome.pending.save(to: defaults)
+        persistChoices(outcome.choices)
+        defaults.set(outcome.lastApplied, forKey: lastAppliedKey)
         return outcome
     }
 }

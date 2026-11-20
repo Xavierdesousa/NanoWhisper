@@ -68,6 +68,8 @@ table:
   pending steps run in order at launch (`ModelMigrations.run(on:choices:isExistingInstall:)`). A
   new install (no `onboardingComplete`, `selectedModelType`, `whisperSettings` or
   `parakeetVariant` key, read before launch writes anything) starts at the latest step.
+  Persisted in a recoverable order: fallback (`pendingModelMoves`), then the choices, then
+  `modelMigrationStep`; a stop in between re-runs the step, which is then a no-op.
 - **Going back is respected until the next step.** A user moved by step 1 who applies v3 again in
   Settings stays on v3 (`AppState.applyEngine` clears that engine's pending move; step 1 never
   runs again). A later step with a Parakeet target moves them like everyone else. Tested in
@@ -164,7 +166,9 @@ All file operations go through `ModelStore` (roots injectable: `ModelStore(root:
   Large v3) that are not in use. In use = selected model + loaded models + previous models of
   pending moves (`ModelCleanupPolicy.inUse`), so an obsolete model being replaced is deleted only
   once its replacement is loaded. The Whisper cache is included only when Whisper is the selected
-  engine. Never deletes a selectable model (v3 stays after the move to Ultra).
+  engine. Never deletes a selectable model (v3 stays after the move to Ultra). Deferred while a
+  recording or transcription is in flight (it may still hold the previous engine); runs when
+  that transcription finishes.
 - **Manual:** Settings → Downloaded Models → "Remove Unused Models…" (see
   [onboarding-and-settings.md](onboarding-and-settings.md)).
 - **Lock:** every removal holds the same `flock` as the legacy migration
