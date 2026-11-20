@@ -325,9 +325,11 @@ final class SettingsTabViewController: NSTabViewController {
         let deadline = DispatchTime.now() + Self.resizeDuration + Self.fadeInDuration + 0.3
         DispatchQueue.main.asyncAfter(deadline: deadline) { [weak self, weak paneView] in
             MainActor.assumeIsolated {
+                // Only for the latest resize: an older one's pane may be hidden again by a
+                // newer switch, which shows it when it ends.
+                guard let self, self.resizeGeneration == generation else { return }
                 // Also if the fade-in started but did not run (an interrupted animation).
                 if let paneView, paneView.alphaValue < 1 { paneView.alphaValue = 1 }
-                guard let self, self.resizeGeneration == generation else { return }
                 self.animationTarget = nil
                 self.revealedPane?.alphaValue = 1
                 self.revealedPane = nil
