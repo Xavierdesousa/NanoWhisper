@@ -144,7 +144,11 @@ final class RecordingWriterTests {
         #expect(AudioRecorder.level(of: [Float](repeating: 0, count: 100)) == 0)
         #expect(AudioRecorder.level(of: [Float](repeating: 1, count: 100)) == 1)
         // 0.01 RMS → boosted 0.25 → sqrt 0.5.
-        #expect(abs(AudioRecorder.level(of: [Float](repeating: 0.01, count: 100)) - 0.5) < 0.0001)
+        // RMS 0.01 is −40 dBFS: (−40 + 55) / 40.
+        #expect(abs(AudioRecorder.level(of: [Float](repeating: 0.01, count: 100)) - 0.375) < 0.0001)
+        // −15 dBFS and louder is the top.
+        #expect(AudioRecorder.level(of: [Float](repeating: 0.2, count: 100)) == 1)
+        #expect(AudioRecorder.level(of: [Float](repeating: 0.0005, count: 100)) == 0)
     }
 }
 

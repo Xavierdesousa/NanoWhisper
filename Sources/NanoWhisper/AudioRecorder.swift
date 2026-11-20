@@ -190,11 +190,24 @@ final class AudioRecorder {
                   let channelData = converted.floatChannelData?[0] else { return }
             let samples = Array(UnsafeBufferPointer(start: channelData, count: Int(converted.frameLength)))
             onSamples?(samples)
-            levels.send(level(of: samples))
+            // One level per 20 ms (320 samples at 16 kHz), not one per ~85 ms tap buffer, so
+            // the waveform follows the voice instead of jumping in blocks.
+            var start = samples.startIndex
+            while start < samples.endIndex {
+                let end = min(start + levelChunk, samples.endIndex)
+                levels.send(level(of: Array(samples[start..<end])))
+                start = end
+            }
         }
     }
 
-    /// RMS, boosted and square-rooted so quiet speech is still visible in the waveform.
+    /// Samples per published level: 20 ms at 16 kHz.
+    nonisolated static let levelChunk = 320
+
+    /// Loudness on a decibel scale: −55 dBFS (and below) is 0, −15 dBFS (and above) is 1.
+    /// Speech spans most of the range (soft −40 dBFS ≈ 0.4, loud speech reaches the top), so
+    /// the waveform shows its dynamics; the former `sqrt(min(25 × RMS, 1))` saturated at
+    /// −28 dBFS and drew most speech as full bars.
     nonisolated static func level(of samples: [Float]) -> Float {
         guard !samples.isEmpty else { return 0 }
         var sum: Float = 0
@@ -202,7 +215,9 @@ final class AudioRecorder {
             sum += sample * sample
         }
         let rms = (sum / Float(samples.count)).squareRoot()
-        return min(rms * 25.0, 1.0).squareRoot()
+        guard rms > 0 else { return 0 }
+        let decibels = 20 * log10(rms)
+        return min(max((decibels + 55) / 40, 0), 1)
     }
 
     enum RecorderError: Error, LocalizedError {

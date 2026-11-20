@@ -162,7 +162,7 @@ class AppState: ObservableObject {
         // transcribe what was recorded rather than keep showing a recording that hears nothing.
         audioRecorder.onInputLost = { [weak self] in
             guard let self, self.isRecording else { return }
-            self.stopRecording()
+            self.stopRecording(keepingTail: false) // the input is gone: nothing more to hear
             self.lastError = "Recording stopped: the microphone changed"
         }
 
@@ -392,7 +392,7 @@ class AppState: ObservableObject {
     /// Install a pending upgraded engine unless a recording is in progress (that recording
     /// keeps the engine it started with; `stopRecording` calls this once it is submitted).
     private func installPendingEngineIfIdle() {
-        guard !isRecording, let pending = pendingEngine else { return }
+        guard !isRecording, !isFinishingRecording, let pending = pendingEngine else { return }
         pendingEngine = nil
         switch pending {
         case .parakeet(let prepared):
@@ -430,7 +430,7 @@ class AppState: ObservableObject {
         guard isEngineReady else { return }
         // A recording or queued transcription may still hold the previous engine (whose model
         // may be the obsolete one): wait until they are done.
-        guard !isRecording, transcriber.pendingTranscriptions == 0 else {
+        guard !isRecording, !isFinishingRecording, transcriber.pendingTranscriptions == 0 else {
             obsoleteModelCleanupDeferred = true
             return
         }
@@ -479,6 +479,9 @@ class AppState: ObservableObject {
     }
 
     func toggleRecording() {
+        // The few hundred ms after a stop, while the last words are still being captured: a
+        // press does nothing (the microphone is still in use by the recording being stopped).
+        if isFinishingRecording { return }
         if isRecording {
             stopRecording()
         } else {
@@ -491,6 +494,9 @@ class AppState: ObservableObject {
     }
 
     func startRecording() {
+        // Never while the previous recording is still capturing its tail: it owns the microphone
+        // and its delayed finish would stop the new one (every start path goes through here).
+        guard !isRecording, !isFinishingRecording else { return }
         lastError = nil
 
         // The session spans this recording and its transcription. Media detection runs in
@@ -516,19 +522,52 @@ class AppState: ObservableObject {
         }
     }
 
-    func stopRecording() {
-        sound.playStop()
+    /// Audio still recorded after the user stops, so a last word spoken while pressing the
+    /// shortcut is not cut off (2026-11-20: users tend to stop a little early).
+    static let recordingTail: Duration = .milliseconds(300)
+    /// True between a stop and the moment the microphone actually stops (`recordingTail`).
+    private(set) var isFinishingRecording = false
+
+    /// Stop the dictation: the overlay switches to transcribing at once, the microphone keeps
+    /// recording for `recordingTail` (unless `keepingTail` is false), then the recording is
+    /// closed and transcribed.
+    func stopRecording(keepingTail: Bool = true) {
+        guard isRecording else { return }
         isRecording = false
-        // After the engine for this recording is captured below: an upgraded engine that
-        // arrived during the recording is installed for the next one.
-        defer { installPendingEngineIfIdle() }
-        let mediaSession = recordingMediaSession
-        recordingMediaSession = nil
+        isFinishingRecording = true
         // Abandon the live preview's decode in flight; its text stays until the final text.
         let live = liveSession
         liveSession = nil
         live?.stop()
         recordingOverlay.transitionToLoading()
+        // Captured at the stop, not after the tail: the recording keeps the destination and the
+        // engine it had when the user stopped, even if the settings change during the tail.
+        let destination = recordingDestination
+        recordingDestination = .paste
+        let configuration = transcriber.currentConfiguration
+        guard keepingTail else {
+            finishStoppingRecording(live: live, destination: destination, configuration: configuration)
+            return
+        }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.recordingTail)
+            self?.finishStoppingRecording(live: live, destination: destination, configuration: configuration)
+        }
+    }
+
+    private func finishStoppingRecording(
+        live: LiveTranscriptionSession?,
+        destination: DictationDestination,
+        configuration: Transcriber.Configuration
+    ) {
+        isFinishingRecording = false
+        // After the tail, so the stop sound is not recorded into it.
+        sound.playStop()
+        // After the engine for this recording is captured below: an upgraded engine that
+        // arrived during the recording is installed for the next one.
+        defer { installPendingEngineIfIdle() }
+        let mediaSession = recordingMediaSession
+        recordingMediaSession = nil
         guard let audioURL = audioRecorder.stopRecording() else {
             if let mediaSession { mediaController.endSession(mediaSession) }
             lastError = "No audio recorded"
@@ -537,10 +576,6 @@ class AppState: ObservableObject {
         }
 
         isTranscribing = true
-        let destination = recordingDestination
-        recordingDestination = .paste
-        // Captured now, so the recording keeps its engine even if an upgrade installs next.
-        let configuration = transcriber.currentConfiguration
 
         Task {
             defer {
@@ -611,7 +646,8 @@ class AppState: ObservableObject {
         let recovery = InterruptedRecordingRecovery(.init(
             isIdle: { [weak self] in
                 guard let self else { return false }
-                return self.isEngineReady && !self.isRecording && !self.isTranscribing
+                return self.isEngineReady && !self.isRecording && !self.isFinishingRecording
+                    && !self.isTranscribing
                     && self.transcriber.pendingTranscriptions == 0
             },
             historyAvailable: { [weak self] in

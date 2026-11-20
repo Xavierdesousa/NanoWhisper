@@ -36,6 +36,14 @@ struct Shortcut: Equatable {
 
     var displayString: String { keys.map(\.glyph).joined() }
 
+    /// As macOS writes key equivalents in menus: modifier glyphs together, then a space before
+    /// a named key ("⌃⌥ Space", "⌥⌘ →", "⌘ ,").
+    var menuEquivalentString: String {
+        let glyphs = keys.map(\.glyph)
+        guard let key = glyphs.last else { return "" }
+        return glyphs.dropLast().joined() + " " + key
+    }
+
     /// One entry per key, in the macOS order (⌃ ⌥ ⇧ ⌘, then the key), as `ShortcutKeysView`
     /// draws them: one box per key.
     var keys: [ShortcutKey] {

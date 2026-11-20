@@ -136,7 +136,9 @@ class RecordingOverlayController {
             win.isOpaque = false
             win.backgroundColor = .clear
             win.level = NSWindow.Level(Int(CGShieldingWindowLevel()))
-            win.hasShadow = true
+            // No window shadow: on this borderless, rounded panel macOS draws it as a dark
+            // 1 px outline around the shape (2026-11-20 feedback: "a black pixel around").
+            win.hasShadow = false
             win.hidesOnDeactivate = false
             win.ignoresMouseEvents = false
             win.isMovableByWindowBackground = true

@@ -13,16 +13,19 @@ enum OverlayPalette {
               opacity: opacity)
     }
 
-    /// The surface: the production overlay's neutral translucent black (black at 75 %, no
-    /// blur), so the desktop shows through darkened. 2026-11-20: the maintainer preferred it to
-    /// the icon's violet. Text contrast is checked on the worst wallpaper: `OverlayContrastTests`.
+    /// The surface: near-opaque black (90 %, no blur), barely showing the desktop. 2026-11-20:
+    /// the maintainer preferred a neutral black to the icon's violet, then asked for it darker.
+    /// Text contrast is checked on the worst wallpaper: `OverlayContrastTests`.
     static let surfaceColor: UInt32 = 0x000000
-    static let surfaceOpacity = 0.75
+    static let surfaceOpacity = 0.9
     static let surface = rgb(surfaceColor, surfaceOpacity)
     /// Surface with Reduce Transparency: an opaque near-black.
     static let solidSurface = rgb(0x1C1C1E)
-    /// The rim: a hairline, as on the production overlay.
-    static let rim = Color.white.opacity(0.08)
+    /// A soft violet glow inside the edge, fading to the black surface toward the middle
+    /// (2026-11-20: "not a border, a violet shadow from the outside in, very sober").
+    static let innerGlow = rgb(0xA947FF)
+    static let innerGlowOpacity = 0.32
+    static let innerGlowRadius: CGFloat = 6
     /// nwOverlayText: stable text.
     static let textOpacity = 0.94
     static let text = Color.white.opacity(textOpacity)
@@ -51,6 +54,8 @@ enum OverlayPalette {
         startPoint: .top, endPoint: .bottom)
     static let capsuleEdge = rgb(0xFFEBFF, 0.55)
     static let capsuleGlow = rgb(0xAA3CFF)
+    /// The bright inner halo of the pulse.
+    static let capsulePulse = rgb(0xD9A6FF)
     /// The capsule while transcribing: lighter, no glow.
     static let capsuleTranscribing = LinearGradient(
         colors: [rgb(0xEBD2FE), rgb(0xDB98FE)], startPoint: .top, endPoint: .bottom)
@@ -109,6 +114,7 @@ struct RecordingOverlayView: View {
         .frame(minWidth: OverlayMetrics.compactWidth)
         .background(OverlayBackground(cornerRadius: OverlayMetrics.cornerRadius))
         .clipShape(RoundedRectangle(cornerRadius: OverlayMetrics.cornerRadius, style: .circular))
+
         .environment(\.colorScheme, .dark)
         // Appear: scale 0.96 → 1 from the pinned edge (the window fades in meanwhile).
         .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.85)) { content in
@@ -186,13 +192,12 @@ struct RecordingOverlayView: View {
                 .opacity(showsStop ? 0 : 1)
 
             Button(action: onStop) {
-                Circle()
-                    .fill(OverlayPalette.stop)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                            .fill(Color.white)
-                            .frame(width: 7, height: 7)
-                    )
+                // The symbol keeps its square centred in the circle at any position (a circle
+                // with an overlaid 7 pt square rendered off by a pixel on half-point origins).
+                Image(systemName: "stop.circle.fill")
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(Color.white, OverlayPalette.stop)
+                    .font(.system(size: 20))
                     .frame(width: 20, height: 20)
                     .contentShape(Circle())
             }
@@ -200,6 +205,8 @@ struct RecordingOverlayView: View {
             .accessibilityLabel("Stop recording")
             .opacity(showsStop ? 1 : 0)
             .allowsHitTesting(showsStop)
+            // Centred under the timer it replaces, not pushed against the edge.
+            .frame(width: OverlayMetrics.trailingSlotWidth)
         }
         .frame(minWidth: OverlayMetrics.trailingSlotWidth, alignment: .trailing)
         .animation(.easeOut(duration: 0.15), value: showsStop)
@@ -216,8 +223,10 @@ private struct OverlayBackground: View {
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .circular)
-        shape.fill(reduceTransparency ? OverlayPalette.solidSurface : OverlayPalette.surface)
-            .overlay(shape.strokeBorder(OverlayPalette.rim, lineWidth: 0.5))
+        // An inner shadow: violet at the edge, fading to the black surface within ~10 pt.
+        shape.fill((reduceTransparency ? OverlayPalette.solidSurface : OverlayPalette.surface)
+            .shadow(.inner(color: OverlayPalette.innerGlow.opacity(OverlayPalette.innerGlowOpacity),
+                           radius: OverlayPalette.innerGlowRadius)))
     }
 }
 
@@ -251,10 +260,14 @@ struct RecordIndicator: View {
         // (`.animation(_:value:)`), it also picked up the indicator's position when `onAppear`
         // ran while the overlay was being laid out (a recording started from a SwiftUI button,
         // as in onboarding's Try-it), and the indicator slid back and forth.
-        .animation(breathes ? .easeInOut(duration: 1.2).repeatForever(autoreverses: true) : nil) { content in
+        .animation(breathes ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true) : nil) { content in
             content
-                .shadow(color: OverlayPalette.capsuleGlow.opacity(isTranscribing ? 0 : (glow ? 0.85 : 0.55)),
-                        radius: glow ? 4.5 : 2)
+                .brightness(glow && breathes ? 0.18 : 0)
+                .scaleEffect(glow && breathes ? 1.18 : 1)
+                .shadow(color: OverlayPalette.capsulePulse.opacity(isTranscribing ? 0 : (glow ? 1 : 0.25)),
+                        radius: glow ? 7 : 1)
+                .shadow(color: OverlayPalette.capsuleGlow.opacity(isTranscribing ? 0 : (glow ? 0.9 : 0)),
+                        radius: glow ? 14 : 2)
         }
         .onAppear { breathing = true }
         .accessibilityHidden(true)
