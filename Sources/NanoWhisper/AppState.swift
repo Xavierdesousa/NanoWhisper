@@ -494,6 +494,9 @@ class AppState: ObservableObject {
     }
 
     func startRecording() {
+        // Never while the previous recording is still capturing its tail: it owns the microphone
+        // and its delayed finish would stop the new one (every start path goes through here).
+        guard !isRecording, !isFinishingRecording else { return }
         lastError = nil
 
         // The session spans this recording and its transcription. Media detection runs in
@@ -537,17 +540,26 @@ class AppState: ObservableObject {
         liveSession = nil
         live?.stop()
         recordingOverlay.transitionToLoading()
+        // Captured at the stop, not after the tail: the recording keeps the destination and the
+        // engine it had when the user stopped, even if the settings change during the tail.
+        let destination = recordingDestination
+        recordingDestination = .paste
+        let configuration = transcriber.currentConfiguration
         guard keepingTail else {
-            finishStoppingRecording(live: live)
+            finishStoppingRecording(live: live, destination: destination, configuration: configuration)
             return
         }
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: Self.recordingTail)
-            self?.finishStoppingRecording(live: live)
+            self?.finishStoppingRecording(live: live, destination: destination, configuration: configuration)
         }
     }
 
-    private func finishStoppingRecording(live: LiveTranscriptionSession?) {
+    private func finishStoppingRecording(
+        live: LiveTranscriptionSession?,
+        destination: DictationDestination,
+        configuration: Transcriber.Configuration
+    ) {
         isFinishingRecording = false
         // After the tail, so the stop sound is not recorded into it.
         sound.playStop()
@@ -564,10 +576,6 @@ class AppState: ObservableObject {
         }
 
         isTranscribing = true
-        let destination = recordingDestination
-        recordingDestination = .paste
-        // Captured now, so the recording keeps its engine even if an upgrade installs next.
-        let configuration = transcriber.currentConfiguration
 
         Task {
             defer {
