@@ -298,8 +298,7 @@ struct OverlayWindowTests {
                 let rep = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
                 hosting.cacheDisplay(in: hosting.bounds, to: rep)
                 let suffix = appearance == .aqua ? "light" : "dark"
-                try rep.representation(using: .png, properties: [:])?
-                    .write(to: directory.appendingPathComponent("picker-\(position.rawValue)-\(suffix).png"))
+                try OverlayCapture.write(rep, "picker-\(position.rawValue)-\(suffix)", in: directory)
             }
         }
     }
@@ -530,7 +529,7 @@ enum OverlayCapture {
                 blue: CGFloat(hex & 0xFF) / 255, alpha: alpha)
     }
 
-    private static func write(_ rep: NSBitmapImageRep, _ name: String, in directory: URL) throws {
+    static func write(_ rep: NSBitmapImageRep, _ name: String, in directory: URL) throws {
         let data = try #require(rep.representation(using: .png, properties: [:]))
         try data.write(to: directory.appendingPathComponent("\(name).png"))
     }

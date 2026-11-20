@@ -5,7 +5,7 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-20
 
-- **Recording overlay redesign, "Voice note", and the recorder position** (`feat/voice-note-overlay`):
+- **Recording overlay redesign, "Voice note", and the recorder position** (`feat/voice-note-overlay`, PR #24):
   the overlay now follows the approved design (capsule, 26-bar scrolling waveform at 50 ms,
   card for live text with a top fade and a caret, result states with a VoiceOver announcement,
   Reduce Motion and Reduce Transparency fallbacks). New setting `RecorderPosition`

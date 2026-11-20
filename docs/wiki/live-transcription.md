@@ -1,7 +1,7 @@
 # Live transcription (beta)
 
-Last verified: 2026-11-20, against `fix/overlay-and-debug-marker` (feature from PR #16, debug-only
-since PR #18).
+Last verified: 2026-11-20, against `feat/voice-note-overlay` (feature from PR #16, debug-only
+since PR #18, overlay redesigned in that branch).
 
 ## Debug build only
 

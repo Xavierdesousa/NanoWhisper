@@ -1,6 +1,7 @@
 # Architecture and recording pipeline
 
-Last verified against the code: 2026-11-20 (`chore/cleanup`, on top of `main` at 935e191).
+Last verified against the code: 2026-11-20 (`chore/cleanup`, on top of `main` at 935e191); the
+Recording overlay section on 2026-11-20 against `feat/voice-note-overlay` (on `main` at 43c1f2d).
 
 ## What it is
 
@@ -64,7 +65,11 @@ being transcribed. Each keeps its own media session and destination.
 
 Design: "Voice note" (proposal 1) from the maintainer's design canvas, page "Recording overlay"
 (developer notes board for sizes, colours and motion). Implemented in `feat/voice-note-overlay`
-(2026-11-20).
+(2026-11-20). What follows is what the code does; on screen only still captures of the real
+panel were checked. **Unverified on screen:** the HUD blur and the window shadow (not in
+captures), every animation (spring, breathing, glide, sweep, fades), and the Reduce Motion /
+Reduce Transparency fallbacks with the real system settings (captured only with the
+environment values forced in a test host).
 
 - **Files:** `RecordingOverlay.swift` (`RecordingOverlayController`, `RecordingOverlayViewModel`,
   `OverlayState`, `OverlayResult`), `RecordingOverlayView.swift` (views, `OverlayPalette`,
