@@ -36,6 +36,8 @@ class AutoUpdater: ObservableObject {
     @Published var isDownloading = false
     @Published var downloadProgress: Double = 0
     @Published var error: String?
+    /// When the last check reached GitHub (Settings: "Last checked …"). Not persisted.
+    @Published private(set) var lastCheckDate: Date?
 
     private var releaseAssetURL: URL?
     private var checkTimer: Timer?
@@ -107,6 +109,7 @@ class AutoUpdater: ObservableObject {
             if updateAvailable != newer {
                 updateAvailable = newer
             }
+            lastCheckDate = Date()
 
             if newer {
                 logger.info("Update available: \(remoteVersion) (current: \(self.currentVersion))")

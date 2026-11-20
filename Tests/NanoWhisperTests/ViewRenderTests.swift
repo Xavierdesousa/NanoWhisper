@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 import SwiftUI
 import Testing
 @testable import NanoWhisper
@@ -65,68 +66,202 @@ struct ViewRenderTests {
         ), height: 900), "onboarding-5-done-pending-full")
     }
 
-    // MARK: - Settings
+    // MARK: - Settings window (toolbar panes)
 
-    @Test("Settings in both engine modes")
-    func settings() throws {
-        let parakeet = Fixtures.parakeetUltra
-        var whisper = parakeet
-        whisper.modelType = .whisper
-        whisper.whisperSettings = WhisperSettings(modelSize: .small, language: nil, promptText: "")
-
-        for (name, applied) in [("parakeet", parakeet), ("whisper", whisper)] {
-            let context = Fixtures.context(
-                applied: applied, state: Fixtures.ready, microphone: .granted, accessibility: .denied
-            )
-            for (suffix, height) in [("", SettingsForm.size.height), ("-full", 1500.0)] {
-                try render(
-                    SettingsForm(
-                        context: context, draft: .constant(applied), autoUpdater: AutoUpdater.shared,
-                        debugMode: .constant(false), showOnboarding: {}
-                    )
-                    .frame(width: SettingsForm.size.width, height: height),
-                    "settings-\(name)\(suffix)"
-                )
-            }
+    @Test("Settings panes, light and dark")
+    func settingsPanes() throws {
+        for dark in [false, true] {
+            let suffix = dark ? "-dark" : ""
+            let base = SettingsFixture()
+            try renderSettings(.general, "settings-general\(suffix)", base, dark: dark)
+            try renderSettings(.engine, "settings-engine\(suffix)", base, dark: dark)
+            try renderSettings(.recorder, "settings-recorder-debug\(suffix)", base, dark: dark)
+            var permissions = base
+            permissions.microphone = .granted
+            permissions.accessibility = dark ? .granted : .denied
+            try renderSettings(.permissions, "settings-permissions\(suffix)", permissions, dark: dark)
+            var advanced = base
+            advanced.updates = dark ? Fixtures.updates(.available(version: "0.0.7")) : Fixtures.updates(.upToDate(lastChecked: Fixtures.checkDate))
+            try renderSettings(.advanced, "settings-advanced\(suffix)", advanced, dark: dark)
         }
-
-        var draft = parakeet
-        draft.parakeetVariant = .v3
-        try render(
-            SettingsForm(
-                context: Fixtures.context(applied: parakeet, state: Fixtures.ready),
-                draft: .constant(draft), autoUpdater: AutoUpdater.shared,
-                debugMode: .constant(false), showOnboarding: {}
-            )
-            .frame(width: SettingsForm.size.width, height: SettingsForm.size.height),
-            "settings-parakeet-pending-change"
-        )
     }
 
-    @Test("Settings: migration upgrade status and the Downloaded Models section")
-    func settingsModelStorage() throws {
+    @Test("Settings: Engine pane states, builds, update states")
+    func settingsStates() throws {
         let parakeet = Fixtures.parakeetUltra
-        func form(_ state: EngineState, height: CGFloat = 520) -> some View {
-            SettingsForm(
-                context: Fixtures.context(applied: parakeet, state: state), draft: .constant(parakeet),
-                autoUpdater: AutoUpdater.shared, debugMode: .constant(false), showOnboarding: {}
-            )
-            .frame(width: SettingsForm.size.width, height: height)
-        }
-        var upgrading = Fixtures.ready
-        upgrading.upgrade = ModelUpgrade(from: .parakeet(.v3), to: .parakeet(.ultra), status: .downloading(fraction: 0.42))
-        try render(form(upgrading), "settings-model-upgrading")
-        var deferred = Fixtures.ready
-        deferred.upgrade = ModelUpgrade(from: .parakeet(.v3), to: .parakeet(.ultra), status: .deferred)
-        try render(form(deferred), "settings-model-upgrade-deferred")
-        try render(form(Fixtures.ready, height: 760), "settings-model-storage-enabled")
+        var whisperTurbo = parakeet
+        whisperTurbo.modelType = .whisper
+        whisperTurbo.whisperSettings = WhisperSettings(modelSize: .largev3Turbo, language: nil, promptText: "")
 
-        try render(UnusedModelsSheet(preview: Fixtures.samplePreview, onCancel: {}, onRemove: {}), "settings-remove-unused-sheet")
+        for dark in [false, true] {
+            let suffix = dark ? "-dark" : ""
+            var upgrading = SettingsFixture()
+            upgrading.state.upgrade = ModelUpgrade(from: .parakeet(.v3), to: .parakeet(.ultra), status: .downloading(fraction: 0.42))
+            try renderSettings(.engine, "settings-engine-upgrading\(suffix)", upgrading, dark: dark)
+        }
+
+        var downloading = SettingsFixture()
+        downloading.state = EngineState(isSettingUp: true, progressText: "Downloading model (42%)...")
+        try renderSettings(.engine, "settings-engine-downloading", downloading)
+
+        var pending = SettingsFixture()
+        pending.draft = whisperTurbo
+        try renderSettings(.engine, "settings-engine-pending", pending)
+        try renderSettings(.engine, "settings-engine-pending-dark", pending, dark: true)
+        var pendingDownload = SettingsFixture()
+        pendingDownload.draft = parakeet
+        pendingDownload.draft?.parakeetVariant = .v3
+        try renderSettings(.engine, "settings-engine-pending-download", pendingDownload)
+
+        var failed = SettingsFixture()
+        failed.state = EngineState(error: "Model setup failed. Please check your internet connection and try again.")
+        try renderSettings(.engine, "settings-engine-failed", failed)
+
+        var startFailed = SettingsFixture()
+        startFailed.state = EngineState(setupComplete: true, initializationError: AppState.engineStartFailedMessage)
+        try renderSettings(.engine, "settings-engine-start-failed", startFailed)
+
+        var notLoaded = SettingsFixture()
+        notLoaded.state = EngineState()
+        try renderSettings(.engine, "settings-engine-not-downloaded", notLoaded)
+
+        var whisper = SettingsFixture(applied: whisperTurbo)
+        try renderSettings(.engine, "settings-engine-whisper", whisper)
+        whisper.applied.whisperSettings.language = "fr"
+        whisper.applied.whisperSettings.promptText = "NanoWhisper, Parakeet"
+        whisper.draft = whisper.applied
+        try renderSettings(.engine, "settings-engine-whisper-french", whisper, dark: true)
+
+        var revealed = SettingsFixture()
+        revealed.showsModelPicker = true
+        try renderSettings(.engine, "settings-engine-version-revealed", revealed)
+
+        var deferred = SettingsFixture()
+        deferred.state.upgrade = ModelUpgrade(from: .parakeet(.v3), to: .parakeet(.ultra), status: .deferred)
+        try renderSettings(.engine, "settings-engine-upgrade-deferred", deferred)
+
+        var debug = SettingsFixture()
+        debug.updates = Fixtures.updates(.disabled, appName: "NanoWhisper Debug")
+        try renderSettings(.advanced, "settings-advanced-debug", debug)
+        var updating = SettingsFixture()
+        updating.updates = Fixtures.updates(.downloading(version: "0.0.7", progress: 0.3))
+        try renderSettings(.advanced, "settings-advanced-downloading", updating)
+        var checking = SettingsFixture()
+        checking.updates = Fixtures.updates(.checking)
+        checking.updates.error = nil
+        try renderSettings(.advanced, "settings-advanced-checking", checking)
+
+        var production = SettingsFixture()
+        production.offersLiveTranscription = false
+        try renderSettings(.general, "settings-general-production-no-recorder", production,
+                           panes: SettingsPane.visible(recorderHasContent: RecorderPane.hasContent(offersLiveTranscription: false)))
+
+        try renderSettings(.permissions, "settings-permissions-not-asked", SettingsFixture())
+        var historyOff = SettingsFixture()
+        historyOff.historyEnabled = false
+        try renderSettings(.general, "settings-general-history-off", historyOff)
+        var customShortcut = SettingsFixture()
+        customShortcut.shortcut = Shortcut(keyCode: UInt32(kVK_ANSI_Y), modifiers: UInt32(optionKey | cmdKey))
+        try renderSettings(.general, "settings-general-custom-shortcut", customShortcut, dark: true)
+        for (suffix, appearance) in [("", NSAppearance.Name.aqua), ("-dark", .darkAqua)] {
+            try render(SettingsPaneForm {
+                Section("Shortcut") {
+                    ShortcutRecorderRow(shortcut: Fixtures.productionShortcut, onChange: { _ in }, isRecording: true)
+                }
+            }, "settings-general-shortcut-recording\(suffix)", appearance: appearance)
+        }
+    }
+
+    @Test("Remove Unused Models sheet, light and dark")
+    func unusedModelsSheet() throws {
+        for (suffix, appearance) in [("", NSAppearance.Name.aqua), ("-dark", .darkAqua)] {
+            try render(UnusedModelsSheet(preview: Fixtures.samplePreview, onCancel: {}, onRemove: {}),
+                       "settings-remove-unused-sheet\(suffix)", appearance: appearance)
+        }
         var denied = Fixtures.samplePreview
         denied.removable = []
         denied.keptForOtherFlavor = []
         denied.whisperAccessDenied = true
         try render(UnusedModelsSheet(preview: denied, onCancel: {}, onRemove: {}), "settings-remove-unused-sheet-empty-denied")
+    }
+
+    // MARK: - Menu bar menu
+
+    @Test("Menu bar menu in every state")
+    func menuStates() throws {
+        let states = MenuFixtures.all
+        for (name, state) in states {
+            try render(MenuPreview(lines: MenuContent.lines(for: state), shortcut: MenuFixtures.shortcut), "menu-\(name)")
+        }
+        for name in ["ready", "setup-unfinished-downloading", "upgrade-downloading", "engine-failed"] {
+            let state = try #require(states.first { $0.0 == name }?.1)
+            try render(MenuPreview(lines: MenuContent.lines(for: state), shortcut: MenuFixtures.shortcut),
+                       "menu-\(name)-dark", appearance: .darkAqua)
+        }
+    }
+
+    @Test("Settings window: sized to the selected pane, follows its height, titled with its name")
+    func settingsWindowSizing() throws {
+        _ = NSApplication.shared
+        let suite = "nanowhisper.render.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = PaneHeightModel()
+        let tabs = SettingsWindowController.makeTabs(panes: [.general, .engine], selectedFrom: defaults) { pane in
+            pane == .general ? AnyView(ResizingPane(model: model)) : AnyView(SettingsPaneForm { Section("B") { Text("One row") } })
+        }
+        var selected: [SettingsPane] = []
+        tabs.onSelect = { selected.append($0) }
+        let window = SettingsWindowController.makeWindow(tabs: tabs)
+        defer { window.close() }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        let top = window.frame.maxY
+        let short = window.contentRect(forFrameRect: window.frame).height
+        #expect(window.title == "General")
+        #expect(abs(window.contentRect(forFrameRect: window.frame).width - SettingsPane.width) < 1)
+
+        model.isTall = true
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        let tall = window.contentRect(forFrameRect: window.frame).height
+        #expect(tall > short + 100, "the window follows the pane's content (\(short) → \(tall))")
+        #expect(abs(window.frame.maxY - top) < 1, "the top edge stays in place")
+
+        tabs.selectedTabViewItemIndex = 1
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        #expect(window.title == "Engine")
+        #expect(window.contentRect(forFrameRect: window.frame).height < tall - 100)
+        #expect(selected.last == .engine)
+    }
+
+    // MARK: - Settings helpers
+
+    /// The real Settings window (toolbar, title, size) around fixture panes, captured with its
+    /// title bar.
+    private func renderSettings(
+        _ pane: SettingsPane, _ name: String, _ fixture: SettingsFixture, dark: Bool = false,
+        panes: [SettingsPane] = SettingsPane.allCases
+    ) throws {
+        _ = NSApplication.shared
+        let suite = "nanowhisper.render.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(pane.rawValue, forKey: SettingsPane.defaultsKey)
+
+        let tabs = SettingsWindowController.makeTabs(panes: panes, selectedFrom: defaults) { fixture.view(for: $0) }
+        let window = SettingsWindowController.makeWindow(tabs: tabs)
+        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        if let selected = tabs.tabViewItems[tabs.selectedTabViewItemIndex].viewController {
+            selected.view.layoutSubtreeIfNeeded()
+            tabs.fitWindow(to: selected.view.fittingSize, animate: false)
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        let frameView = try #require(window.contentView?.superview)
+        frameView.layoutSubtreeIfNeeded()
+        let rep = try #require(frameView.bitmapImageRepForCachingDisplay(in: frameView.bounds))
+        frameView.cacheDisplay(in: frameView.bounds, to: rep)
+        try write(rep, name)
+        window.close()
     }
 
     // MARK: - Helpers
@@ -153,7 +288,7 @@ struct ViewRenderTests {
         )
     }
 
-    private func render<V: View>(_ view: V, _ name: String) throws {
+    private func render<V: View>(_ view: V, _ name: String, appearance: NSAppearance.Name = .aqua) throws {
         _ = NSApplication.shared
         let hosting = NSHostingView(rootView: view)
         let size = hosting.fittingSize
@@ -162,7 +297,7 @@ struct ViewRenderTests {
             styleMask: [.titled], backing: .buffered, defer: false
         )
         window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
+        window.appearance = NSAppearance(named: appearance)
         window.contentView = hosting
         hosting.frame = NSRect(origin: .zero, size: size)
         hosting.layoutSubtreeIfNeeded()
@@ -171,10 +306,14 @@ struct ViewRenderTests {
 
         let rep = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
         hosting.cacheDisplay(in: hosting.bounds, to: rep)
+        try write(rep, name)
+        window.close()
+    }
+
+    private func write(_ rep: NSBitmapImageRep, _ name: String) throws {
         let data = try #require(rep.representation(using: .png, properties: [:]))
         try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
         try data.write(to: outputDirectory.appendingPathComponent("\(name).png"))
-        window.close()
     }
 }
 
@@ -191,7 +330,9 @@ enum Fixtures {
         microphone: PermissionStatus = .notDetermined,
         accessibility: PermissionStatus = .notDetermined,
         liveTranscriptionEnabled: Binding<Bool> = .constant(false),
-        offersLiveTranscription: Bool = true
+        offersLiveTranscription: Bool = true,
+        shortcut: Shortcut = .default,
+        historyEnabled: Bool = true
     ) -> SettingsContext {
         SettingsContext(
             appliedEngine: applied,
@@ -206,17 +347,18 @@ enum Fixtures {
             },
             applyEngine: { _ in },
             loadAppliedModel: {},
+            setWhisperOptions: { _, _ in },
             microphone: microphone,
             accessibility: accessibility,
             requestPermission: { _ in },
-            shortcut: .default,
+            shortcut: shortcut,
             setShortcut: { _ in },
             launchAtLogin: .constant(false),
             soundEnabled: .constant(true),
             pauseMediaEnabled: .constant(false),
             liveTranscriptionEnabled: liveTranscriptionEnabled,
             offersLiveTranscription: offersLiveTranscription,
-            historyEnabled: .constant(true),
+            historyEnabled: .constant(historyEnabled),
             historyUnavailable: false,
             maxHistoryCount: .constant(15),
             storage: ModelStorageContext(

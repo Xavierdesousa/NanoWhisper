@@ -123,36 +123,27 @@ extension AppState {
 
 // MARK: - Views
 
-/// Settings only (not onboarding): remove downloaded models other than the one in use.
-struct ModelStorageSection: View {
+/// Settings › Engine › Downloaded models (not in onboarding): remove downloaded models other
+/// than the one in use, after a confirmation sheet listing them.
+struct ModelStorageRow: View {
     let storage: ModelStorageContext
     @State private var preview: UnusedModelsPreview?
     @State private var isWorking = false
     @State private var lastReport: ModelRemovalReport?
 
     var body: some View {
-        Section("Downloaded Models") {
-            HStack(alignment: .center, spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Unused models")
-                    Text(caption)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 8)
-                if isWorking {
-                    ProgressView().controlSize(.small)
-                }
-                Button("Remove Unused Models…") {
-                    Task {
-                        isWorking = true
-                        preview = await storage.preview()
-                        isWorking = false
-                    }
-                }
-                .disabled(storage.unavailableReason != nil || isWorking)
+        SettingsRow(title: "Unused models", caption: caption) {
+            if isWorking {
+                ProgressView().controlSize(.small)
             }
+            Button("Remove Unused Models…") {
+                Task {
+                    isWorking = true
+                    preview = await storage.preview()
+                    isWorking = false
+                }
+            }
+            .disabled(storage.unavailableReason != nil || isWorking)
         }
         .sheet(item: $preview) { shown in
             UnusedModelsSheet(
@@ -184,36 +175,41 @@ struct UnusedModelsSheet: View {
     let onRemove: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Remove Unused Models")
+        VStack(alignment: .leading, spacing: 0) {
+            Text(preview.removable.isEmpty ? "No unused models" : "Remove unused models?")
                 .font(.headline)
+            SettingsCaption(preview.removable.isEmpty
+                ? "Every model on this Mac is in use or kept."
+                : "These models are on this Mac but not in use. You can download them again at any time.")
+                .padding(.top, 4)
 
-            if preview.removable.isEmpty {
-                Text("No unused models to remove.")
-            } else {
-                Text("These models are not in use and will be deleted from this Mac.")
-                VStack(spacing: 6) {
+            if !preview.removable.isEmpty {
+                VStack(spacing: 0) {
                     ForEach(preview.removable) { model in
                         row(model.folder.displayName, ModelStorageText.size(model.bytes))
+                        Divider()
                     }
-                    Divider()
-                    row("Total", ModelStorageText.size(preview.totalBytes)).fontWeight(.semibold)
+                    row("Total", ModelStorageText.size(preview.totalBytes), emphasized: true)
                 }
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.background))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(.separator))
+                .padding(.top, 12)
             }
 
             VStack(alignment: .leading, spacing: 4) {
                 if !preview.keptInUse.isEmpty {
-                    note("Kept (in use): \(names(preview.keptInUse)).")
+                    SettingsCaption("Kept: \(sized(preview.keptInUse)), in use.")
                 }
                 if !preview.keptForOtherFlavor.isEmpty {
-                    note("Kept for \(preview.otherFlavorName): \(names(preview.keptForOtherFlavor)).")
+                    SettingsCaption("Kept for \(preview.otherFlavorName): \(sized(preview.keptForOtherFlavor)).")
                 }
                 if preview.whisperAccessDenied {
-                    note(ModelStorageText.accessDenied)
+                    SettingsCaption(ModelStorageText.accessDenied)
                 }
             }
+            .padding(.top, 10)
 
-            HStack {
+            HStack(spacing: 8) {
                 Spacer()
                 if preview.removable.isEmpty {
                     Button("OK", action: onCancel)
@@ -223,31 +219,31 @@ struct UnusedModelsSheet: View {
                         .keyboardShortcut(.cancelAction)
                     Button("Remove \(ModelStorageText.size(preview.totalBytes))", role: .destructive, action: onRemove)
                         .keyboardShortcut(.defaultAction)
+                        .buttonStyle(.borderedProminent)
                 }
             }
+            .padding(.top, 16)
         }
+        .tint(.nwAccent)
         .padding(20)
-        .frame(width: 420)
+        .frame(width: 430)
     }
 
-    private func row(_ title: String, _ value: String) -> some View {
+    private func row(_ title: String, _ value: String, emphasized: Bool = false) -> some View {
         HStack {
             Text(title)
             Spacer()
             Text(value)
                 .monospacedDigit()
-                .foregroundStyle(.secondary)
+                .foregroundStyle(emphasized ? .primary : .secondary)
         }
+        .fontWeight(emphasized ? .semibold : .regular)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
     }
 
-    private func note(_ text: String) -> some View {
-        Text(text)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-    }
-
-    private func names(_ models: [StoredModel]) -> String {
-        models.map(\.folder.displayName).joined(separator: ", ")
+    /// "Parakeet Ultra (603 MB), Whisper Base (140 MB)".
+    private func sized(_ models: [StoredModel]) -> String {
+        models.map { "\($0.folder.displayName) (\(ModelStorageText.size($0.bytes)))" }.joined(separator: ", ")
     }
 }

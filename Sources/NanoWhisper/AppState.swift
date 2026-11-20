@@ -271,7 +271,7 @@ class AppState: ObservableObject {
         autoUpdater.startPeriodicChecks()
     }
 
-    nonisolated static let engineStartFailedMessage = "The transcription engine could not start. Click Retry to try again."
+    nonisolated static let engineStartFailedMessage = "The transcription engine could not start."
 
     func startEngine() {
         lastError = nil

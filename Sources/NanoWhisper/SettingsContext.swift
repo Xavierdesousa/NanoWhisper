@@ -206,6 +206,9 @@ struct SettingsContext {
     var applyEngine: (EngineConfiguration) -> Void
     /// Download, load or retry the applied model.
     var loadAppliedModel: () -> Void
+    /// Settings › Engine: set the Whisper language and vocabulary hint right away. They never
+    /// load a model, so they skip the draft (onboarding still applies them with the draft).
+    var setWhisperOptions: (_ language: String?, _ promptText: String) -> Void
 
     // Permissions
     var microphone: PermissionStatus
@@ -301,6 +304,12 @@ extension AppState {
             availability: { [unowned self] in modelAvailability($0) },
             applyEngine: { [unowned self] in applyEngine($0) },
             loadAppliedModel: { [unowned self] in switchModel(to: selectedModelType) },
+            setWhisperOptions: { [unowned self] language, promptText in
+                var options = whisperSettings
+                options.language = language
+                options.promptText = promptText
+                if options != whisperSettings { whisperSettings = options }
+            },
             microphone: permissions.microphone,
             accessibility: permissions.accessibility,
             requestPermission: { [unowned permissions] in permissions.request($0) },
