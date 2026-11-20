@@ -234,6 +234,10 @@ struct OverlayWindowTests {
         controller.viewModel.transcriptLineCount = LiveTranscriptText.defaultLineCount
         try await Task.sleep(nanoseconds: 300_000_000)
         try OverlayCapture.save(controller, name("8c-live-longer-3-lines"), wallpaper: wallpaper, in: directory)
+        controller.viewModel.isPointerOver = true
+        try await Task.sleep(nanoseconds: 300_000_000)
+        try OverlayCapture.save(controller, name("8d-live-pointer-over-stop"), wallpaper: wallpaper, in: directory)
+        controller.viewModel.isPointerOver = false
         feeder.stop()
         controller.transitionToLoading()
         try await Task.sleep(nanoseconds: 800_000_000)

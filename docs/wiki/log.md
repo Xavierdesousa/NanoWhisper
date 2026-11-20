@@ -5,6 +5,13 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-20
 
+- **Overlay, menu and stop tail, tuned live with the maintainer** (`feat/overlay-menu-tweaks`):
+  overlay surface black 90 % with a soft violet inner shadow instead of a rim, no window shadow,
+  Stop as an SF Symbol, a clearly visible pulse on the record capsule; waveform levels in dB every
+  20 ms through an envelope and a normalizer to the recent loudest speech, silence floor 0.15;
+  menu 280 pt wide, no debug header, shortcut as plain glyphs. Recording continues 300 ms after
+  the user stops (`AppState.recordingTail`) so the last word is not cut off; the stop sound plays
+  after that tail so it is not recorded, and a press during the tail is ignored.
 - **Recovery of recordings interrupted by a crash** (`feat/recover-interrupted-recordings`, PR #28):
   the maintainer approved the recommendation of PR #26 with their own rules. At launch, this
   build's leftovers with audio are kept (header repaired) and transcribed once each, silently,

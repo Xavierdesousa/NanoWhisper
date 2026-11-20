@@ -8,7 +8,7 @@ extension AppState {
     func menuState(microphoneGranted: Bool, accessibilityGranted: Bool) -> MenuState {
         MenuState(
             appName: BuildFlavor.current.displayName,
-            debugHeader: BuildFlavor.current.isDebug ? BuildInfo.current.summary : nil,
+            debugHeader: nil, // 2026-11-20: the maintainer prefers no header, in both builds
             setupUnfinished: isFirstLaunch && !isOnboardingVisible,
             microphoneGranted: microphoneGranted,
             accessibilityGranted: accessibilityGranted,
@@ -242,7 +242,7 @@ enum MenuMetrics {
     /// From the menu's edge to the selection background.
     static let selectionInset: CGFloat = 5
     static let rowHeight: CGFloat = 22
-    static let minimumWidth: CGFloat = 240
+    static let minimumWidth: CGFloat = 280
 }
 
 /// A command with something on its right (the record shortcut as key boxes, or a reason).
@@ -337,7 +337,9 @@ struct MenuRowLabel: View {
                     .foregroundStyle(isHighlighted ? Color.white.opacity(0.8) : Color.secondary)
             }
             if let shortcut = model.shortcut {
-                ShortcutKeysView(shortcut: shortcut, size: .small, color: isHighlighted ? .white : nil)
+                // Plain glyphs, like the native key equivalents (⌘,) on the other items.
+                Text(shortcut.menuEquivalentString)
+                    .foregroundStyle(isHighlighted ? Color.white.opacity(0.8) : Color.secondary)
             }
         }
         .font(.system(size: NSFont.menuFont(ofSize: 0).pointSize))

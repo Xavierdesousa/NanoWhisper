@@ -61,6 +61,52 @@ struct LevelHistory: Equatable, Sendable {
     }
 }
 
+// MARK: - Envelope (pure)
+
+/// Smooths the 20 ms levels before they reach the history: a rise over ~40 ms instead of a
+/// jump (a sentence that starts loud no longer draws one huge bar), and a fall over ~130 ms
+/// (the short gaps inside a sentence no longer drop to silence, which drew speech as blocks).
+struct LevelEnvelope: Equatable, Sendable {
+    static let attack: Float = 0.5
+    static let release: Float = 0.14
+    private(set) var value: Float = 0
+
+    init() {}
+
+    mutating func follow(_ level: Float) -> Float {
+        let target = level.isFinite ? min(max(level, 0), 1) : 0
+        value += (target - value) * (target > value ? Self.attack : Self.release)
+        return value
+    }
+}
+
+// MARK: - Normalizer (pure)
+
+/// Scales speech to the loudest of the last few seconds, so the loudest speech reaches the top
+/// of the row whatever the microphone's gain, and spreads the levels (power 1.8) so soft and
+/// loud speech look different. A fixed decibel scale drew most speech at a similar height
+/// (2026-11-20 feedback). Silence (below `WaveformMetrics.silenceFloor`) passes through
+/// unchanged, and the reference never drops below `minimumPeak`, so a quiet room is not
+/// amplified into bars.
+struct LevelNormalizer: Equatable, Sendable {
+    /// Per 20 ms level: the reference falls by about 18 % per second when nothing louder comes.
+    static let decay: Float = 0.996
+    /// −33 dBFS on the `AudioRecorder` scale.
+    static let minimumPeak: Float = 0.55
+    static let contrast: Float = 1.8
+    private(set) var peak: Float = minimumPeak
+
+    init() {}
+
+    mutating func normalize(_ level: Float) -> Float {
+        let floor = WaveformMetrics.silenceFloor
+        peak = max(level, max(Self.minimumPeak, peak * Self.decay))
+        guard level >= floor else { return level }
+        let span = min(1, (level - floor) / (peak - floor))
+        return floor + (1 - floor) * pow(span, Self.contrast)
+    }
+}
+
 // MARK: - Bar mapping (pure)
 
 /// One bar of the waveform, as drawn.
@@ -85,11 +131,11 @@ enum WaveformMetrics {
     static let dotHeight: CGFloat = 1.5
     static let silenceOpacity = 0.45
     static let minSpeechHeight: CGFloat = 4
-    /// Below this level a bar is silence. `AudioRecorder` sends `sqrt(min(25 × RMS, 1))`, so
-    /// a quiet room (RMS 0.001–0.003, −60 to −50 dBFS) reads 0.16–0.28: 0.06 (the design's
-    /// guess) drew room noise as 7 pt bars. 0.35 is RMS ≈ 0.005 (−46 dBFS); soft speech at
-    /// −40 dBFS reads 0.5. Estimated from typical levels, not measured on a microphone.
-    static let silenceFloor: Float = 0.35
+    /// Below this level a bar is silence. Levels are decibels mapped to 0…1 (`AudioRecorder`:
+    /// −55 dBFS = 0, −15 dBFS = 1), so 0.15 is −49 dBFS: a quiet room stays under it, soft
+    /// speech (−40 dBFS ≈ 0.38) is well above. The maintainer found silence showed up too early
+    /// with 0.35 on the former curve (2026-11-20). Not yet tuned on a real microphone.
+    static let silenceFloor: Float = 0.15
     /// The oldest `fadeCount` bars fade in from `oldestOpacity`.
     static let fadeCount = 7
     static let oldestOpacity = 0.22
@@ -109,11 +155,11 @@ enum WaveformMetrics {
     static func isSilence(_ level: Float) -> Bool { level < silenceFloor }
 
     /// Bar height for a level: silence below the floor, else from `minSpeechHeight` to
-    /// `maxBarHeight` over the levels above the floor (exponent 0.85 lifts quiet speech).
+    /// `maxBarHeight`, linear over the levels above the floor (the level is already in decibels).
     static func barHeight(for level: Float) -> CGFloat {
         guard !isSilence(level) else { return dotHeight }
         let span = Double((level - silenceFloor) / (1 - silenceFloor))
-        return min(maxBarHeight, minSpeechHeight + (maxBarHeight - minSpeechHeight) * CGFloat(pow(span, 0.85)))
+        return min(maxBarHeight, minSpeechHeight + (maxBarHeight - minSpeechHeight) * CGFloat(span))
     }
 
     /// Opacity of bar `index` (0 = oldest shown): the history fades out on the left.
@@ -198,6 +244,8 @@ final class OverlayWaveform {
 
     private var timer: Timer?
     private var levelCancellable: AnyCancellable?
+    private var envelope = LevelEnvelope()
+    private var normalizer = LevelNormalizer()
 
     init() { isStatic = false }
 
@@ -219,10 +267,15 @@ final class OverlayWaveform {
         stoppedAt = nil
         historyAtStop = LevelHistory()
         lastAdvance = Date()
+        envelope = LevelEnvelope()
+        normalizer = LevelNormalizer()
         levelCancellable = publisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] level in
-                MainActor.assumeIsolated { self?.history.record(level) }
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.history.record(self.normalizer.normalize(self.envelope.follow(level)))
+                }
             }
         let timer = Timer(timeInterval: LevelHistory.slotDuration, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {

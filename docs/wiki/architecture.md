@@ -44,10 +44,11 @@ text button, so it cannot draw the download bar or the shortcut as key caps.
   `[MenuLine]` (tested in `MenuContentTests`). The controller rebuilds the menu when it opens
   (`menuNeedsUpdate`) and, while it is open, on every `AppState` change (delivered on the main
   queue, which runs during menu tracking); with the same structure it updates items in place.
-- **Order:** debug builds only: name and `v<version> · <commit>`; "Finish Setup…" with the
+- **Order:** (no header in either build since 2026-11-20); "Finish Setup…" with the
   first missing permission on the right ("Microphone is off", "Accessibility is off") while
   onboarding was never finished and its window is closed; "Start Dictation" / "Stop Dictation"
-  with the shortcut as key caps (disabled until the model is ready); one line for the model
+  with the shortcut as plain glyphs like the native key equivalents (`Shortcut.menuEquivalentString`,
+  e.g. "⌃⌥ Space"; 2026-11-20: no boxes in the menu), disabled until the model is ready; one line for the model
   state; the last error; an update line; History…, Settings… ⌘,; Quit <app> ⌘Q.
 - **Model line by state** (from `EngineState`, same precedence as before the redesign):
   downloading → "Downloading <model>, 64%" with a bar (no percentage: "Downloading <model>…"
@@ -90,9 +91,13 @@ text button, so it cannot draw the download bar or the shortcut as key caps.
    - `DictationDestination.atStart(testBoxShowing:appIsActive:)` decides whether this is a
      normal dictation or an onboarding "Try it" test;
    - overlay shown. On a microphone error the media session is ended at once.
-3. `AppState.stopRecording()`: stop sound, overlay switches to loading,
-   `audioRecorder.stopRecording()` stops the engine, removes the tap and closes the WAV (in that
-   order, see below) and returns its URL, then in a `Task`:
+3. `AppState.stopRecording()`: the overlay switches to loading at once, but the microphone
+   keeps recording for `AppState.recordingTail` (300 ms) so a last word spoken while pressing
+   the shortcut is not cut off (maintainer, 2026-11-20); a press during the tail is ignored
+   (`isFinishingRecording`), and an input loss stops without the tail. Then the stop sound
+   (after the tail, so it is not recorded), and `audioRecorder.stopRecording()` stops the
+   engine, removes the tap and closes the WAV (in that order, see below) and returns its URL,
+   then in a `Task`:
    - `transcriber.transcribe(audioURL:)` (queued, see
      [transcription-engines.md](transcription-engines.md#concurrency-model));
    - the overlay shows the final text (live preview, debug build) and is dismissed, whatever
@@ -212,11 +217,16 @@ environment values forced in a test host).
   `RecorderPositionPicker.swift`.
 - **Shape:** compact capsule 184 × 36 pt (radius 18); with live text a card 380 × 106 pt (36
   header + 57 text for three lines + 13), same radius, so the header never moves. Always dark:
-  black at 75 % with no blur (the production overlay's surface, so the desktop shows through
-  darkened); Reduce Transparency: an opaque `#1C1C1E`. A 0.5 pt hairline rim, white at 8 %. The
-  record capsule and caret keep the icon's violet; nothing else on the surface is violet. Window
-  shadow on, `invalidateShadow()` after each resize and once the appear
-  animation settled.
+  black at 90 % with no blur; Reduce Transparency: an opaque `#1C1C1E`. A soft violet inner
+  shadow at the edge (`#A947FF` at 32 %, radius 6, a SwiftUI `.shadow(.inner)` fill), fading to
+  black toward the middle. No window shadow (`hasShadow = false`): on this borderless rounded
+  panel macOS drew it as a dark 1 pt outline. The record capsule and caret keep the icon's
+  violet.
+  - **Tuned with the maintainer on 2026-11-20, in the debug app:** surface from black 75 % to
+    90 % ("plus foncé"); the 0.5 pt rim replaced by the inner shadow ("not a border, a violet
+    shadow from the outside in, very sober"), then made more discreet; window shadow removed
+    (the "black pixel around"); Stop button drawn with the `stop.circle.fill` symbol (the
+    hand-drawn square sat a pixel off centre).
   - **Changed again 2026-11-20 (maintainer, after trying PR #27):** "j'aime pas l'overlay en
     violet" — the surface went back to the production overlay's translucent black (no blur,
     hairline rim) instead of the icon tile's violet `#261445` at 76 % over a `.hudWindow` blur
@@ -228,7 +238,8 @@ environment values forced in a test host).
     text 94 %, tail 68 % (was 55 %), timer 72 % (was 62 %), stopped timer 68 %, "Transcribing…"
     `#E9C4FE` (was `#DB98FE` 85 %, 3.1:1). The material darkens the wallpaper first, so the real
     contrast is higher; the blur itself is not in the captures (window server).
-- **Header:** record capsule 6 × 14 pt (violet gradient, glow that breathes over 2.4 s; lilac without
+- **Header:** record capsule 6 × 14 pt (violet gradient; while recording it pulses every 1.8 s:
+  scale 1 → 1.18, brighter, two violet halos up to 14 pt — tuned to be clearly visible; lilac without
   glow while transcribing; static with Reduce Motion), waveform, then the timer (or Stop under the
   pointer, or "Transcribing…" when there is text or Reduce Motion is on). The trailing item takes
   the remaining width with `.frame(maxWidth: .infinity)`, not a `Spacer`: the `HStack` spacing on
@@ -236,22 +247,24 @@ environment values forced in a test host).
 - **Waveform** (`OverlayWaveform`): the peak of the levels of each 50 ms slot, the last 80 slots
   kept (`LevelHistory.capacity`, 4 s), starting full of silence. The capsule shows the last 26
   (1.3 s, 102 pt); in the card the waveform takes the header's width between the record capsule
-  and the timer (75 bars at 380 pt, right-aligned; feedback 2026-11-20). Silence (below 0.35)
-  is a dim 2 × 1.5 pt mark (45 % of the bar opacity); speech `4 + 16 × ((v − 0.35) / 0.65)^0.85`
+  and the timer (75 bars at 380 pt, right-aligned; feedback 2026-11-20). Silence (below 0.15)
+  is a dim 2 × 1.5 pt mark (45 % of the bar opacity); speech `4 + 16 × (v − 0.15) / 0.85`
   pt, at most 20. The oldest 7 bars shown fade from 22 %. One `Canvas` in `TimelineView(.animation)`; the row glides `4 pt × progress`
   between slots; Reduce Motion: 10 Hz, no glide. At stop the bars sink to dots in 0.25 s, then a
   highlight sweeps every 1.2 s (none with Reduce Motion). The meter is a plain class, not an
   `ObservableObject`, so the rest of the overlay does not re-render 20 times a second.
-  - **Decision (agent): an empty slot repeats the previous value** (up to 2 slots, then
-    silence). `AudioRecorder` sends one level per 4096-frame tap buffer (about 85–93 ms), so
-    about 40 % of the 50 ms slots get no level; read as silence, steady speech came out as a
-    dotted line.
-  - **Silence floor 0.35 (2026-11-20, feedback "the silence bars are too big").** The level is
-    `sqrt(min(25 × RMS, 1))`, so a quiet room (RMS 0.001–0.003, −60 to −50 dBFS) reads
-    0.16–0.28: with the design's 0.06 floor, room noise was drawn as 6–8 pt bars, hardly lower
-    than speech. 0.35 is RMS ≈ 0.005 (−46 dBFS); soft speech (−40 dBFS) reads 0.5, normal
-    speech 0.7–1. Typical levels, **not measured on a real microphone** (agents must not open
-    it); tune `WaveformMetrics.silenceFloor` if speech reads as silence.
+  - **Levels (tuned with the maintainer on 2026-11-20, by ear on a real microphone, in the
+    debug app):** `AudioRecorder.level(of:)` is decibels, −55 dBFS → 0 to −15 dBFS → 1, published
+    every 20 ms (320 samples), not once per ~85 ms tap buffer. Before the history each level
+    goes through `LevelEnvelope` (rise factor 0.5, fall 0.14 per 20 ms: no single huge bar when
+    a sentence starts loud, no drop to silence in the short gaps between words) and
+    `LevelNormalizer` (scaled to the loudest of the last seconds, reference decaying 0.4 % per
+    20 ms and never below 0.55, i.e. −33 dBFS, then power 1.8 for contrast; silence passes
+    through). Feedback that led there: the former `sqrt(min(25 × RMS, 1))` saturated at
+    −28 dBFS ("all or nothing"), a fixed dB scale drew all speech at a similar height ("never
+    reaches the top", "soft and loud look the same"), and one level per tap buffer drew
+    sentences as blocks. Silence floor 0.15 (−49 dBFS), lowered from 0.35 ("silence shows up
+    too early"). An empty 50 ms slot still repeats the previous value up to 2 slots.
 - **Result** (`OverlayResult`, from `DictationOutcome`): check + "Pasted" (delivered), "Done"
   (onboarding Try-it, or a test whose box is gone; the design has no state for these), warning +
   "No speech detected" (empty), "No audio recorded", "Transcription failed". Held 0.8 s, 1.2 s when

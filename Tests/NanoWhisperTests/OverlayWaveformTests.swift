@@ -84,19 +84,46 @@ struct OverlayWaveformTests {
 
     // MARK: - Level to bar
 
-    @Test("Bar height: a 1.5 pt mark below 0.35, else 4 to 20 pt over the levels above it")
+    @Test("Bar height: a 1.5 pt mark below 0.15 (−49 dBFS), else 4 to 20 pt, linear above it")
     func barHeights() {
         #expect(WaveformMetrics.barHeight(for: 0) == 1.5)
-        // A quiet room (−50 dBFS reads 0.28) is silence, not a bar.
-        #expect(WaveformMetrics.barHeight(for: 0.28) == 1.5)
-        #expect(WaveformMetrics.barHeight(for: 0.349) == 1.5)
-        #expect(WaveformMetrics.barHeight(for: 0.35) == 4)
-        let mid = 4 + 16 * pow((0.675 - 0.35) / 0.65, 0.85)
-        #expect(abs(WaveformMetrics.barHeight(for: 0.675) - mid) < 1e-4)
+        // A quiet room (−52 dBFS reads 0.075) is silence, not a bar.
+        #expect(WaveformMetrics.barHeight(for: 0.075) == 1.5)
+        #expect(WaveformMetrics.barHeight(for: 0.149) == 1.5)
+        #expect(WaveformMetrics.barHeight(for: 0.15) == 4)
+        #expect(abs(WaveformMetrics.barHeight(for: 0.575) - 12) < 1e-4)
         #expect(WaveformMetrics.barHeight(for: 1) == 20)
-        // Monotonic over speech levels.
-        let heights = stride(from: Float(0.35), through: 1, by: 0.01).map(WaveformMetrics.barHeight(for:))
+        let heights = stride(from: Float(0.15), through: 1, by: 0.01).map(WaveformMetrics.barHeight(for:))
         #expect(zip(heights, heights.dropFirst()).allSatisfy { $0 <= $1 })
+    }
+
+    @Test("Normalizer: the loudest recent speech reaches the top, softer speech is clearly lower")
+    func normalizer() {
+        var normalizer = LevelNormalizer()
+        // Loud speech at −20 dBFS (0.875) sets the reference and reaches the top.
+        #expect(abs(normalizer.normalize(0.875) - 1) < 1e-5)
+        // Soft speech right after (−40 dBFS, 0.375) is well under half the height.
+        let soft = normalizer.normalize(0.375)
+        #expect(soft > WaveformMetrics.silenceFloor && soft < 0.35)
+        // Silence passes through unchanged.
+        #expect(normalizer.normalize(0.05) == 0.05)
+        // A quiet room alone is not amplified: the reference never drops below the minimum.
+        var quiet = LevelNormalizer()
+        for _ in 0..<2000 { _ = quiet.normalize(0.2) }
+        #expect(quiet.peak == LevelNormalizer.minimumPeak)
+        #expect(quiet.normalize(0.2) < 0.2)
+    }
+
+    @Test("Envelope: rises over a few levels instead of jumping, falls more slowly")
+    func envelope() {
+        var envelope = LevelEnvelope()
+        let rise = (0..<4).map { _ in envelope.follow(1) }
+        #expect(rise[0] < 0.6)                     // no jump to the top on the first 20 ms
+        #expect(rise[3] > 0.9)                     // there after ~80 ms
+        let fall = (0..<4).map { _ in envelope.follow(0) }
+        #expect(fall[0] > 0.8)                     // a 20 ms gap barely dips
+        #expect(fall[3] > 0.5)                     // still speech after 80 ms of silence
+        #expect(envelope.follow(.nan) < fall[3])   // invalid levels count as silence
     }
 
     @Test("Silence and speech are clearly different: the quietest speech bar is over 2.5 times a silence mark, which is dimmer")
@@ -189,7 +216,8 @@ struct OverlayWaveformTests {
             try await Task.sleep(nanoseconds: 50_000_000)
         }
         waveform.markStopped()
-        #expect(waveform.history.values.contains(0.9))
+        // Through the envelope and the normalizer: steady loud speech reaches the top.
+        #expect(waveform.history.values.contains { $0 > 0.8 })
         #expect(waveform.barsAtStop().count == 26)
         #expect(waveform.barsAtStop(count: 75).count == 75)
         #expect(waveform.stoppedAt != nil)

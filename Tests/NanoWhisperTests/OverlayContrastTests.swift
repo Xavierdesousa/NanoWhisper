@@ -58,9 +58,9 @@ struct OverlayContrastTests {
         #expect(transcribing >= 4.5, "Transcribing…: \(transcribing)")
     }
 
-    @Test("The surface is translucent, and the tail stays dimmer than the settled text")
+    @Test("The surface is dark but not opaque, and the tail stays dimmer than the settled text")
     func translucent() {
-        #expect(OverlayPalette.surfaceOpacity < 0.85)
+        #expect(OverlayPalette.surfaceOpacity >= 0.85 && OverlayPalette.surfaceOpacity < 1)
         #expect(OverlayPalette.tailOpacity < OverlayPalette.textOpacity - 0.2)
     }
 }
