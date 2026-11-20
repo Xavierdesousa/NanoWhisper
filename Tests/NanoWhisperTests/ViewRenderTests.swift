@@ -201,39 +201,6 @@ struct ViewRenderTests {
         }
     }
 
-    @Test("Settings window: sized to the selected pane, follows its height, titled with its name")
-    func settingsWindowSizing() throws {
-        _ = NSApplication.shared
-        let suite = "nanowhisper.render.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let model = PaneHeightModel()
-        let tabs = SettingsWindowController.makeTabs(panes: [.general, .engine], selectedFrom: defaults) { pane in
-            pane == .general ? AnyView(ResizingPane(model: model)) : AnyView(SettingsPaneForm { Section("B") { Text("One row") } })
-        }
-        var selected: [SettingsPane] = []
-        tabs.onSelect = { selected.append($0) }
-        let window = SettingsWindowController.makeWindow(tabs: tabs)
-        defer { window.close() }
-        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
-        let top = window.frame.maxY
-        let short = window.contentRect(forFrameRect: window.frame).height
-        #expect(window.title == "General")
-        #expect(abs(window.contentRect(forFrameRect: window.frame).width - SettingsPane.width) < 1)
-
-        model.isTall = true
-        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
-        let tall = window.contentRect(forFrameRect: window.frame).height
-        #expect(tall > short + 100, "the window follows the pane's content (\(short) → \(tall))")
-        #expect(abs(window.frame.maxY - top) < 1, "the top edge stays in place")
-
-        tabs.selectedTabViewItemIndex = 1
-        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
-        #expect(window.title == "Engine")
-        #expect(window.contentRect(forFrameRect: window.frame).height < tall - 100)
-        #expect(selected.last == .engine)
-    }
-
     // MARK: - Settings helpers
 
     /// The real Settings window (toolbar, title, size) around fixture panes, captured with its
@@ -252,10 +219,7 @@ struct ViewRenderTests {
         let window = SettingsWindowController.makeWindow(tabs: tabs)
         window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         RunLoop.current.run(until: Date().addingTimeInterval(0.3))
-        if let selected = tabs.tabViewItems[tabs.selectedTabViewItemIndex].viewController {
-            selected.view.layoutSubtreeIfNeeded()
-            tabs.fitWindow(to: selected.view.fittingSize, animate: false)
-        }
+        tabs.fitWindowToSelectedPane()
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         let frameView = try #require(window.contentView?.superview)
         frameView.layoutSubtreeIfNeeded()

@@ -101,18 +101,99 @@ private struct LiveSettingsPane: View {
 
 // MARK: - Window
 
-/// Toolbar panes. `NSTabViewController` in toolbar style draws the pane items, titles the
-/// window with the pane name and resizes the window to the selected pane's
-/// `preferredContentSize` (set by each `NSHostingController` from the SwiftUI content).
+/// One pane: its SwiftUI content at its own height, pinned to the top of the pane's area and
+/// clipped to it. A window resize (pane switch, content change) never lays the content out at
+/// another height, and nothing is drawn above the content area. Before, content laid out
+/// taller than the window was centered by `NSHostingView` and showed through the translucent
+/// toolbar: the dark band of 2026-11-20 (wiki: onboarding-and-settings).
+final class SettingsPaneController: NSViewController {
+    private let hosting: NSHostingController<AnyView>
+
+    init(content: AnyView) {
+        hosting = NSHostingController(rootView: content)
+        // The hosting view takes its content's height through its intrinsic size, pinned to
+        // the top of the pane's area only, so it never follows the window's height. Not
+        // `.preferredContentSize` on the tab item: for the selected pane, `NSTabViewController`
+        // turns it into a height constraint at priority 501, above the window's own size (500),
+        // so Auto Layout snapped the window back to that height at every frame of a resize
+        // animation while the window was animated elsewhere: the glitch of 2026-11-20.
+        hosting.sizingOptions = [.intrinsicContentSize]
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// Called with the new height when the content changes height (a Whisper option, a
+    /// pending change, an update state).
+    var onContentHeightChange: ((CGFloat) -> Void)?
+    private var reportedHeight: CGFloat = 0
+
+    override func loadView() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: SettingsPane.width, height: 1))
+        container.clipsToBounds = true
+        // Follows the tab view (the window's content area) as the window resizes.
+        container.autoresizingMask = [.width, .height]
+        addChild(hosting)
+        let content = hosting.view
+        content.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.topAnchor.constraint(equalTo: container.topAnchor),
+            content.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+        ])
+        content.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(contentFrameDidChange), name: NSView.frameDidChangeNotification, object: content
+        )
+        view = container
+        reportedHeight = contentHeight
+    }
+
+    /// The content's own height at the pane width, in whole points.
+    var contentHeight: CGFloat {
+        _ = view
+        hosting.view.layoutSubtreeIfNeeded()
+        return hosting.view.fittingSize.height.rounded(.up)
+    }
+
+    @objc private func contentFrameDidChange() {
+        // Measured like `contentHeight` (the frame may sit on a half point), without a layout
+        // pass: this runs inside one.
+        let height = hosting.view.fittingSize.height.rounded(.up)
+        guard abs(height - reportedHeight) > 0.5 else { return }
+        reportedHeight = height
+        onContentHeightChange?(height)
+    }
+}
+
+/// Toolbar panes. `NSTabViewController` in toolbar style draws the pane items and titles the
+/// window with the pane name; this controller sizes the window itself, one resize at a time.
+///
+/// On a pane switch the views are swapped at once (no crossfade: two panes on screen, each
+/// laid out at the window's changing height, drew over each other and over the toolbar), the
+/// window animates to the new pane's height with the pane hidden, then the pane fades in.
 final class SettingsTabViewController: NSTabViewController {
     private let panes: [SettingsPane]
     var onSelect: ((SettingsPane) -> Void)?
+    /// Tests turn the animation off to check the geometry of each step.
+    var animatesResize = true
+    private var resizeGeneration = 0
+    /// The frame the window is animating to, while it does.
+    private var animationTarget: NSRect?
+    /// The pane hidden until the resize animation ends.
+    private var revealedPane: NSView?
+    private var isSelecting = false
 
-    init(panes: [(SettingsPane, NSViewController)], selected: SettingsPane) {
+    static let resizeDuration: TimeInterval = 0.2
+    static let fadeInDuration: TimeInterval = 0.12
+
+    init(panes: [(SettingsPane, SettingsPaneController)], selected: SettingsPane) {
         self.panes = panes.map(\.0)
         super.init(nibName: nil, bundle: nil)
         tabStyle = .toolbar
-        transitionOptions = [.crossfade, .allowUserInteraction]
+        transitionOptions = []
         for (pane, controller) in panes {
             controller.title = pane.title
             let item = NSTabViewItem(viewController: controller)
@@ -120,6 +201,10 @@ final class SettingsTabViewController: NSTabViewController {
             item.identifier = pane.rawValue
             item.image = NSImage(systemSymbolName: pane.systemImage, accessibilityDescription: pane.title)
             addTabViewItem(item)
+            controller.onContentHeightChange = { [weak self, weak controller] height in
+                guard let self, !self.isSelecting, let controller, controller === self.selectedController else { return }
+                self.fitWindow(toContentHeight: height, animate: true, revealing: nil)
+            }
         }
         selectedTabViewItemIndex = self.panes.firstIndex(of: selected) ?? 0
     }
@@ -131,38 +216,124 @@ final class SettingsTabViewController: NSTabViewController {
         panes.indices.contains(selectedTabViewItemIndex) ? panes[selectedTabViewItemIndex] : nil
     }
 
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        // The tab view fills the content area at every frame of a window resize (the tab
+        // controller pins it at priority 749 only).
+        tabView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            tabView.topAnchor.constraint(equalTo: view.topAnchor),
+            tabView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            tabView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            tabView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        ])
+    }
+
+    func select(_ pane: SettingsPane) {
+        if let index = panes.firstIndex(of: pane) { selectedTabViewItemIndex = index }
+    }
+
+    /// The height of a pane's content, shown or not.
+    func contentHeight(of pane: SettingsPane) -> CGFloat? {
+        guard let index = panes.firstIndex(of: pane) else { return nil }
+        return (tabViewItems[index].viewController as? SettingsPaneController)?.contentHeight
+    }
+
+    private var selectedController: SettingsPaneController? {
+        tabViewItems.indices.contains(selectedTabViewItemIndex)
+            ? tabViewItems[selectedTabViewItemIndex].viewController as? SettingsPaneController
+            : nil
+    }
+
     override func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
+        // The incoming pane's first layout reports its height as a content change; the switch
+        // below sizes the window for it (with the pane hidden).
+        isSelecting = true
         super.tabView(tabView, didSelect: tabViewItem)
-        // The window does not always follow on its own (it kept the previous pane's height
-        // in the sizing test), so fit it to the new pane explicitly.
-        if let controller = tabViewItem?.viewController {
-            controller.view.layoutSubtreeIfNeeded()
-            fitWindow(to: controller.view.fittingSize, animate: true)
+        isSelecting = false
+        if let controller = tabViewItem?.viewController as? SettingsPaneController {
+            fitWindow(toContentHeight: controller.contentHeight, animate: true, revealing: controller.view)
         }
         if let selectedPane { onSelect?(selectedPane) }
     }
 
-    /// The selected pane's content changed height (a Whisper choice, a pending change, an
-    /// update state): follow it, keeping the window's top edge in place.
-    override func preferredContentSizeDidChange(for viewController: NSViewController) {
-        super.preferredContentSizeDidChange(for: viewController)
-        guard viewController === tabViewItems[safe: selectedTabViewItemIndex]?.viewController else { return }
-        fitWindow(to: viewController.preferredContentSize, animate: true)
+    /// Size the window to the selected pane at once (first display, renders).
+    func fitWindowToSelectedPane() {
+        guard let controller = selectedController else { return }
+        fitWindow(toContentHeight: controller.contentHeight, animate: false, revealing: controller.view)
     }
 
-    /// Size the window's content to `size`, keeping the top edge.
-    func fitWindow(to size: NSSize, animate: Bool) {
-        guard let window = view.window, size.width > 0, size.height > 0 else { return }
-        let current = window.contentRect(forFrameRect: window.frame)
-        guard abs(current.height - size.height) > 0.5 || abs(current.width - size.width) > 0.5 else { return }
-        var frame = window.frameRect(forContentRect: NSRect(origin: current.origin, size: size))
-        frame.origin.y = window.frame.maxY - frame.height
-        window.setFrame(frame, display: true, animate: animate && window.isVisible)
+    /// Resize the window's content to `height`, keeping the top edge. With `revealing`, that
+    /// view is hidden during the animation and fades in after it.
+    private func fitWindow(toContentHeight height: CGFloat, animate: Bool, revealing paneView: NSView?) {
+        guard let window = view.window, height > 0 else { return }
+        let top = animationTarget?.maxY ?? window.frame.maxY
+        var frame = window.frameRect(forContentRect: NSRect(
+            origin: .zero, size: NSSize(width: SettingsPane.width, height: height)
+        ))
+        frame.origin = NSPoint(x: window.frame.minX, y: top - frame.height)
+        // Heights are measured in whole points from a fitting size that can sit on a half
+        // point, so the same content can measure one point apart: not a change.
+        let tolerance: CGFloat = 1.5
+        // Already on its way there (the new pane's size can also arrive as a content change
+        // while it is being shown): let that animation finish, and reveal this pane with it.
+        if let animationTarget, abs(animationTarget.height - frame.height) < tolerance {
+            if let paneView, paneView !== revealedPane {
+                revealedPane?.alphaValue = 1
+                revealedPane = paneView
+                paneView.alphaValue = 0
+            }
+            return
+        }
+        resizeGeneration += 1
+        let generation = resizeGeneration
+        let changes = abs(frame.height - window.frame.height) > tolerance || abs(frame.width - window.frame.width) > 0.5
+        let animated = animate && animatesResize && changes && window.isVisible
+            && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        guard animated else {
+            animationTarget = nil
+            if changes { window.setFrame(frame, display: true) }
+            revealedPane?.alphaValue = 1
+            revealedPane = nil
+            paneView?.alphaValue = 1
+            return
+        }
+        // A pane hidden by an interrupted animation is shown when this one ends.
+        if let paneView {
+            revealedPane?.alphaValue = 1
+            revealedPane = paneView
+            paneView.alphaValue = 0
+        }
+        animationTarget = frame
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = Self.resizeDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            window.animator().setFrame(frame, display: true)
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.resizeGeneration == generation else { return }
+                self.animationTarget = nil
+                guard let pane = self.revealedPane else { return }
+                self.revealedPane = nil
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = Self.fadeInDuration
+                    pane.animator().alphaValue = 1
+                }
+            }
+        })
+        // Never leave a pane hidden if the animation ends without calling its completion.
+        let deadline = DispatchTime.now() + Self.resizeDuration + Self.fadeInDuration + 0.3
+        DispatchQueue.main.asyncAfter(deadline: deadline) { [weak self, weak paneView] in
+            MainActor.assumeIsolated {
+                // Also if the fade-in started but did not run (an interrupted animation).
+                if let paneView, paneView.alphaValue < 1 { paneView.alphaValue = 1 }
+                guard let self, self.resizeGeneration == generation else { return }
+                self.animationTarget = nil
+                self.revealedPane?.alphaValue = 1
+                self.revealedPane = nil
+            }
+        }
     }
-}
-
-private extension Array {
-    subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
 }
 
 /// The Settings window. AppKit-managed, as the app is a menu bar app (accessory policy):
@@ -201,11 +372,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         selectedFrom defaults: UserDefaults,
         content: (SettingsPane) -> AnyView
     ) -> SettingsTabViewController {
-        let controllers: [(SettingsPane, NSViewController)] = panes.map { pane in
-            let hosting = NSHostingController(rootView: content(pane))
-            hosting.sizingOptions = [.preferredContentSize]
-            return (pane, hosting)
-        }
+        let controllers = panes.map { pane in (pane, SettingsPaneController(content: content(pane))) }
         let selected = SettingsPane.restored(defaults.string(forKey: SettingsPane.defaultsKey), from: panes)
         return SettingsTabViewController(panes: controllers, selected: selected)
     }
@@ -217,11 +384,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         w.isReleasedWhenClosed = false
         w.isRestorable = false
         w.collectionBehavior = [.moveToActiveSpace]
-        // The tab controller resizes the window when the pane changes, not for the first one.
-        if let selected = tabs.tabViewItems[safe: tabs.selectedTabViewItemIndex]?.viewController {
-            selected.view.layoutSubtreeIfNeeded()
-            tabs.fitWindow(to: selected.view.fittingSize, animate: false)
-        }
+        tabs.fitWindowToSelectedPane()
         return w
     }
 
