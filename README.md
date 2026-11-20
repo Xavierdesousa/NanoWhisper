@@ -8,7 +8,7 @@
   <a href="https://github.com/Xavierdesousa/NanoWhisper/actions/workflows/ci.yml"><img src="https://github.com/Xavierdesousa/NanoWhisper/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <a href="https://github.com/Xavierdesousa/NanoWhisper/releases/latest"><img src="https://img.shields.io/github/v/release/Xavierdesousa/NanoWhisper" alt="Release"></a>
   <img src="https://img.shields.io/badge/platform-macOS%2014%2B-blue" alt="Platform">
-  <img src="https://img.shields.io/badge/swift-6.0-orange" alt="Swift">
+  <img src="https://img.shields.io/badge/swift-6.2%2B-orange" alt="Swift">
   <a href="https://github.com/Xavierdesousa/NanoWhisper/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Xavierdesousa/NanoWhisper" alt="License"></a>
 </p>
 
@@ -28,7 +28,7 @@
 | **Global shortcut** | Customizable hotkey (default **⌥ Space**) to start/stop recording from anywhere |
 | **Recording overlay** | Floating visualizer with live audio bars, timer, and stop button |
 | **Auto-paste** | Transcribed text goes straight to your clipboard and active text field |
-| **Encrypted history** | Transcriptions stored locally with AES-256-GCM, key bound to your hardware |
+| **Encrypted history** | Transcriptions stored locally with AES-256-GCM, key derived from your Mac's hardware UUID: protects the file at rest (a copy, a backup) and from casual reading, not from other software running under your account |
 | **Media auto-pause** | Pauses playing media during recording, resumes after transcription |
 | **Auto-updater** | Checks GitHub releases hourly, one-click install from the menubar |
 | **Menubar app** | Lives in your menubar, no dock icon, stays out of your way |
@@ -39,6 +39,14 @@
 ## Install
 
 Download the latest `.zip` from [**Releases**](https://github.com/Xavierdesousa/NanoWhisper/releases/latest), unzip, and drag `NanoWhisper.app` to your Applications folder.
+
+Releases are signed with a self-signed certificate and are **not notarized** by Apple, so macOS blocks the first launch. To allow it once ([Apple's instructions](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac)):
+
+1. Open `NanoWhisper.app`. macOS shows a warning; close it (do not move the app to the Trash).
+2. Open **System Settings → Privacy & Security** and scroll to **Security**. Next to the message about NanoWhisper, click **Open Anyway** (shown for about an hour after the attempt), then enter your login password.
+3. Open NanoWhisper again. From then on it opens normally.
+
+Alternatively, in Terminal: `xattr -dr com.apple.quarantine /Applications/NanoWhisper.app`. Both only allow this app; there is no need to change Gatekeeper's global settings.
 
 On first launch, an onboarding window walks you through model download, permissions, and preferences.
 
@@ -103,6 +111,7 @@ make app
 | Settings, permissions, login item | own | own (granted separately) |
 | History | `~/Library/Application Support/NanoWhisper` | `~/Library/Application Support/NanoWhisper Debug` |
 | Auto-updater | on | off |
+| Live transcription (beta) | not available | available in Settings → General (text in the overlay while you speak) |
 | Markers | — | "DEBUG" banner on the icon, orange dot in the menubar, version and commit in the menu |
 
 Downloaded models are shared by both. `make app` only stops a running NanoWhisper Debug, never the release app.
