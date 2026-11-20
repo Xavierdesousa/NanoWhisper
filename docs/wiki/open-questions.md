@@ -19,10 +19,18 @@ it, with the date, machine and macOS version.
 | Recording overlay | After fix/overlay-and-debug-marker: live text in the real app (panel grows, rounded corners, bars row visible, two lines wrap), and the red dot still during a Try-it recording. | Reproduced and checked with the real panel in a harness and `OverlayWindowTests`, not in the debug app. |
 | Release workflow | One tag push on the `xcode-27` runner since PR #14. | Not run since the workflow changed. |
 
+## Roadmap after 0.0.5 (from the maintainer, 2026-11-20)
+
+- New feedback sounds (start, stop, empty result) to replace the current ones.
+- Stabilize live transcription, mainly its overlay UI, then enable it in production
+  (`BuildFlavor.supportsLiveTranscription`).
+- Full redesign of onboarding, Settings and the recording overlay.
+- A more visual README with screenshots, then a short motion-design demo of the app in use.
+- Look into distributing through Homebrew (a cask; check what it requires for an app that is
+  not notarized).
+
 ## Open decisions
 
-- Planned next: a redesign pass of onboarding, Settings and the recording overlay.
-- Planned: the feedback sounds are to be replaced with new original ones.
 
 - Transcription failure in onboarding's Try-it box: the failure goes to the menu error line and
   the box returns to its idle state (any earlier test result is cleared). The box itself shows

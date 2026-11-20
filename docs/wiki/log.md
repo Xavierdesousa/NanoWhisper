@@ -5,6 +5,10 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-20
 
+- **Release 0.0.5**: version bumped in `Resources/Info.plist` (build 5). The maintainer tested
+  the debug build by hand (media pause in all cases incl. YouTube, onboarding, Try-it, plain
+  dictation, live preview after the overlay fix). Roadmap for the next version recorded in
+  [open-questions.md](open-questions.md).
 - **Overlay and debug marker fixes** (`fix/overlay-and-debug-marker`), from the maintainer's
   test of the debug build:
   - **Live text overlay broken in the real app:** the panel stayed compact (123×40 pt) while

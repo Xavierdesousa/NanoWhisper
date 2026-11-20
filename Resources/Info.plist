@@ -2,31 +2,31 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleIdentifier</key>
-    <string>com.moonji.nanowhisper</string>
-    <key>CFBundleName</key>
-    <string>NanoWhisper</string>
-    <key>CFBundleDisplayName</key>
-    <string>NanoWhisper</string>
-    <key>CFBundleExecutable</key>
-    <string>NanoWhisper</string>
-    <key>CFBundleVersion</key>
-    <string>4</string>
-    <key>CFBundleShortVersionString</key>
-    <string>0.0.4</string>
-    <key>CFBundleIconFile</key>
-    <string>AppIcon</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>14.0</string>
-    <key>LSUIElement</key>
-    <true/>
-    <key>NSMicrophoneUsageDescription</key>
-    <string>NanoWhisper needs microphone access to record speech for transcription.</string>
-    <key>NSHighResolutionCapable</key>
-    <true/>
-    <key>NSAccessibilityUsageDescription</key>
-    <string>NanoWhisper needs accessibility access to paste transcribed text into your active application.</string>
+	<key>CFBundleDisplayName</key>
+	<string>NanoWhisper</string>
+	<key>CFBundleExecutable</key>
+	<string>NanoWhisper</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.moonji.nanowhisper</string>
+	<key>CFBundleName</key>
+	<string>NanoWhisper</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.0.5</string>
+	<key>CFBundleVersion</key>
+	<string>5</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSAccessibilityUsageDescription</key>
+	<string>NanoWhisper needs accessibility access to paste transcribed text into your active application.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>NanoWhisper needs microphone access to record speech for transcription.</string>
 </dict>
 </plist>
