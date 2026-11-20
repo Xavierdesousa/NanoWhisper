@@ -343,6 +343,8 @@ class RecordingOverlayViewModel: ObservableObject {
     @Published var isPresented = true
     /// The pointer is over the overlay: a recording shows Stop instead of the timer.
     @Published var isPointerOver = false
+    /// Lines of live text in the card (tests capture other counts).
+    @Published var transcriptLineCount = LiveTranscriptText.defaultLineCount
 
     /// Waveform data; redrawn by its own timeline, not through this object's updates.
     let waveform: OverlayWaveform

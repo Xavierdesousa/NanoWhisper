@@ -63,11 +63,11 @@ struct ShortcutRecorderRow: View {
                     .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(.background))
                     .overlay(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .strokeBorder(Color.nwAccent, lineWidth: 1)
+                            .strokeBorder(Color.accentColor, lineWidth: 1)
                     )
                     .background(
                         RoundedRectangle(cornerRadius: 7.5, style: .continuous)
-                            .stroke(Color.nwAccent.opacity(0.25), lineWidth: 3)
+                            .stroke(Color.accentColor.opacity(0.25), lineWidth: 3)
                     )
                 Button("Cancel") { isRecording = false }
             } else {

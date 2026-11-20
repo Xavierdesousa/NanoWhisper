@@ -197,7 +197,7 @@ struct EnginePane: View {
                     Button("Change…") { showsModelPicker = true }
                         .buttonStyle(.link)
                         .font(.caption)
-                        .foregroundStyle(Color.nwAccentText)
+                        .foregroundStyle(Color.accentColor)
                 }
             }
             if engine == .whisper {
@@ -295,7 +295,7 @@ private struct EngineChoiceRow<Details: View>: View {
                         if engine.isRecommended {
                             Text(ModelLabel.recommendedBadge)
                                 .font(.caption.weight(.semibold))
-                                .foregroundStyle(Color.nwAccentText)
+                                .foregroundStyle(Color.accentColor)
                         }
                     }
                     SettingsCaption(engine.summary)
@@ -322,7 +322,7 @@ struct RadioMark: View {
     var body: some View {
         ZStack {
             if isOn {
-                Circle().fill(Color.nwAccent)
+                Circle().fill(Color.accentColor)
                 Circle().fill(.white).frame(width: 6, height: 6)
             } else {
                 Circle().fill(Color(nsColor: .controlBackgroundColor))

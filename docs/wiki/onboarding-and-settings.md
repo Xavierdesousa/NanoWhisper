@@ -1,6 +1,6 @@
 # Onboarding and Settings
 
-Last verified against the code: 2026-11-20 (`feat/settings-and-menu-redesign`), with unit tests and offscreen renders; the Settings redesign was not run in the app (see Known limits). Source: PR #15, the model migration PR, the Settings and menu redesign PR and the code.
+Last verified against the code: 2026-11-20 (`feat/settings-and-menu-redesign`; the Settings window, colors and sizing again in `feat/redesign-feedback`), with unit tests and offscreen renders; the Settings redesign was not run in the app (see Known limits). Source: PR #15, the model migration PR, the Settings and menu redesign PR and the code.
 
 ## What it is
 
@@ -46,10 +46,37 @@ Design: Claude Design canvas "NanoWhisper Redesign", Settings page, proposal 1 "
     visible while onboarding shows the Dock icon) opens the real window.
   - **Sizing:** each pane is a grouped `Form` with `.scrollDisabled(true)` and
     `.fixedSize(horizontal: false, vertical: true)` (`SettingsPaneForm`), so its fitting size is
-    its content. `NSTabViewController` did not resize the window on every pane switch (it kept
-    the previous height in the sizing test), so `SettingsTabViewController` fits the window
-    itself on selection and when the selected pane's `preferredContentSize` changes (Whisper
-    options, pending change, update states), keeping the top edge in place.
+    its content. `SettingsTabViewController` alone sizes the window, keeping the top edge: on a
+    pane switch, and when the selected pane's content changes height (Whisper options, pending
+    change, update states).
+  - **Pane switch (since 2026-11-20):** no crossfade; the new pane is swapped in at once,
+    hidden, the window animates to its height (0.2 s, ease in-out, non-blocking `animator()`),
+    then the pane fades in (0.12 s). Reduce Motion: no animation. Each pane is a
+    `SettingsPaneController`: a clipping container that follows the content area, holding the
+    `NSHostingController`'s view pinned to the top at the content's own height (Auto Layout:
+    top, leading, trailing; height from the intrinsic size), so a pane is never laid out at
+    another height. Content changes arrive as frame changes of that view.
+  - **The glitch it fixes** (maintainer's screenshot, dark, Engine selected: a dark line across
+    the toolbar through the pane labels). Measured in the real window (`SettingsWindowTests`,
+    and a capture of the previous code's real animation):
+    1. The crossfade kept the outgoing pane on screen for about 0.6 s, laid out at the new
+       window height. `NSHostingView` centers content taller than itself, so General (431 pt)
+       in Engine's 370 pt overflowed 30.5 pt **above the content area, under the translucent
+       toolbar** (77 pt for General → Advanced). The line in the screenshot is ~21–30 pt above
+       the toolbar's bottom edge: the top of the outgoing pane seen through the toolbar.
+    2. Two sizing systems fought: for the selected pane, `NSTabViewController` turns the child's
+       `preferredContentSize` into a height constraint at priority **501**, above the window's
+       own size (500), so Auto Layout snaps the window back to that height at each layout pass,
+       while the controller also ran a blocking `setFrame(_:display:animate:)`. The pane
+       controllers therefore no longer expose `preferredContentSize`.
+    3. After some switches the window kept the previous pane's height (Advanced and Permissions
+       stayed at Recorder's 370 pt instead of 277 and 228); the old sizing test only checked two
+       panes.
+  - **Rejected:** keeping `NSTabViewController`'s own resizing (it is that 501 constraint, with
+    no top-edge control); a crossfade over a top-pinned clipped pane (two panes on screen during
+    the resize still overlap); `preferredContentSizeDidChange(for:)` on a plain
+    `NSViewController` parent (not called for it) and KVO on the hosting controller's
+    `preferredContentSize` (no notification).
 - **Last pane remembered**: UserDefaults `settingsPane`; `SettingsPane.restored(_:from:)` falls
   back to General when the stored pane is not shown.
 - **Recorder pane**: the recorder position (the overlay PR's `RecorderPositionPicker`, its
@@ -62,9 +89,12 @@ Design: Claude Design canvas "NanoWhisper Redesign", Settings page, proposal 1 "
   (unapplied changes are dropped when the window closes). On close the controller stops the
   `PermissionMonitor` and drops the content; the Permissions pane also starts/stops polling on
   appear/disappear, so it polls only while visible.
-- **Brand color:** violet (`Color.nwAccent`, `nwAccentText`, `SettingsStyle.swift`) for the
-  engine radio marks, "Recommended", "Beta", Change… and the tint. The toolbar selection keeps
-  the system look (`NSTabViewController` draws it).
+- **Colors: the system accent color everywhere** (switches, buttons, links, radio marks,
+  "Recommended", "Beta", Change…, the shortcut field's focus ring, the recorder position spots,
+  the menu's progress bars, onboarding). The brand violet tokens (`nwAccent`, `nwAccentText`)
+  were removed on 2026-11-20 at the maintainer's request ("no violet in Settings"); the
+  position picker's mini screen is a neutral dark gray (`#2C2C30`, was violet-tinted). The brand
+  colors remain only in the recording overlay and the app icon.
 - **Engine pane wording** (pure, tested): `EngineStatusDisplay.resolve` (status row: Ready,
   Downloading <model> with "42% of ~630 MB.", migration download with "<previous> stays in use
   until it is ready.", Optimizing, Loading, "Could not set up <model>" / "<model> could not
@@ -216,7 +246,9 @@ re-downloads anything unless the user applies another model.
 - `PermissionMonitor` polls every second while onboarding is open, and in Settings while the
   Permissions pane is showing.
 - Settings redesign (2026-11-20): verified with offscreen renders of the real window (toolbar,
-  title, size) in light and dark and a sizing test; **not run in the app**: real clicks, the
-  window's resize animation, focus and keyboard navigation between panes, VoiceOver on the key
-  caps and the engine radio rows. Offscreen windows are never key, so controls render in their
-  inactive look (grey switches and progress bars): the violet tint is not verified.
+  title, size) in light and dark; since 2026-11-20 also the real window shown on screen
+  (`SettingsWindowTests`: every pane switch, each frame of the resize forced and the real
+  animation sampled every 16 ms, light and dark). **Not run in the app**: real clicks, focus
+  and keyboard navigation between panes, VoiceOver on the key caps and the engine radio rows,
+  the toolbar's translucency (drawn by the window server, not in captures). Offscreen windows
+  are never key, so controls render in their inactive look.

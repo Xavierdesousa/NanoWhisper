@@ -54,7 +54,8 @@ struct RecorderPositionScreen: View {
     static let inset: CGFloat = 6
     static let bottomInset: CGFloat = 12
 
-    private static let background = OverlayPalette.rgb(0x2B2540)
+    /// A neutral dark desktop, so the only colors are the recorder's and the accent.
+    private static let background = OverlayPalette.rgb(0x2C2C30)
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -109,19 +110,18 @@ struct RecorderPositionScreen: View {
     }
 }
 
-/// An empty position: a ring, filled in the accent color under the pointer.
+/// An empty position: a ring, filled in the system accent color under the pointer.
 private struct PositionSpot: View {
     var action: () -> Void
     @State private var isHovering = false
 
     static let size: CGFloat = 20
-    private static let accent = OverlayPalette.rgb(0x7650E6)
 
     var body: some View {
         Button(action: action) {
             ZStack {
                 if isHovering {
-                    Circle().fill(Self.accent)
+                    Circle().fill(Color.accentColor)
                     Circle().strokeBorder(Color.white, lineWidth: 3)
                 } else {
                     Circle().strokeBorder(Color.white.opacity(0.55), lineWidth: 1.5)

@@ -392,7 +392,6 @@ struct MenuProgressLabel: View, Equatable {
                 }
             }
             .controlSize(.small)
-            .tint(.nwAccent)
             .frame(width: 200)
         }
         .padding(.leading, MenuMetrics.textInset)
