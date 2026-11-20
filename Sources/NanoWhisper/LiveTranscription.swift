@@ -49,7 +49,7 @@ struct LivePreviewSchedule: Sendable, Equatable {
 /// text: the final pass waits for it (Whisper runs both on one engine). Measured on Apple
 /// Silicon: Parakeet and Whisper Base stop within ~10 ms; Whisper Large v3 Turbo only after
 /// ~0.6 s (its encoder pass cannot be interrupted), and its previews update every 3–7 s.
-/// Tiny is smaller than Base. Small is not measured, and Large v3 has Turbo's encoder.
+/// Small is not measured. Of the sizes offered (Base, Small, Large v3 Turbo) only Base has it.
 enum LiveTranscriptionSupport {
     static let unavailableExplanation = "Not available with larger Whisper models: it would delay the text."
 
@@ -58,7 +58,7 @@ enum LiveTranscriptionSupport {
         case .parakeet:
             return true
         case .whisper:
-            return whisperModelSize == .tiny || whisperModelSize == .base
+            return whisperModelSize == .base
         }
     }
 }

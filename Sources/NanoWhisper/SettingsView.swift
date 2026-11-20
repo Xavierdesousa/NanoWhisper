@@ -39,6 +39,7 @@ struct SettingsForm: View {
     var body: some View {
         Form {
             ModelSettingsSection(draft: $draft, context: context)
+            ModelStorageSection(storage: context.storage)
             PermissionsSettingsSection(context: context)
             ShortcutSettingsSection(context: context)
             GeneralSettingsSection(context: context, showsHistoryLimit: true)

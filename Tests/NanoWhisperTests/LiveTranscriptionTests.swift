@@ -159,7 +159,7 @@ struct LiveTranscriptionSupportTests {
         let available = WhisperModelSize.allCases.filter {
             LiveTranscriptionSupport.isAvailable(modelType: .whisper, whisperModelSize: $0)
         }
-        #expect(available == [.tiny, .base])
+        #expect(available == [.base])
     }
 
     @Test("Settings follow the applied engine")

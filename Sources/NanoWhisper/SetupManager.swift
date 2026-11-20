@@ -12,34 +12,65 @@ extension ParakeetVariant {
     }
 }
 
+/// A model loaded by `SetupManager`, ready to hand to the `Transcriber`.
+enum LoadedModel: Sendable {
+    case parakeet(AsrModels)
+    case whisper(WhisperEngine)
+}
+
 @MainActor
 class SetupManager: ObservableObject {
     @Published var isSettingUp = false
     @Published var setupProgress = ""
     @Published var setupComplete = false
     @Published var setupError: String?
+    /// Background download of a migration target while the previous model is in use.
+    @Published private(set) var upgrade: ModelUpgrade?
 
     private(set) var parakeetModels: AsrModels?
     private(set) var whisperEngine: WhisperEngine?
 
-    /// Variant held in `parakeetModels`, if any.
+    /// Variant held in `parakeetModels`, if any. During a switchover it is the previous
+    /// variant until the selected one is loaded.
     private(set) var loadedParakeetVariant: ParakeetVariant?
     /// Size held in `whisperEngine`, if any.
     private(set) var loadedWhisperModelSize: WhisperModelSize?
+
+    /// Called when a background upgrade has loaded the selected model (it replaced the
+    /// previous one in `parakeetModels` / `whisperEngine`); the app installs it in the
+    /// transcriber at a safe moment.
+    var onUpgradeLoaded: (() -> Void)?
+
+    let store: ModelStore
 
     /// Incremented on every new setup or reset so results and progress from a
     /// superseded download (e.g. the user switched models mid-download) are dropped.
     private var setupGeneration = 0
     private var setupTask: Task<Void, Never>?
 
+    init(store: ModelStore = .live()) {
+        self.store = store
+    }
+
     var needsSetup: Bool {
         parakeetModels == nil && whisperEngine == nil
     }
 
+    /// Models currently held (the previous one during a switchover, then the selected one).
+    var loadedModels: [SpeechModel] {
+        [loadedParakeetVariant.map(SpeechModel.parakeet), loadedWhisperModelSize.map(SpeechModel.whisper)]
+            .compactMap { $0 }
+    }
+
+    /// Load the selected model.
+    /// - Parameter previousModel: the model a pending migration moved this engine away from.
+    ///   If it is on disk and the selected one is not, it is used while the selected one
+    ///   downloads in the background (`SwitchoverPlan`).
     func runSetup(
         modelType: TranscriptionModelType,
         parakeetVariant: ParakeetVariant,
-        whisperSettings: WhisperSettings = WhisperSettings()
+        whisperSettings: WhisperSettings = WhisperSettings(),
+        previousModel: SpeechModel? = nil
     ) {
         // If the requested model is already loaded, skip
         switch modelType {
@@ -60,25 +91,41 @@ class SetupManager: ObservableObject {
         isSettingUp = true
         setupProgress = "Preparing download..."
         setupError = nil
+        upgrade = nil
+
+        let selected: SpeechModel = modelType == .parakeet
+            ? .parakeet(parakeetVariant) : .whisper(whisperSettings.modelSize)
+        let plan = SwitchoverPlan.resolve(selected: selected, previous: previousModel, isOnDisk: isOnDisk)
 
         setupTask = Task {
             do {
-                switch modelType {
-                case .parakeet:
-                    let models = try await loadParakeet(parakeetVariant, generation: generation)
-                    guard generation == setupGeneration else { return }
-                    parakeetModels = models
-                    loadedParakeetVariant = parakeetVariant
-                case .whisper:
-                    setupProgress = "Downloading Whisper \(whisperSettings.modelSize.displayName)..."
-                    let engine = try await WhisperEngine(model: whisperSettings.modelSize.whisperKitModel)
-                    guard generation == setupGeneration else { return }
-                    whisperEngine = engine
-                    loadedWhisperModelSize = whisperSettings.modelSize
-                }
-                setupComplete = true
-                isSettingUp = false
-                setupProgress = "Setup complete!"
+                try await ModelSwitchover.run(
+                    plan,
+                    load: { model, role in try await self.load(model, role: role, generation: generation) },
+                    onReady: { loaded, model in
+                        guard generation == self.setupGeneration else { return false }
+                        self.hold(loaded, as: model)
+                        self.setupComplete = true
+                        self.isSettingUp = false
+                        self.setupProgress = "Setup complete!"
+                        return true
+                    },
+                    onUpgradeStarted: { from, to in
+                        guard generation == self.setupGeneration else { return }
+                        self.upgrade = ModelUpgrade(from: from, to: to, status: .downloading(fraction: nil))
+                    },
+                    onUpgraded: { loaded, model in
+                        guard generation == self.setupGeneration else { return }
+                        self.hold(loaded, as: model)
+                        self.upgrade = nil
+                        self.onUpgradeLoaded?()
+                    },
+                    onUpgradeFailed: { error in
+                        guard generation == self.setupGeneration else { return }
+                        Self.logger.error("Background model download failed; keeping the previous model: \(error.localizedDescription, privacy: .public)")
+                        self.upgrade?.status = .deferred
+                    }
+                )
             } catch {
                 guard generation == setupGeneration else { return }
                 setupError = "Model setup failed. Please check your internet connection and try again."
@@ -100,6 +147,43 @@ class SetupManager: ObservableObject {
         setupError = nil
         isSettingUp = false
         setupProgress = ""
+        upgrade = nil
+    }
+
+    private func hold(_ loaded: LoadedModel, as model: SpeechModel) {
+        switch (loaded, model) {
+        case (.parakeet(let models), .parakeet(let variant)):
+            parakeetModels = models
+            loadedParakeetVariant = variant
+        case (.whisper(let engine), .whisper(let size)):
+            whisperEngine = engine
+            loadedWhisperModelSize = size
+        default:
+            assertionFailure("Loaded model does not match \(model)")
+        }
+    }
+
+    /// Whether a model's files are complete on disk. Whisper reads ~/Documents: only reached
+    /// from `SwitchoverPlan.resolve` while setting up Whisper with a pending migration.
+    private func isOnDisk(_ model: SpeechModel) -> Bool {
+        switch model {
+        case .parakeet(let variant): return ModelAvailability.parakeetIsOnDisk(variant)
+        case .whisper(let size): return store.isWhisperModelOnDisk(size)
+        }
+    }
+
+    private func load(_ model: SpeechModel, role: ModelLoadRole, generation: Int) async throws -> LoadedModel {
+        switch model {
+        case .parakeet(let variant):
+            return .parakeet(try await loadParakeet(variant, role: role, generation: generation))
+        case .whisper(let size):
+            if role == .selected {
+                setupProgress = "Downloading Whisper \(size.displayName)..."
+            }
+            // The previous model is loaded from its folder only: never download it again.
+            let folder = role == .previous ? store.url(of: .whisper(size)) : nil
+            return .whisper(try await WhisperEngine(model: size.whisperKitModel, localFolder: folder))
+        }
     }
 
     // MARK: - Parakeet setup
@@ -108,7 +192,7 @@ class SetupManager: ObservableObject {
 
     /// Folder FluidAudio <= 0.12 used for Parakeet v3. FluidAudio 0.18 looks for the same
     /// files in `parakeet-tdt-0.6b-v3` instead, so without this an update would re-download v3.
-    nonisolated static let legacyParakeetV3FolderName = "parakeet-tdt-0.6b-v3-coreml"
+    nonisolated static let legacyParakeetV3FolderName = ModelFolder.parakeetV3Legacy.name
 
     /// Result of `migrateLegacyParakeetV3Cache(currentDirectory:)`.
     enum LegacyCacheMigration: Equatable {
@@ -139,19 +223,19 @@ class SetupManager: ObservableObject {
     /// never leaves a partial folder at the current location; the legacy folder is removed
     /// too, best effort. Synchronous and called on the main actor, so setups cannot race on it.
     /// Production and debug builds share this cache and can launch together, so the whole
-    /// check-and-move also holds an exclusive `flock` on a lock file next to the cache:
-    /// otherwise the process that loses the rename would delete the winner's moved folder in
-    /// its failure path. If the lock file cannot be opened, it migrates unlocked.
+    /// check-and-move holds the models lock (`ModelStore.withExclusiveLock`): otherwise the
+    /// process that loses the rename would delete the winner's moved folder in its failure
+    /// path. If the lock file cannot be opened, it migrates unlocked.
     @discardableResult
     nonisolated static func migrateLegacyParakeetV3Cache(
         currentDirectory: URL = AsrModels.defaultCacheDirectory(for: .v3)
     ) -> LegacyCacheMigration {
-        let lockPath = currentDirectory.deletingLastPathComponent()
-            .appendingPathComponent(".parakeet-v3-migration.lock").path
-        let lock = open(lockPath, O_CREAT | O_RDWR | O_CLOEXEC, 0o644)
-        if lock >= 0 { flock(lock, LOCK_EX) }
-        defer { if lock >= 0 { flock(lock, LOCK_UN); close(lock) } }
+        ModelStore.withExclusiveLock(in: currentDirectory.deletingLastPathComponent()) {
+            migrateLegacyParakeetV3CacheLocked(currentDirectory: currentDirectory)
+        }
+    }
 
+    nonisolated private static func migrateLegacyParakeetV3CacheLocked(currentDirectory: URL) -> LegacyCacheMigration {
         let fm = FileManager.default
         let legacyDirectory = currentDirectory.deletingLastPathComponent()
             .appendingPathComponent(legacyParakeetV3FolderName, isDirectory: true)
@@ -192,29 +276,43 @@ class SetupManager: ObservableObject {
         }
     }
 
-    private func loadParakeet(_ variant: ParakeetVariant, generation: Int) async throws -> AsrModels {
-        // Run for either variant so the old folder never lingers; a moved v3 cache stays usable.
-        Self.migrateLegacyParakeetV3Cache()
+    private func loadParakeet(_ variant: ParakeetVariant, role: ModelLoadRole, generation: Int) async throws -> AsrModels {
+        // The legacy folder only matters to v3. For Ultra it is an obsolete folder that the
+        // automatic cleanup removes (moving it would only create a v3 copy nobody selected).
+        if variant == .v3 {
+            Self.migrateLegacyParakeetV3Cache()
+        }
         return try await AsrModels.downloadAndLoad(
             version: variant.asrModelVersion,
             progressHandler: { [weak self] progress in
                 Task { @MainActor in
                     guard let self, generation == self.setupGeneration else { return }
-                    self.handleParakeetProgress(progress)
+                    self.handleParakeetProgress(progress, role: role)
                 }
             }
         )
     }
 
-    private func handleParakeetProgress(_ progress: DownloadProgress) {
+    /// ModelHub reports each model component as one operation where the download phase
+    /// occupies the first half of `fractionCompleted` and compilation the rest.
+    nonisolated static func downloadFraction(_ progress: DownloadProgress) -> Double {
+        min(progress.fractionCompleted / 0.5, 1.0)
+    }
+
+    private func handleParakeetProgress(_ progress: DownloadProgress, role: ModelLoadRole) {
+        if role == .upgrade {
+            guard upgrade != nil else { return }
+            switch progress.phase {
+            case .downloading: upgrade?.status = .downloading(fraction: Self.downloadFraction(progress))
+            case .listing, .compiling: upgrade?.status = .downloading(fraction: nil)
+            }
+            return
+        }
         switch progress.phase {
         case .listing:
             setupProgress = "Preparing download..."
         case .downloading:
-            // ModelHub reports each model component as one operation where the download
-            // phase occupies the first half of `fractionCompleted` and compilation the rest.
-            let percent = Int(min(progress.fractionCompleted / 0.5, 1.0) * 100)
-            setupProgress = "Downloading model (\(percent)%)..."
+            setupProgress = "Downloading model (\(Int(Self.downloadFraction(progress) * 100))%)..."
         case .compiling:
             setupProgress = "Compiling model..."
         }

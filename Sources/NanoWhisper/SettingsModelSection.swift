@@ -33,7 +33,10 @@ struct ModelSettingsSection: View {
             case .parakeet:
                 Picker("Version", selection: $draft.parakeetVariant) {
                     ForEach(ParakeetVariant.allCases, id: \.self) { variant in
-                        Text("\(variant.displayName) (\(variant.sizeDescription))").tag(variant)
+                        Text(ModelLabel.pickerTitle(
+                            name: variant.displayName, size: variant.sizeDescription,
+                            isRecommended: variant.isRecommended
+                        )).tag(variant)
                     }
                 }
             case .whisper:
@@ -87,8 +90,10 @@ private struct WhisperOptionsRows: View {
 
     var body: some View {
         Picker("Model size", selection: $settings.modelSize) {
-            ForEach(WhisperModelSize.allCases, id: \.self) { size in
-                Text("\(size.displayName) (\(size.sizeDescription))").tag(size)
+            ForEach(WhisperModelSize.selectable, id: \.self) { size in
+                Text(ModelLabel.pickerTitle(
+                    name: size.displayName, size: size.sizeDescription, isRecommended: size.isRecommended
+                )).tag(size)
             }
         }
 
@@ -143,24 +148,40 @@ struct ModelStatusRow: View {
                     Text(detail)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                        .lineLimit(3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)
                 trailing
             }
             if case .downloading(let fraction) = status {
-                if let fraction {
-                    ProgressView(value: fraction)
-                } else {
-                    ProgressView()
-                        .progressViewStyle(.linear)
+                progressBar(fraction)
+            } else if status == .ready, let upgrade = context.engineState.upgrade {
+                // A migration's new model downloading while the previous one is in use.
+                if case .downloading(let fraction) = upgrade.status {
+                    progressBar(fraction)
                 }
             }
         }
     }
 
+    @ViewBuilder
+    private func progressBar(_ fraction: Double?) -> some View {
+        if let fraction {
+            ProgressView(value: fraction)
+        } else {
+            ProgressView()
+                .progressViewStyle(.linear)
+        }
+    }
+
     private var detail: String {
+        if status == .ready, let upgrade = context.engineState.upgrade {
+            switch upgrade.status {
+            case .downloading: return "\(ModelUpgradeText.progress(upgrade))\n\(ModelUpgradeText.detail(upgrade))"
+            case .deferred: return ModelUpgradeText.detail(upgrade)
+            }
+        }
         switch status {
         case .ready: return "In use · \(applied.downloadSize)"
         case .downloading(let fraction):

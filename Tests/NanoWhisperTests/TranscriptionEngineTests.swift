@@ -113,17 +113,33 @@ struct TranscriptionEngineTests {
         #expect(WhisperModelSize.largev3.whisperKitModel == "openai_whisper-large-v3")
     }
 
-    @Test("Medium is no longer offered and its stored value maps to Large v3 Turbo")
-    func mediumRemoved() throws {
-        #expect(WhisperModelSize(rawValue: "medium") == nil)
-        #expect(!WhisperModelSize.allCases.map(\.whisperKitModel).contains("openai_whisper-medium"))
-        #expect(WhisperModelSize(persistedValue: "medium") == .largev3Turbo)
-        #expect(WhisperModelSize(persistedValue: "large-v3") == .largev3)
-        #expect(WhisperModelSize(persistedValue: "bogus") == nil)
-        #expect(try JSONDecoder().decode(WhisperModelSize.self, from: Data(#""medium""#.utf8)) == .largev3Turbo)
+    @Test("Offered sizes: Base, Small, Large v3 Turbo; obsolete ones decode and name a replacement")
+    func whisperLineup() throws {
+        #expect(WhisperModelSize.selectable == [.base, .small, .largev3Turbo])
+        #expect(WhisperModelSize.tiny.replacement == .base)
+        #expect(WhisperModelSize.medium.replacement == .largev3Turbo)
+        #expect(WhisperModelSize.largev3.replacement == .largev3Turbo)
+        for size in WhisperModelSize.allCases {
+            // A replacement is always offered (no chains).
+            if let replacement = size.replacement { #expect(replacement.isSelectable) }
+            #expect(size.isSelectable == (size.replacement == nil))
+        }
+        #expect(WhisperModelSize.medium.whisperKitModel == "openai_whisper-medium")
+        #expect(try JSONDecoder().decode(WhisperModelSize.self, from: Data(#""medium""#.utf8)) == .medium)
         #expect(throws: DecodingError.self) {
             try JSONDecoder().decode(WhisperModelSize.self, from: Data(#""bogus""#.utf8))
         }
+    }
+
+    @Test("Exactly one recommended model per engine, offered, and Ultra is the new-install default")
+    func recommendedModels() {
+        #expect(ParakeetVariant.allCases.filter(\.isRecommended) == [.ultra])
+        #expect(ParakeetVariant.newInstallDefault.isRecommended)
+        #expect(WhisperModelSize.allCases.filter(\.isRecommended) == [.largev3Turbo])
+        #expect(WhisperModelSize.largev3Turbo.isSelectable)
+        #expect(ModelLabel.pickerTitle(name: "Parakeet Ultra", size: "~630 MB", isRecommended: true)
+                == "Parakeet Ultra (~630 MB) · Recommended")
+        #expect(ModelLabel.pickerTitle(name: "Base", size: "~150 MB", isRecommended: false) == "Base (~150 MB)")
     }
 
     @Test("Large v3 Turbo maps to OpenAI's v20240930 release in WhisperKit")
@@ -138,7 +154,7 @@ struct TranscriptionEngineTests {
     @Test("Model sizes keep their persisted raw values")
     func modelSizeRawValues() {
         #expect(WhisperModelSize.allCases.map(\.rawValue)
-                == ["tiny", "base", "small", "large-v3", "large-v3-turbo"])
+                == ["tiny", "base", "small", "medium", "large-v3", "large-v3-turbo"])
     }
 
     @Test("WhisperKit identifiers are unique")
