@@ -16,17 +16,6 @@ enum TemporaryRecordings {
         try? FileManager.default.removeItem(at: url)
     }
 
-    /// Remove recordings left by a previous crash of this build. Only this build's prefix is
-    /// matched, so a recording in progress in the other build survives.
-    static func removeOrphans(of flavor: BuildFlavor = .current) {
-        let tempDir = FileManager.default.temporaryDirectory
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: tempDir,
-            includingPropertiesForKeys: nil
-        ) else { return }
-
-        for file in contents where flavor.ownsTemporaryAudioFile(named: file.lastPathComponent) {
-            securelyDelete(at: file)
-        }
-    }
+    // Recordings left by a crash are no longer deleted at launch: they are transcribed once
+    // into History, or deleted when they cannot be (`InterruptedRecordings`).
 }

@@ -149,11 +149,9 @@ class AppState: ObservableObject {
     @Published private(set) var engineError: String?
 
     private var cancellables = Set<AnyCancellable>()
+    private var interruptedRecordingsTask: Task<Void, Never>?
 
     init() {
-        // Clean up any orphaned audio files from previous crashes
-        TemporaryRecordings.removeOrphans()
-
         recordingOverlay.onStop = { [weak self] in
             Task { @MainActor in
                 self?.toggleRecording()
@@ -230,6 +228,10 @@ class AppState: ObservableObject {
         }
         liveTranscriptionEnabled = UserDefaults.standard.bool(forKey: Self.liveTranscriptionKey)
         observeTerminationForLiveTranscription()
+
+        // Recordings left by a crash: kept if they hold audio, transcribed silently into
+        // History once the engine is ready and the app idle (after the history settings above).
+        recoverInterruptedRecordings()
 
         // Only auto-prompt accessibility on subsequent launches
         if !isFirstLaunch {
@@ -587,6 +589,45 @@ class AppState: ObservableObject {
             }
             pasteManager.pasteText(result.text)
         }
+    }
+
+    // MARK: - Recordings interrupted by a crash
+
+    /// At launch: this build's recordings left by a crash (see `InterruptedRecordings`) are
+    /// transcribed once each, silently (no overlay, sound, paste or message), into History at
+    /// their recording date. They wait until the engine is ready and nothing is recorded or
+    /// transcribed, so the user's dictations go first.
+    private func recoverInterruptedRecordings() {
+        let historyAvailable = historyEnabled && !historyUnavailable
+        let collection = InterruptedRecordings.collect(historyAvailable: historyAvailable)
+        let found = collection.candidates.count + collection.deletedAttempted + collection.deletedTooShort
+            + collection.deletedTooOld + collection.deletedUnreadable + collection.deletedHistoryOff
+        if found > 0 {
+            InterruptedRecordings.logger.notice(
+                "Interrupted recordings at launch: \(collection.candidates.count, privacy: .public) to transcribe (\(collection.repairedHeaders, privacy: .public) headers repaired); deleted \(collection.deletedAttempted, privacy: .public) already attempted, \(collection.deletedTooShort, privacy: .public) too short, \(collection.deletedTooOld, privacy: .public) too old, \(collection.deletedUnreadable, privacy: .public) unreadable, \(collection.deletedHistoryOff, privacy: .public) with history off"
+            )
+        }
+        guard !collection.candidates.isEmpty else { return }
+        let recovery = InterruptedRecordingRecovery(.init(
+            isIdle: { [weak self] in
+                guard let self else { return false }
+                return self.isEngineReady && !self.isRecording && !self.isTranscribing
+                    && self.transcriber.pendingTranscriptions == 0
+            },
+            historyAvailable: { [weak self] in
+                guard let self else { return false }
+                return self.historyEnabled && !self.historyUnavailable
+            },
+            transcribe: { [weak self] url in
+                guard let self else { return .failed(.noEngine) }
+                return await self.transcriber.transcribe(audioURL: url)
+            },
+            addToHistory: { [weak self] entry in
+                guard let self else { return }
+                self.historyStore.insert(entry, keepingAtMost: self.maxHistoryCount)
+            }
+        ))
+        interruptedRecordingsTask = Task { await recovery.run(collection.candidates) }
     }
 
     func showHistory() {
