@@ -369,7 +369,7 @@ private struct DoneStep: View {
             }
 
             Section("Try it") {
-                TryItRows(tryIt: tryIt, shortcut: shortcut, microphoneGranted: context.microphone.isGranted)
+                TryItRows(tryIt: tryIt, shortcut: context.shortcut, microphoneGranted: context.microphone.isGranted)
             }
         }
     }
@@ -378,7 +378,7 @@ private struct DoneStep: View {
 /// Record a short test and show the text here instead of pasting it.
 private struct TryItRows: View {
     let tryIt: TryItState
-    let shortcut: String
+    let shortcut: Shortcut
     let microphoneGranted: Bool
 
     /// The button and the shortcut are two equal ways to start and stop the test: the global
@@ -397,7 +397,7 @@ private struct TryItRows: View {
                 HStack(spacing: 8) {
                     Text("or press")
                         .foregroundStyle(.secondary)
-                    KeyCap(text: shortcut)
+                    ShortcutKeysView(shortcut: shortcut)
                 }
                 .opacity(canRecord ? 1 : 0.5)
                 Spacer(minLength: 0)
@@ -435,23 +435,8 @@ private struct TryItRows: View {
     private var caption: String {
         if !tryIt.isEngineReady { return "Available once the model is ready." }
         if !microphoneGranted { return "Allow the microphone first." }
-        if tryIt.isRecording { return "Listening… click Stop or press \(shortcut) again when done." }
+        if tryIt.isRecording { return "Listening… click Stop or press \(shortcut.displayString) again when done." }
         return "Say a sentence, then stop. The text shows here instead of being pasted."
-    }
-}
-
-/// A key combination drawn as a key cap, e.g. ⌃⌥Space.
-private struct KeyCap: View {
-    let text: String
-
-    var body: some View {
-        Text(text)
-            .font(.system(.body, design: .rounded).weight(.medium))
-            .padding(.horizontal, 7)
-            .padding(.vertical, 2)
-            .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(.quaternary))
-            .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(.separator))
-            .accessibilityLabel("Shortcut \(text)")
     }
 }
 

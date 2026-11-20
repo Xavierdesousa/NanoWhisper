@@ -22,7 +22,9 @@ Swift Testing (`@Suite`, `@Test`) in `Tests/NanoWhisperTests/`. CI runs `swift t
 | `TranscriptionFailureTests.swift` | Engine error and missing engine reported as a failure, not as empty text; `DictationOutcome` with a failure |
 | `HistoryStoreTests.swift` | Encrypted round trip (no plain text on disk), trimming, unreadable file ⇒ unavailable and never overwritten, plain-text file never read, pinned key derivation |
 | `LiveTranscriptionTests.swift`, `LiveTranscriptionFlavorTests.swift` | Live preview schedule, window, joins, transcript; availability per engine; debug-only flag and hidden toggle |
-| `ViewRenderTests.swift` | Offscreen renders (below); skipped unless `NANOWHISPER_RENDER_DIR` is set |
+| `ViewRenderTests.swift`, `RenderFixtures.swift` | Offscreen renders (below) and the Settings window sizing test; skipped unless `NANOWHISPER_RENDER_DIR` is set |
+| `MenuContentTests.swift` | Menu bar menu lines for every app state |
+| `SettingsPaneTests.swift` | Visible panes and the remembered pane, Recorder pane's live toggle per flavor, shortcut keys, Engine pane status and apply wording, update status |
 
 Seams used by tests: `Transcriber.transcriptionHandler`, `Transcriber.installParakeet(_:)`,
 `MediaPlaybackController` and `NowPlayingSource` fakes, `SetupManager.migrateLegacyParakeetV3Cache(currentDirectory:)`,
@@ -33,8 +35,14 @@ Seams used by tests: `Transcriber.transcriptionHandler`, `Transcriber.installPar
 Agents have **no screen capture**. These worked on 2026-11-19:
 
 1. **Offscreen PNG renders of SwiftUI views.**
-   `NANOWHISPER_RENDER_DIR=<dir> swift test --filter ViewRender` writes every onboarding step and
-   Settings in both engine modes (17 PNGs) to `<dir>`; read the PNGs to check layout. Views render
+   `NANOWHISPER_RENDER_DIR=<dir> swift test --filter ViewRender` writes every onboarding step,
+   every Settings pane and Engine state (light and dark), the Remove Unused Models sheet and
+   every menu state to `<dir>`; read the PNGs to check layout. The Settings renders are the
+   **real window** (`SettingsWindowController.makeWindow`, never shown): its frame view
+   (`contentView.superview`) is cached with the toolbar and title. A window that is never key
+   draws controls in their inactive look (grey switches and bars). The menu renders are
+   `MenuPreview`, an approximation drawn from `MenuContent` lines (an `NSMenu` cannot be drawn
+   offscreen). Views render
    from fixed `SettingsContext` fixtures, so no running app is needed. PR #16 used the same
    approach for the overlay, **and it missed two overlay bugs** that only exist in the real
    panel (window size not following the content, dot animation picking up layout): an offscreen

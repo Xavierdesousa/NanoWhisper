@@ -1,147 +1,194 @@
 import SwiftUI
 
-struct SettingsView: View {
+// MARK: - Panes
+
+/// The panes of the Settings window, shown as toolbar items (the shape of Settings in Mail,
+/// Safari or Xcode). Each pane is short; the window resizes to the selected one.
+enum SettingsPane: String, CaseIterable, Identifiable {
+    case general
+    case engine
+    case recorder
+    case permissions
+    case advanced
+
+    var id: Self { self }
+
+    /// Width of every pane; the height follows the content.
+    static let width: CGFloat = 640
+    /// UserDefaults key of the last selected pane, so Settings reopens where it was left.
+    static let defaultsKey = "settingsPane"
+
+    var title: String {
+        switch self {
+        case .general: return "General"
+        case .engine: return "Engine"
+        case .recorder: return "Recorder"
+        case .permissions: return "Permissions"
+        case .advanced: return "Advanced"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .general: return "gearshape"
+        case .engine: return "cpu"
+        case .recorder: return "capsule.portrait"
+        case .permissions: return "checkmark.shield"
+        case .advanced: return "slider.horizontal.3"
+        }
+    }
+
+    /// The pane to open: the stored one if it is still shown, else General.
+    static func restored(_ storedValue: String?, from visible: [SettingsPane]) -> SettingsPane {
+        if let storedValue, let pane = SettingsPane(rawValue: storedValue), visible.contains(pane) {
+            return pane
+        }
+        return visible.first ?? .general
+    }
+}
+
+/// One pane, bound to the running app.
+private struct LiveSettingsPane: View {
+    let pane: SettingsPane
     @ObservedObject var appState: AppState
-    @StateObject private var permissions = PermissionMonitor()
-    /// Model choices are edited here and take effect on Apply (see `ModelSettingsSection`).
+    @ObservedObject var permissions: PermissionMonitor
+    /// Engine choices are edited here and take effect on Apply (see `EnginePane`).
     @State private var draft: EngineConfiguration
 
-    init(appState: AppState) {
+    init(pane: SettingsPane, appState: AppState, permissions: PermissionMonitor) {
+        self.pane = pane
         self.appState = appState
+        self.permissions = permissions
         _draft = State(initialValue: appState.engineConfiguration)
     }
 
     var body: some View {
-        SettingsForm(
-            context: appState.settingsContext(permissions: permissions),
-            draft: $draft,
-            autoUpdater: appState.autoUpdater,
-            debugMode: $appState.debugMode,
-            showOnboarding: { appState.showOnboarding() }
-        )
-        .frame(width: SettingsForm.size.width, height: SettingsForm.size.height)
-        .onAppear { permissions.start() }
-        .onDisappear { permissions.stop() }
-    }
-}
-
-/// The Settings screen, built from the shared sections in the same order as onboarding,
-/// followed by the Settings-only Updates and Debug sections.
-struct SettingsForm: View {
-    let context: SettingsContext
-    @Binding var draft: EngineConfiguration
-    @ObservedObject var autoUpdater: AutoUpdater
-    @Binding var debugMode: Bool
-    let showOnboarding: () -> Void
-
-    static let size = CGSize(width: 480, height: 640)
-
-    var body: some View {
-        Form {
-            ModelSettingsSection(draft: $draft, context: context)
-            ModelStorageSection(storage: context.storage)
-            PermissionsSettingsSection(context: context)
-            ShortcutSettingsSection(context: context)
-            GeneralSettingsSection(context: context, showsHistoryLimit: true)
-            UpdatesSettingsSection(autoUpdater: autoUpdater)
-
-            Section("Debug") {
-                Toggle("Show debug info in history", isOn: $debugMode)
-                HStack {
-                    Text("Onboarding")
-                    Spacer()
-                    Button("Show Onboarding Again…", action: showOnboarding)
+        let context = appState.settingsContext(permissions: permissions)
+        switch pane {
+        case .general:
+            GeneralPane(context: context)
+        case .engine:
+            EnginePane(draft: $draft, context: context)
+                // The applied configuration changed elsewhere (onboarding, a migration): an
+                // untouched draft follows it; an edited one is kept.
+                .onChange(of: appState.engineConfiguration) { old, new in
+                    if draft == old { draft = new }
                 }
-            }
-        }
-        .formStyle(.grouped)
-    }
-}
-
-struct UpdatesSettingsSection: View {
-    @ObservedObject var autoUpdater: AutoUpdater
-
-    var body: some View {
-        Section("Updates") {
-            HStack {
-                Text("Current version")
-                Spacer()
-                Text("v\(autoUpdater.currentVersion)")
-                    .foregroundStyle(.secondary)
-            }
-
-            if !autoUpdater.isEnabled {
-                Label("Automatic updates are disabled in debug builds", systemImage: "hammer")
-                    .foregroundStyle(.secondary)
-            } else if autoUpdater.isChecking {
-                Label("Checking for updates...", systemImage: "arrow.clockwise")
-                    .foregroundStyle(.secondary)
-            } else if autoUpdater.isDownloading {
-                VStack(alignment: .leading, spacing: 4) {
-                    Label("Downloading update...", systemImage: "arrow.down.circle")
-                        .foregroundStyle(.blue)
-                    ProgressView(value: autoUpdater.downloadProgress)
-                }
-            } else if autoUpdater.updateAvailable, let version = autoUpdater.latestVersion {
-                HStack {
-                    Label("v\(version) available", systemImage: "arrow.up.circle.fill")
-                        .foregroundStyle(.green)
-                    Spacer()
-                    Button("Install Update") {
+        case .recorder:
+            RecorderPane(context: context)
+        case .permissions:
+            // Polls only while the pane is visible; the window controller also stops it on close.
+            PermissionsPane(context: context)
+                .onAppear { permissions.start() }
+                .onDisappear { permissions.stop() }
+        case .advanced:
+            AdvancedPane(
+                updates: UpdateStatus(appState.autoUpdater),
+                actions: UpdateActions(
+                    check: { [autoUpdater = appState.autoUpdater] in
+                        Task { await autoUpdater.checkForUpdates() }
+                    },
+                    install: { [autoUpdater = appState.autoUpdater] in
                         Task { await autoUpdater.downloadAndInstall() }
                     }
-                    .buttonStyle(.borderedProminent)
-                }
-            } else {
-                HStack {
-                    Label("Up to date", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                    Spacer()
-                    Button("Check Now") {
-                        Task { await autoUpdater.checkForUpdates() }
-                    }
-                }
-            }
-
-            if let err = autoUpdater.error {
-                Text(err)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-            }
+                ),
+                debugMode: $appState.debugMode,
+                showOnboarding: { appState.showOnboarding() }
+            )
         }
     }
 }
 
-// Manage a standalone NSWindow for settings
+// MARK: - Window
+
+/// Toolbar panes. `NSTabViewController` in toolbar style draws the pane items, titles the
+/// window with the pane name and resizes the window to the selected pane's
+/// `preferredContentSize` (set by each `NSHostingController` from the SwiftUI content).
+final class SettingsTabViewController: NSTabViewController {
+    private let panes: [SettingsPane]
+    var onSelect: ((SettingsPane) -> Void)?
+
+    init(panes: [(SettingsPane, NSViewController)], selected: SettingsPane) {
+        self.panes = panes.map(\.0)
+        super.init(nibName: nil, bundle: nil)
+        tabStyle = .toolbar
+        transitionOptions = [.crossfade, .allowUserInteraction]
+        for (pane, controller) in panes {
+            controller.title = pane.title
+            let item = NSTabViewItem(viewController: controller)
+            item.label = pane.title
+            item.identifier = pane.rawValue
+            item.image = NSImage(systemSymbolName: pane.systemImage, accessibilityDescription: pane.title)
+            addTabViewItem(item)
+        }
+        selectedTabViewItemIndex = self.panes.firstIndex(of: selected) ?? 0
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    var selectedPane: SettingsPane? {
+        panes.indices.contains(selectedTabViewItemIndex) ? panes[selectedTabViewItemIndex] : nil
+    }
+
+    override func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
+        super.tabView(tabView, didSelect: tabViewItem)
+        // The window does not always follow on its own (it kept the previous pane's height
+        // in the sizing test), so fit it to the new pane explicitly.
+        if let controller = tabViewItem?.viewController {
+            controller.view.layoutSubtreeIfNeeded()
+            fitWindow(to: controller.view.fittingSize, animate: true)
+        }
+        if let selectedPane { onSelect?(selectedPane) }
+    }
+
+    /// The selected pane's content changed height (a Whisper choice, a pending change, an
+    /// update state): follow it, keeping the window's top edge in place.
+    override func preferredContentSizeDidChange(for viewController: NSViewController) {
+        super.preferredContentSizeDidChange(for: viewController)
+        guard viewController === tabViewItems[safe: selectedTabViewItemIndex]?.viewController else { return }
+        fitWindow(to: viewController.preferredContentSize, animate: true)
+    }
+
+    /// Size the window's content to `size`, keeping the top edge.
+    func fitWindow(to size: NSSize, animate: Bool) {
+        guard let window = view.window, size.width > 0, size.height > 0 else { return }
+        let current = window.contentRect(forFrameRect: window.frame)
+        guard abs(current.height - size.height) > 0.5 || abs(current.width - size.width) > 0.5 else { return }
+        var frame = window.frameRect(forContentRect: NSRect(origin: current.origin, size: size))
+        frame.origin.y = window.frame.maxY - frame.height
+        window.setFrame(frame, display: true, animate: animate && window.isVisible)
+    }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
+}
+
+/// The Settings window. AppKit-managed, as the app is a menu bar app (accessory policy):
+/// it opens from the menu, centered on the screen with the pointer, and its content is
+/// rebuilt at each opening so the Engine draft starts from the applied settings.
 @MainActor
 final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
+    private var permissions: PermissionMonitor?
 
     func show(appState: AppState) {
-        if let w = window {
-            // A fresh view when reopened, so the model draft starts from the applied
-            // settings (unapplied changes are dropped when the window closes).
-            if !w.isVisible {
-                w.contentView = NSHostingView(rootView: SettingsView(appState: appState))
-            }
-            w.collectionBehavior = [.moveToActiveSpace]
-            centerOnCurrentScreen(w)
-            w.makeKeyAndOrderFront(nil)
+        if let window, window.isVisible {
+            window.collectionBehavior = [.moveToActiveSpace]
+            window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
-        let w = NSWindow(
-            contentRect: NSRect(origin: .zero, size: SettingsForm.size),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        w.title = "\(BuildFlavor.current.displayName) Settings"
-        w.contentView = NSHostingView(rootView: SettingsView(appState: appState))
-        w.isReleasedWhenClosed = false
-        w.isRestorable = false
-        w.collectionBehavior = [.moveToActiveSpace]
+        let permissions = PermissionMonitor()
+        self.permissions = permissions
+        let tabs = Self.makeTabs(selectedFrom: UserDefaults.standard) { pane in
+            AnyView(LiveSettingsPane(pane: pane, appState: appState, permissions: permissions))
+        }
+        tabs.onSelect = { UserDefaults.standard.set($0.rawValue, forKey: SettingsPane.defaultsKey) }
+
+        let w = Self.makeWindow(tabs: tabs)
         w.delegate = self
         centerOnCurrentScreen(w)
         w.makeKeyAndOrderFront(nil)
@@ -149,13 +196,46 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         window = w
     }
 
+    static func makeTabs(
+        panes: [SettingsPane] = SettingsPane.allCases,
+        selectedFrom defaults: UserDefaults,
+        content: (SettingsPane) -> AnyView
+    ) -> SettingsTabViewController {
+        let controllers: [(SettingsPane, NSViewController)] = panes.map { pane in
+            let hosting = NSHostingController(rootView: content(pane))
+            hosting.sizingOptions = [.preferredContentSize]
+            return (pane, hosting)
+        }
+        let selected = SettingsPane.restored(defaults.string(forKey: SettingsPane.defaultsKey), from: panes)
+        return SettingsTabViewController(panes: controllers, selected: selected)
+    }
+
+    static func makeWindow(tabs: SettingsTabViewController) -> NSWindow {
+        let w = NSWindow(contentViewController: tabs)
+        w.styleMask = [.titled, .closable]
+        w.toolbarStyle = .preference
+        w.isReleasedWhenClosed = false
+        w.isRestorable = false
+        w.collectionBehavior = [.moveToActiveSpace]
+        // The tab controller resizes the window when the pane changes, not for the first one.
+        if let selected = tabs.tabViewItems[safe: tabs.selectedTabViewItemIndex]?.viewController {
+            selected.view.layoutSubtreeIfNeeded()
+            tabs.fitWindow(to: selected.view.fittingSize, animate: false)
+        }
+        return w
+    }
+
     func close() {
         window?.close()
     }
 
-    /// Tear the SwiftUI view down with the window (a closed window keeps its content view),
-    /// so its permission polling stops.
+    /// Tear the SwiftUI content down with the window and stop the permission polling (a
+    /// closed window keeps its content, and `onDisappear` does not run).
     func windowWillClose(_ notification: Notification) {
-        window?.contentView = NSView()
+        guard let closing = notification.object as? NSWindow, closing === window else { return }
+        permissions?.stop()
+        permissions = nil
+        closing.contentViewController = nil
+        window = nil
     }
 }

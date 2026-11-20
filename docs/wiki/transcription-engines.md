@@ -169,7 +169,7 @@ All file operations go through `ModelStore` (roots injectable: `ModelStore(root:
   engine. Never deletes a selectable model (v3 stays after the move to Ultra). Deferred while a
   recording or transcription is in flight (it may still hold the previous engine); runs when
   that transcription finishes.
-- **Manual:** Settings → Downloaded Models → "Remove Unused Models…" (see
+- **Manual:** Settings › Engine › Downloaded models › "Remove Unused Models…" (see
   [onboarding-and-settings.md](onboarding-and-settings.md)).
 - **Lock:** every removal holds the same `flock` as the legacy migration
   (`FluidAudio/Models/.parakeet-v3-migration.lock`, name kept for 0.0.5 compatibility,

@@ -54,11 +54,13 @@ On first launch, an onboarding window walks you through model download, permissi
 
 | Action | How |
 |---|---|
-| Start/stop recording | **⌥ Space** (default) or menubar button |
+| Start/stop recording | **⌥ Space** (default) or menubar → Start Dictation |
 | Stop via overlay | Hover the overlay → click stop |
-| Open history | Menubar → History |
-| Open settings | Menubar → Settings |
+| Open history | Menubar → History… |
+| Open settings | Menubar → Settings… (⌘,) |
 | Quit | Menubar → Quit |
+
+Settings has one pane per topic: **General** (shortcut, open at login, sounds, pausing media, history), **Engine** (speech model, its download, Whisper language and vocabulary, removing unused models), **Recorder** (where the recorder appears; live transcription in debug builds), **Permissions**, **Advanced** (updates, debug options).
 
 ## Permissions
 
@@ -90,7 +92,7 @@ Word error rate published by FluidAudio ([benchmarks](https://github.com/FluidIn
 
 ### Disk space
 
-Models that NanoWhisper no longer offers are deleted automatically once their replacement is loaded (the 0.0.4 copy of Parakeet v3, Whisper Tiny, Medium and Large v3). Whisper models are cleaned up this way only while you use Whisper, so Parakeet users never see a request to access the Documents folder. Models you can still select are never deleted automatically: **Settings → Downloaded Models → Remove Unused Models…** lists every NanoWhisper model on disk except the one in use, with sizes, and deletes them after you confirm. Only folders NanoWhisper itself downloads are ever touched.
+Models that NanoWhisper no longer offers are deleted automatically once their replacement is loaded (the 0.0.4 copy of Parakeet v3, Whisper Tiny, Medium and Large v3). Whisper models are cleaned up this way only while you use Whisper, so Parakeet users never see a request to access the Documents folder. Models you can still select are never deleted automatically: **Settings → Engine → Remove Unused Models…** lists every NanoWhisper model on disk except the one in use, with sizes, and deletes them after you confirm. Only folders NanoWhisper itself downloads are ever touched.
 
 ## Requirements
 
@@ -117,7 +119,7 @@ make app
 | Settings, permissions, login item | own | own (granted separately) |
 | History | `~/Library/Application Support/NanoWhisper` | `~/Library/Application Support/NanoWhisper Debug` |
 | Auto-updater | on | off |
-| Live transcription (beta) | not available | available in Settings → General (text in the overlay while you speak) |
+| Live transcription (beta) | not available | available in Settings → Recorder (text in the overlay while you speak) |
 | Markers | — | "DEBUG" banner on the icon, orange band across the menubar icon, version and commit in the menu |
 
 Downloaded models are shared by both. `make app` only stops a running NanoWhisper Debug, never the release app.

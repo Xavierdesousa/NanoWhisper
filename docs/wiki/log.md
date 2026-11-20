@@ -5,6 +5,24 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-20
 
+- **Settings and menu redesign** (`feat/settings-and-menu-redesign`, PR #25): approved designs from the
+  Claude Design canvas (Settings proposal 1 "Toolbar panes"; the menu of "After setup: the menu
+  bar takes over"); the onboarding redesign was not approved and is postponed.
+  - Settings: five toolbar panes (General, Engine, Recorder, Permissions, Advanced) in an
+    `NSTabViewController` inside the existing `SettingsWindowController`; a SwiftUI `Settings`
+    scene was rejected (opening and teardown in a menu bar app). Recorder hosts the recorder
+    position picker from the Voice note overlay (PR #24, merged into this branch).
+  - Menu: `MenuBarExtra` replaced by an AppKit `NSStatusItem` menu (`MenuBarController`) built
+    from `MenuContent.lines(for:)`, for the download bar and the key caps.
+  - The shortcut is drawn as flat key caps (`ShortcutKeysView`), in Settings, the menu and
+    onboarding's Try-it row (maintainer's request: no 3D keys).
+  - Whisper language and vocabulary apply at once in Settings; `AutoUpdater.lastCheckDate`;
+    the engine start error no longer names a button.
+  - Design text not used because it is not true of the app: "text is copied for you to paste"
+    without Accessibility, "Parakeet stays in use until Whisper is ready", byte counts and
+    "4 models, 1.7 GB" (would need reading `~/Documents`). Details:
+    [onboarding-and-settings.md](onboarding-and-settings.md), [architecture.md](architecture.md#menu-bar-menu).
+
 - **Recording overlay redesign, "Voice note", and the recorder position** (`feat/voice-note-overlay`, PR #24):
   the overlay now follows the approved design (capsule, 26-bar scrolling waveform at 50 ms,
   card for live text with a top fade and a caret, result states with a VoiceOver announcement,

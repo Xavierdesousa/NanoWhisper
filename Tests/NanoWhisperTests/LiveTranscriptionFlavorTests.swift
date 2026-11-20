@@ -45,8 +45,8 @@ struct LiveTranscriptionFlavorTests {
         // accessibility tree without an assistive client, so the tree is inspected directly).
         var tree = ""
         dump(GeneralSettingsSection(context: storedOn).body, to: &tree)
-        // Positive control: another toggle of the section is found.
-        #expect(tree.contains("\"Sound feedback\""))
+        // Positive control: the section's title is found.
+        #expect(tree.contains("\"General\""))
         #expect(tree.contains("\"\(GeneralSettingsSection.liveTranscriptionLabel)\"") == offered)
         #expect(stored, "showing or hiding the toggle must not change the stored value")
     }

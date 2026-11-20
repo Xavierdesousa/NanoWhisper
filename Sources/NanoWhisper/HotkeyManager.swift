@@ -21,6 +21,12 @@ private func hotkeyHandler(
     return noErr
 }
 
+/// One key of a shortcut: its symbol (⌥, ⌘, Y, Space) and the name VoiceOver reads.
+struct ShortcutKey: Equatable, Sendable {
+    let glyph: String
+    let spokenName: String
+}
+
 struct Shortcut: Equatable {
     var keyCode: UInt32
     var modifiers: UInt32 // Carbon modifier mask
@@ -28,15 +34,23 @@ struct Shortcut: Equatable {
     // Default: ⌥Space in production, ⌃⌥Space in debug (see BuildFlavor.defaultShortcut)
     static let `default` = BuildFlavor.current.defaultShortcut
 
-    var displayString: String {
-        var parts: [String] = []
-        if modifiers & UInt32(controlKey) != 0 { parts.append("⌃") }
-        if modifiers & UInt32(optionKey) != 0 { parts.append("⌥") }
-        if modifiers & UInt32(shiftKey) != 0 { parts.append("⇧") }
-        if modifiers & UInt32(cmdKey) != 0 { parts.append("⌘") }
-        parts.append(keyCodeToString(keyCode))
-        return parts.joined()
+    var displayString: String { keys.map(\.glyph).joined() }
+
+    /// One entry per key, in the macOS order (⌃ ⌥ ⇧ ⌘, then the key), as `ShortcutKeysView`
+    /// draws them: one box per key.
+    var keys: [ShortcutKey] {
+        var keys: [ShortcutKey] = []
+        if modifiers & UInt32(controlKey) != 0 { keys.append(ShortcutKey(glyph: "⌃", spokenName: "Control")) }
+        if modifiers & UInt32(optionKey) != 0 { keys.append(ShortcutKey(glyph: "⌥", spokenName: "Option")) }
+        if modifiers & UInt32(shiftKey) != 0 { keys.append(ShortcutKey(glyph: "⇧", spokenName: "Shift")) }
+        if modifiers & UInt32(cmdKey) != 0 { keys.append(ShortcutKey(glyph: "⌘", spokenName: "Command")) }
+        let key = keyCodeToString(keyCode)
+        keys.append(ShortcutKey(glyph: key, spokenName: key))
+        return keys
     }
+
+    /// e.g. "Control Option Space", for VoiceOver.
+    var spokenDescription: String { keys.map(\.spokenName).joined(separator: " ") }
 
     // Persist to UserDefaults
     func save() {
