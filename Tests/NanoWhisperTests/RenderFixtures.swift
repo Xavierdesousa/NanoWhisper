@@ -162,7 +162,8 @@ struct MenuPreview: View {
             }
         }
         .padding(.vertical, 5)
-        .frame(width: 290)
+        .frame(minWidth: 290, alignment: .leading)
+        .fixedSize()
         .background(RoundedRectangle(cornerRadius: 9).fill(Color(nsColor: .windowBackgroundColor)))
         .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(.separator))
         .padding(12)
