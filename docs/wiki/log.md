@@ -5,6 +5,16 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-20
 
+- **Crash when stopping a recording** (`fix/stop-recording-crash`, PR #TBD): the debug app crashed
+  at the end of a 2 min 44 s dictation. Cause: `removeTap` on the running engine cleared the
+  AUHAL input callback while CoreAudio's IO thread was about to call it (null call); confirmed
+  by disassembly and tracing, reproduced with the same signature in a stress harness.
+  `AudioRecorder` now stops the engine before removing the tap, closes the WAV before returning
+  it (`RecordingWriter`), and continues on a new input after `AVAudioEngineConfigurationChange`
+  (or stops cleanly with `onInputLost`). Recommendation (not implemented) to offer crashed
+  recordings at next launch. Details:
+  [architecture.md](architecture.md#stopping-the-recorder-crash-of-2026-11-20).
+
 - **Settings and menu redesign** (`feat/settings-and-menu-redesign`, PR #25): approved designs from the
   Claude Design canvas (Settings proposal 1 "Toolbar panes"; the menu of "After setup: the menu
   bar takes over"); the onboarding redesign was not approved and is postponed.

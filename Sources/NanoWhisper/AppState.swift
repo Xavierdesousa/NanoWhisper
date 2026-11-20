@@ -160,6 +160,14 @@ class AppState: ObservableObject {
             }
         }
 
+        // The input changed mid-recording and the recorder could not continue on the new one:
+        // transcribe what was recorded rather than keep showing a recording that hears nothing.
+        audioRecorder.onInputLost = { [weak self] in
+            guard let self, self.isRecording else { return }
+            self.stopRecording()
+            self.lastError = "Recording stopped: the microphone changed"
+        }
+
         shortcut = hotkeyManager.currentShortcut
         hotkeyManager.onHotkeyPressed = { [weak self] in
             Task { @MainActor in

@@ -24,6 +24,7 @@ Swift Testing (`@Suite`, `@Test`) in `Tests/NanoWhisperTests/`. CI runs `swift t
 | `LiveTranscriptionTests.swift`, `LiveTranscriptionFlavorTests.swift` | Live preview schedule, window, joins, transcript; availability per engine; debug-only flag and hidden toggle |
 | `ViewRenderTests.swift`, `RenderFixtures.swift` | Offscreen renders (below) and the Settings window sizing test; skipped unless `NANOWHISPER_RENDER_DIR` is set |
 | `MenuContentTests.swift` | Menu bar menu lines for every app state |
+| `AudioRecorderTests.swift` | `RecordingWriter`: 16 kHz mono conversion (48 kHz mono, 44.1 kHz stereo), WAV header final once `finish()` returns, nothing written after it, input format change mid-recording, appends racing `finish()`; the level curve. `AudioRecorder` with `FakeInputEngine` (no real input): stop order (engine stopped before the tap is removed, never a tap removed from a running engine), WAV complete when returned, late tap buffers ignored, input change continuing in the same file, input change that cannot restart (`onInputLost`, file finalized), start failure leaving no file. Swapping the stop order back makes two of these fail (checked) |
 | `SettingsPaneTests.swift` | Visible panes and the remembered pane, Recorder pane's live toggle per flavor, shortcut keys, Engine pane status and apply wording, update status |
 
 Seams used by tests: `Transcriber.transcriptionHandler`, `Transcriber.installParakeet(_:)`,
@@ -84,13 +85,28 @@ Agents have **no screen capture**. These worked on 2026-11-19:
    An offscreen `NSHostingView` exposes **no accessibility tree** to a test process (no
    assistive client is attached), so walking `accessibilityChildren()` finds nothing (tried
    2026-11-20, `LiveTranscriptionFlavorTests`).
-7. **Makefile dry runs**: `make -n <target>`; guards of `make publish` were run by hand from the
+7. **Crash reports and system frameworks** (fix/stop-recording-crash, 2026-11-20): decode an
+   `.ips` report (JSON after the first line) for threads, registers and image offsets; read
+   the app's unified log of that minute (`/usr/bin/log show --start … --predicate 'process ==
+   "NanoWhisperDebug"'`: AVAudioEngine and AUHAL log engine starts/stops and device changes);
+   disassemble a component that is not in the shared cache with `otool -tvV` and one that is
+   (AVFAudio) with `lldb` attached to any small program, `disassemble -s <start> -e <end>`;
+   trace private calls with lldb breakpoints and `bt` commands in a `-s` script
+   (`breakpoint command add N` / … / `DONE`; several `-o` on one line keep only the last).
+   Crash reports of harnesses land in `~/Library/Logs/DiagnosticReports/` too: delete your own.
+   - **Never open the real microphone from a harness or test** (maintainer's rule, 2026-11-20).
+     Agent-run processes do have microphone access (TCC granted to the host), but every engine
+     start lights the macOS microphone indicator and disturbs the maintainer at the Mac; the
+     stress and start/stop harnesses of `fix/stop-recording-crash` were stopped for that reason.
+     Test audio code through `AudioInputEngine` with a fake (`FakeInputEngine` in
+     `AudioRecorderTests.swift`), synthetic buffers, or `AVAudioEngine` in manual rendering mode.
+8. **Makefile dry runs**: `make -n <target>`; guards of `make publish` were run by hand from the
    `make -n` output, never calling `gh` (PR #14). Workflow steps were run against a fake `gh`/`make`
    on `PATH`.
 
 ## What agents cannot verify
 
-Real microphone input in the app (permission not granted to the debug app by agents; do not
-trigger prompts), anything visual on the real screen (menu bar, overlay animation, several
+Real microphone input (not in the app: its permission is not granted to the debug app by agents,
+do not trigger prompts; not in harnesses either, see above), anything visual on the real screen (menu bar, overlay animation, several
 displays), TCC prompts, Gatekeeper on a downloaded build. List these as "not verified" in the PR
 and in [open-questions.md](open-questions.md).
