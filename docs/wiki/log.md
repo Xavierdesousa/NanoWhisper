@@ -5,7 +5,7 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-20
 
-- **Recovery of recordings interrupted by a crash** (`feat/recover-interrupted-recordings`, PR #TBD):
+- **Recovery of recordings interrupted by a crash** (`feat/recover-interrupted-recordings`, PR #28):
   the maintainer approved the recommendation of PR #26 with their own rules. At launch, this
   build's leftovers with audio are kept (header repaired) and transcribed once each, silently,
   when the app is idle; the text goes to History at the recording's date. Renamed
