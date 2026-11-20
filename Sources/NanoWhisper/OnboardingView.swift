@@ -381,20 +381,31 @@ private struct TryItRows: View {
     let shortcut: String
     let microphoneGranted: Bool
 
+    /// The button and the shortcut are two equal ways to start and stop the test: the global
+    /// shortcut, pressed while this window is in front, records a test too
+    /// (`DictationDestination.atStart(testBoxShowing:appIsActive:)`).
     var body: some View {
-        HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Button {
+                    tryIt.toggleRecording()
+                } label: {
+                    Label(tryIt.isRecording ? "Stop" : "Record a Test",
+                          systemImage: tryIt.isRecording ? "stop.fill" : "mic.fill")
+                }
+                .disabled(!canRecord)
+                HStack(spacing: 8) {
+                    Text("or press")
+                        .foregroundStyle(.secondary)
+                    KeyCap(text: shortcut)
+                }
+                .opacity(canRecord ? 1 : 0.5)
+                Spacer(minLength: 0)
+            }
             Text(caption)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 8)
-            Button {
-                tryIt.toggleRecording()
-            } label: {
-                Label(tryIt.isRecording ? "Stop" : "Record a Test",
-                      systemImage: tryIt.isRecording ? "stop.fill" : "mic.fill")
-            }
-            .disabled(!tryIt.isEngineReady || tryIt.isTranscribing)
         }
 
         if tryIt.isTranscribing {
@@ -419,11 +430,28 @@ private struct TryItRows: View {
         }
     }
 
+    private var canRecord: Bool { tryIt.isEngineReady && !tryIt.isTranscribing }
+
     private var caption: String {
         if !tryIt.isEngineReady { return "Available once the model is ready." }
         if !microphoneGranted { return "Allow the microphone first." }
-        if tryIt.isRecording { return "Listening… click Stop or press \(shortcut) when done." }
-        return "Click the button or press \(shortcut), say a sentence, then stop. The text shows here instead of being pasted."
+        if tryIt.isRecording { return "Listening… click Stop or press \(shortcut) again when done." }
+        return "Say a sentence, then stop. The text shows here instead of being pasted."
+    }
+}
+
+/// A key combination drawn as a key cap, e.g. ⌃⌥Space.
+private struct KeyCap: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(.body, design: .rounded).weight(.medium))
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(.quaternary))
+            .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(.separator))
+            .accessibilityLabel("Shortcut \(text)")
     }
 }
 

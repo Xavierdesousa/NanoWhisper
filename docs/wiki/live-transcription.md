@@ -1,7 +1,7 @@
 # Live transcription (beta)
 
-Last verified: 2026-11-20, against `feat/live-debug-only` (merged in PR #16, made debug-only
-in the PR that follows it).
+Last verified: 2026-11-20, against `fix/overlay-and-debug-marker` (feature from PR #16, debug-only
+since PR #18).
 
 ## Debug build only
 
@@ -77,7 +77,14 @@ Small, Large v3 and Large v3 Turbo the toggle is disabled with a one-line explan
 - **Overlay:**
   - It grows once to 384×82 pt when text appears, keeps its top edge and center, and shows the
     last two lines.
-  - Reduce Motion disables the resize animation and the dot pulse.
+  - **The panel follows the SwiftUI content's ideal size** (`OverlayHostingView` reports
+    `invalidateIntrinsicContentSize()`, the controller resizes on the next main-queue turn).
+    Until 2026-11-20 the controller read `fittingSize` right after setting the view model, got
+    the pre-update compact size, and the panel stayed 123×40 pt around 384×82 pt of content:
+    square dark rectangle, one line cut on both sides, the bars row out of view.
+  - **The resize is not animated:** during an animated window resize the content, already at
+    its new size, was clipped by the smaller window.
+  - Reduce Motion disables the dot pulse.
   - Without text it is exactly the pre-PR overlay.
 
 ## Decisions and rejected alternatives
@@ -152,7 +159,9 @@ Final text was identical to live off for both.
 
 - No real-microphone recording in the app.
 - Real speech (only TTS audio).
-- The resize animation, several screens, and hover-to-stop with text.
+- Several screens, and hover-to-stop with text. Whether a single frame of the expanded content
+  in the compact panel shows between the text update and the resize (they are one main-queue
+  turn apart) was not checked on screen.
 - Onboarding's Try-it with live on.
 - Whisper Tiny and Small, and Large v3.
 - Parakeet v3: Ultra only, because the v3 cache lacked `JointDecisionv3.mlmodelc`.

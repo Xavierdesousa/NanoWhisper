@@ -177,12 +177,13 @@ struct MenuBarIconTests {
         return glyph
     }
 
-    @Test("Glyph follows the appearance, badge stays orange")
+    @Test("Glyph follows the appearance, the band stays orange")
     func adaptsToAppearance() throws {
         let icon = MenuBarIcon.badged(solidGlyph)
         #expect(!icon.isTemplate)
 
-        // Top-left area: glyph only. Bottom-right (pixel rows count from the top): badge.
+        // Top-left area: glyph only. Band: middle of its height, at both ends and the center
+        // (pixel rows count from the top).
         let light = render(icon, appearance: .aqua)
         let dark = render(icon, appearance: .darkAqua)
         let lightGlyph = try #require(light.colorAt(x: 6, y: 6)?.usingColorSpace(.sRGB))
@@ -190,23 +191,28 @@ struct MenuBarIconTests {
         #expect(lightGlyph.brightnessComponent < 0.3)
         #expect(darkGlyph.brightnessComponent > 0.7)
 
+        let bandRow = Int(((MenuBarIcon.size.height - MenuBarIcon.bandRect.midY) * 2).rounded())
         for rep in [light, dark] {
-            let badge = try #require(rep.colorAt(x: 36 - 6, y: 36 - 6)?.usingColorSpace(.sRGB))
-            #expect(badge.redComponent > 0.9)
-            #expect(badge.greenComponent > 0.4 && badge.greenComponent < 0.7)
-            #expect(badge.blueComponent < 0.2)
+            for x in [0, 18, 35] {
+                let band = try #require(rep.colorAt(x: x, y: bandRow)?.usingColorSpace(.sRGB))
+                #expect(band.redComponent > 0.9)
+                #expect(band.greenComponent > 0.4 && band.greenComponent < 0.7)
+                #expect(band.blueComponent < 0.2)
+            }
         }
     }
 
-    @Test("A transparent ring separates the badge from the glyph")
-    func badgeGap() {
+    @Test("The band spans the full width, with a transparent gap above and below it")
+    func bandGap() {
         let rep = render(MenuBarIcon.badged(solidGlyph), appearance: .aqua)
-        // Just outside the badge circle, along its top-left diagonal.
-        let badge = MenuBarIcon.badgeRect
-        let radius = badge.width / 2
-        let offset = (radius + MenuBarIcon.badgeGap / 2) / 2.squareRoot()
-        let x = Int(((badge.midX - offset) * 2).rounded())
-        let yFromTop = Int(((MenuBarIcon.size.height - (badge.midY + offset)) * 2).rounded())
-        #expect((rep.colorAt(x: x, y: yFromTop)?.alphaComponent ?? 1) < 0.5)
+        let band = MenuBarIcon.bandRect
+        #expect(band.minX == 0 && band.width == MenuBarIcon.size.width)
+        // Rows just above and just below the band, where the solid glyph is cut away.
+        for y in [band.maxY + MenuBarIcon.bandGap / 2, band.minY - MenuBarIcon.bandGap / 2] {
+            let row = Int(((MenuBarIcon.size.height - y) * 2).rounded(.down))
+            for x in [2, 18, 33] {
+                #expect((rep.colorAt(x: x, y: row)?.alphaComponent ?? 1) < 0.5)
+            }
+        }
     }
 }
