@@ -5,6 +5,25 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-20
 
+- **Overlay and debug marker fixes** (`fix/overlay-and-debug-marker`), from the maintainer's
+  test of the debug build:
+  - **Live text overlay broken in the real app:** the panel stayed compact (123×40 pt) while
+    its content grew to 384×82 pt, because `fittingSize` was read before SwiftUI re-rendered.
+    The panel now follows the content's ideal size (`OverlayHostingView`), without an animated
+    resize. Reproduced and verified with the real panel in a harness and `OverlayWindowTests`.
+  - **Record dot sliding in Try-it:** `PulsingDot`'s `.repeatForever` animation was attached to
+    the whole view, so when `onAppear` ran during the panel's first layout (recording started
+    from a SwiftUI button in an active app) it also animated the dot's position, forever. The
+    animation is now scoped to scale and opacity (`animation(_:body:)`); the panel is also first
+    laid out at its real size.
+  - **Debug menu bar marker:** an orange band across the bottom of the glyph replaces the dot.
+  - **Try it:** "Record a Test or press <shortcut>" with the shortcut as a key cap; the hotkey path
+    to a test recording checked in code ([onboarding-and-settings.md](onboarding-and-settings.md)).
+  - **Planned (maintainer):** a redesign pass of onboarding, Settings and the overlay next; the
+    feedback sounds to be replaced with new original ones ([open-questions.md](open-questions.md)).
+  - Pages: [live-transcription.md](live-transcription.md), [testing-and-verification.md](testing-and-verification.md)
+    (capturing a real window), [build-and-release.md](build-and-release.md), README.
+
 - **Cleanup** (PR #19, `chore/cleanup`):
   - **History extracted** from `AppState` into `HistoryStore` (`HistoryStore.swift`, with
     `HistoryEntry`, `TranscriptionDebugInfo`, `HistoryCrypto`); temp-recording deletion into

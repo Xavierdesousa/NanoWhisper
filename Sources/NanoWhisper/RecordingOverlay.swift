@@ -8,6 +8,21 @@ private class OverlayPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+/// Hosting view that reports when its SwiftUI content's ideal size changes.
+///
+/// The controller sizes the panel itself (keeping its top edge in place), so it must know when
+/// the content grows or shrinks. Reading `fittingSize` right after changing the view model is
+/// not enough: SwiftUI has not re-rendered yet and returns the previous size, which left the
+/// panel compact while the content had expanded (clipped text, no corners).
+private final class OverlayHostingView: NSHostingView<RecordingOverlayView> {
+    var onIdealSizeChange: (() -> Void)?
+
+    override func invalidateIntrinsicContentSize() {
+        super.invalidateIntrinsicContentSize()
+        onIdealSizeChange?()
+    }
+}
+
 // MARK: - Overlay Window Controller
 
 @MainActor
@@ -26,6 +41,8 @@ class RecordingOverlayController {
     private var activeRecordings = 0
     /// Incremented by every `show`, so a fade-out scheduled earlier never hides a newer recording.
     private var presentation = 0
+    /// A resize to the content's new ideal size is scheduled (see `scheduleFit()`).
+    private var fitScheduled = false
 
     init() {
         // Watch for display configuration changes (plug/unplug monitor, arrangement change)
@@ -88,16 +105,20 @@ class RecordingOverlayController {
             let view = RecordingOverlayView(viewModel: viewModel, onStop: { [weak self] in
                 self?.onStop?()
             })
-            let hosting = NSHostingView(rootView: view)
+            let hosting = OverlayHostingView(rootView: view)
             // The controller sizes the window itself, keeping its top edge in place when the
             // transcript appears. With the default options the hosting view would also resize
             // it, anchored at the bottom-left corner; the intrinsic size alone keeps
-            // `fittingSize` accurate without that.
+            // `fittingSize` accurate without that, and its changes are reported.
             hosting.sizingOptions = [.intrinsicContentSize]
-            hosting.frame = NSRect(x: 0, y: 0, width: 180, height: 48)
+            hosting.onIdealSizeChange = { [weak self] in self?.scheduleFit() }
+            // First layout at the real size: content laid out at a placeholder size and then
+            // moved could be picked up by an animation starting at the same moment.
+            let size = hosting.fittingSize
+            hosting.frame = NSRect(origin: .zero, size: size)
 
             let win = OverlayPanel(
-                contentRect: NSRect(x: 0, y: 0, width: 180, height: 48),
+                contentRect: NSRect(origin: .zero, size: size),
                 styleMask: [.borderless, .nonactivatingPanel],
                 backing: .buffered,
                 defer: false
@@ -132,13 +153,10 @@ class RecordingOverlayController {
 
     /// Show `transcript` (or remove the live text with `nil`) if `id` is the live
     /// transcription of the recording the overlay is showing; ignored otherwise.
+    /// The panel follows the new size once SwiftUI has laid it out (`OverlayHostingView`).
     func updateTranscript(_ transcript: LiveTranscript?, for id: UUID) {
         guard id == transcriptID, window != nil else { return }
-        let wasShowingText = viewModel.visibleTranscript != nil
         viewModel.transcript = transcript
-        if (viewModel.visibleTranscript != nil) != wasShowingText {
-            fitWindowToContent()
-        }
     }
 
     func transitionToLoading() {
@@ -177,24 +195,35 @@ class RecordingOverlayController {
     }
 
     private func fittingSize() -> NSSize? {
-        guard let hosting = window?.contentView as? NSHostingView<RecordingOverlayView> else { return nil }
+        guard let hosting = window?.contentView as? OverlayHostingView else { return nil }
         return hosting.fittingSize
+    }
+
+    /// Resize once the current SwiftUI update is over: the size changes while SwiftUI is
+    /// updating the view, and resizing the window from there would re-enter its layout.
+    private func scheduleFit() {
+        guard !fitScheduled else { return }
+        fitScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.fitScheduled = false
+                self.fitWindowToContent()
+            }
+        }
     }
 
     /// Resize for the transcript appearing or disappearing, keeping the top edge and the
     /// horizontal center where they are (the overlay may have been dragged), on its screen.
+    ///
+    /// Not animated: the content is laid out at its new size at once, so during an animated
+    /// window resize it was clipped by the smaller window (square corners, cut text).
     private func fitWindowToContent() {
-        guard let window, let size = fittingSize() else { return }
+        guard let window, let size = fittingSize(), size != window.frame.size else { return }
         let visible = (window.screen ?? NSScreen.main)?.visibleFrame
-        let frame = Self.frame(fitting: size, from: window.frame, within: visible)
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            window.setFrame(frame, display: true)
-        } else {
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.18
-                window.animator().setFrame(frame, display: true)
-            }
-        }
+        window.setFrame(Self.frame(fitting: size, from: window.frame, within: visible), display: true)
+        // The shadow of a transparent window follows its drawn shape, computed once.
+        window.invalidateShadow()
     }
 
     /// Frame of `size` with the same top edge and horizontal center as `current`, moved back
@@ -506,9 +535,15 @@ struct PulsingDot: View {
         Circle()
             .fill(dotColor)
             .frame(width: 8, height: 8)
-            .scaleEffect(reduceMotion ? 1 : scale)
-            .opacity(reduceMotion ? 1 : (pulsing ? 1.0 : 0.65))
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulsing)
+            // The repeating animation applies to the scale and opacity only. Attached to the
+            // whole view (`.animation(_:value:)`), it also picked up the dot's position when
+            // `onAppear` ran while the overlay was being laid out (a recording started from a
+            // SwiftUI button, as in onboarding's Try-it), and the dot slid back and forth.
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { content in
+                content
+                    .scaleEffect(reduceMotion ? 1 : scale)
+                    .opacity(reduceMotion ? 1 : (pulsing ? 1.0 : 0.65))
+            }
             .onAppear { pulsing = true }
     }
 }

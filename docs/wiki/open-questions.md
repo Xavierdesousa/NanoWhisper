@@ -15,10 +15,14 @@ it, with the date, machine and macOS version.
 | Onboarding | First launch with no model; Grant prompts turning to Granted; the Try it recording with the button and the hotkey; replay while menu-bar-only. | Agents could not grant microphone/Accessibility to the debug app ([onboarding-and-settings.md](onboarding-and-settings.md)). |
 | Models | Clean first download of Parakeet Ultra and Whisper Large v3 Turbo through the app. | Identifiers were checked against Hugging Face only. |
 | Transcription failure | Make an engine fail during a real dictation (hard to provoke; e.g. delete the loaded model's files while the app runs). Expect: overlay dismissed, menu error line "Transcription failed. Try again.", no-result sound, nothing pasted or saved. | Unit-tested only (`TranscriptionFailureTests`), with an unloaded `AsrManager`. |
-| Debug flavor visuals | The orange dot on the menu bar icon in light and dark menu bars. | Pixel tests only; no screen capture. |
+| Debug flavor visuals | The orange band on the menu bar icon in light and dark menu bars, in its three states (normal, mic.slash, download). | Pixel tests and contact-sheet renders only; no screen capture. |
+| Recording overlay | After fix/overlay-and-debug-marker: live text in the real app (panel grows, rounded corners, bars row visible, two lines wrap), and the red dot still during a Try-it recording. | Reproduced and checked with the real panel in a harness and `OverlayWindowTests`, not in the debug app. |
 | Release workflow | One tag push on the `xcode-27` runner since PR #14. | Not run since the workflow changed. |
 
 ## Open decisions
+
+- Planned next: a redesign pass of onboarding, Settings and the recording overlay.
+- Planned: the feedback sounds are to be replaced with new original ones.
 
 - Transcription failure in onboarding's Try-it box: the failure goes to the menu error line and
   the box returns to its idle state (any earlier test result is cleared). The box itself shows

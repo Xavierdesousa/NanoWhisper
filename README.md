@@ -112,7 +112,7 @@ make app
 | History | `~/Library/Application Support/NanoWhisper` | `~/Library/Application Support/NanoWhisper Debug` |
 | Auto-updater | on | off |
 | Live transcription (beta) | not available | available in Settings → General (text in the overlay while you speak) |
-| Markers | — | "DEBUG" banner on the icon, orange dot in the menubar, version and commit in the menu |
+| Markers | — | "DEBUG" banner on the icon, orange band across the menubar icon, version and commit in the menu |
 
 Downloaded models are shared by both. `make app` only stops a running NanoWhisper Debug, never the release app.
 

@@ -57,6 +57,16 @@ ones, so each section can be drawn without a running app
 - **Done step "Try it" box:** a recording started while the Done step is showing **and**
   NanoWhisper is the active app is a test (`DictationDestination.onboardingTest`): its text shows
   in the window, is not pasted, not saved. A dictation into another app still pastes.
+  - The button and the shortcut are shown as two equal ways to start it ("Record a Test or
+    press ⌃⌥Space", the shortcut as a key cap, `KeyCap`).
+  - **Hotkey path (checked in code, 2026-11-20):** Carbon hotkey → `HotkeyManager.onHotkeyPressed`
+    → `AppState.toggleRecording()` → `startRecording()` → `DictationDestination.atStart(testBoxShowing:
+    capturesTestTranscription, appIsActive: NSApp.isActive)`. With the onboarding window in front
+    the app is active, so it is a test; pressing again stops it, and the destination chosen at
+    start is kept. `capturesTestTranscription` follows the step (`onChange(of: step)`; a new
+    hosting view starts at Welcome on each show). It is a normal dictation instead when another
+    app is in front, and nothing starts until the model is ready (`toggleRecording` sets
+    "Model not loaded yet"). Carbon hotkeys fire while NanoWhisper itself is active.
 - While onboarding is open the app uses activation policy `.regular` (Dock icon); it returns to
   `.accessory` when the window closes, however it closes (`AppState.onboardingWindowDidClose()`).
 - Closing the window without finishing on a first launch leaves `onboardingComplete` unset, so

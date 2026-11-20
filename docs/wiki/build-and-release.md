@@ -37,7 +37,7 @@ Everything that could collide is derived from it.
 | Auto-updater | on | off (`BuildFlavor.autoUpdatesEnabled`) |
 | Live transcription (beta) | not offered: toggle hidden, forced off | offered (`BuildFlavor.supportsLiveTranscription`, [live-transcription.md](live-transcription.md#debug-build-only)) |
 | Log subsystem | bundle id | bundle id |
-| Markers | none | "DEBUG" icon banner, orange dot on the menu bar icon (`MenuBarIcon`), `v<version> · <commit>` in the menu (`BuildInfo`, Info.plist key `NWGitCommit`) |
+| Markers | none | "DEBUG" icon banner, orange band across the bottom of the menu bar glyph (`MenuBarIcon`, since 2026-11-20; was an orange dot), `v<version> · <commit>` in the menu (`BuildInfo`, Info.plist key `NWGitCommit`) |
 
 Separate automatically because the bundle ids differ: TCC permissions, `UserDefaults`, the login
 item (`SMAppService.mainApp`).

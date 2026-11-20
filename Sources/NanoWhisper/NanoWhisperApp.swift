@@ -175,7 +175,7 @@ struct NanoWhisperApp: App {
         }
     }
 
-    /// Debug builds: the same glyph as production, with the orange debug badge.
+    /// Debug builds: the same glyph as production, crossed by the orange debug band.
     private var debugMenuBarIcon: NSImage? {
         let sfIcon = menuBarSFIcon
         return MenuBarIcon.cached(sfIcon ?? "menubar_icon") {
