@@ -215,7 +215,8 @@ final class InterruptedRecordingsTests {
         _ = try recording(seconds: 1, crashed: true)
         let candidates = InterruptedRecordings.collect(in: directory, flavor: debug, historyAvailable: true).candidates
         var calls = 0
-        let summary = await recovery(history: { false }, transcribe: { _ in
+        // The engine never gets ready: the file is still deleted, without waiting.
+        let summary = await recovery(idle: { false }, history: { false }, transcribe: { _ in
             calls += 1
             return .init(text: "x", debugInfo: nil)
         }, added: { _ in }).run(candidates)

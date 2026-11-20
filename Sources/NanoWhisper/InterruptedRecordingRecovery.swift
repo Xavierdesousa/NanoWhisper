@@ -42,7 +42,8 @@ final class InterruptedRecordingRecovery {
         isRunning = true
         defer { isRunning = false }
         for candidate in candidates {
-            while !dependencies.isIdle() {
+            // History turned off meanwhile: no need to wait for the engine to delete it.
+            while dependencies.historyAvailable(), !dependencies.isIdle() {
                 do {
                     try await Task.sleep(for: dependencies.pollInterval)
                 } catch {
