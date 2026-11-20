@@ -281,7 +281,9 @@ private struct EngineChoiceRow<Details: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 10) {
+            // A button, so the engine can be chosen with the keyboard (focus, Space) too.
+            Button(action: select) {
+                HStack(alignment: .top, spacing: 10) {
                 RadioMark(isOn: isSelected)
                     .padding(.top, 1)
                 VStack(alignment: .leading, spacing: 2) {
@@ -299,12 +301,12 @@ private struct EngineChoiceRow<Details: View>: View {
                     SettingsCaption(engine.summary)
                 }
                 Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
-            .onTapGesture(perform: select)
+            .buttonStyle(.plain)
             .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-            .accessibilityAction(.default, select)
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
 
             details
                 .padding(.leading, 26)

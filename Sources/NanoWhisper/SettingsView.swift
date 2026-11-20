@@ -76,6 +76,11 @@ private struct LiveSettingsPane: View {
             GeneralPane(context: context)
         case .engine:
             EnginePane(draft: $draft, context: context)
+                // The applied configuration changed elsewhere (onboarding, a migration): an
+                // untouched draft follows it; an edited one is kept.
+                .onChange(of: appState.engineConfiguration) { old, new in
+                    if draft == old { draft = new }
+                }
         case .recorder:
             RecorderPane(context: context)
         case .permissions:

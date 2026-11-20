@@ -1,6 +1,6 @@
 # Onboarding and Settings
 
-Last verified against the code: 2026-11-20 (`feat/settings-and-menu-redesign`). Source: PR #15, the model migration PR, the Settings and menu redesign PR and the code.
+Last verified against the code: 2026-11-20 (`feat/settings-and-menu-redesign`), with unit tests and offscreen renders; the Settings redesign was not run in the app (see Known limits). Source: PR #15, the model migration PR, the Settings and menu redesign PR and the code.
 
 ## What it is
 

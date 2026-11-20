@@ -98,7 +98,9 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         let newLines = MenuContent.lines(for: state)
         if newLines.map(\.identity) == lines.map(\.identity), menu.items.count == newLines.count {
             // Same structure: update in place, so an open menu keeps its highlight.
-            for index in newLines.indices where newLines[index] != lines[index] {
+            // Rows that draw the shortcut are always reconfigured: the shortcut is not part of
+            // the line (their view skips unchanged models).
+            for index in newLines.indices where newLines[index] != lines[index] || newLines[index].showsShortcut {
                 configure(menu.items[index], newLines[index])
             }
         } else {

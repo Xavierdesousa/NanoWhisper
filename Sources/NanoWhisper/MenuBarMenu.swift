@@ -53,6 +53,12 @@ enum MenuLine: Equatable {
     case progress(String, fraction: Double?)
     case separator
 
+    /// Whether the line draws the record shortcut (`MenuState` does not carry it).
+    var showsShortcut: Bool {
+        if case .action(_, _, _, _, let showsShortcut, _) = self { return showsShortcut }
+        return false
+    }
+
     /// Identity used to update an open menu in place when only values changed.
     var identity: String {
         switch self {
