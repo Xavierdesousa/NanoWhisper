@@ -5,7 +5,7 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-20
 
-- **Crash when stopping a recording** (`fix/stop-recording-crash`, PR #TBD): the debug app crashed
+- **Crash when stopping a recording** (`fix/stop-recording-crash`, PR #26): the debug app crashed
   at the end of a 2 min 44 s dictation. Cause: `removeTap` on the running engine cleared the
   AUHAL input callback while CoreAudio's IO thread was about to call it (null call); confirmed
   by disassembly and tracing, reproduced with the same signature in a stress harness.
