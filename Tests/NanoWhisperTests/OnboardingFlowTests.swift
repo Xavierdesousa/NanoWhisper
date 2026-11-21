@@ -348,21 +348,19 @@ struct OnboardingWindowPlacementTests {
 struct WelcomeRecorderTests {
     typealias Dictation = WelcomeDictation
 
-    @Test("The pace: 2.6 words a second, at most 1.25 times the maintainer's real dictations (1.7–2.2 words/s)")
+    @Test("The paces: the waveform at 2.6 words a second (natural), the text at 7.2 (the whole sentence in the 4 s)")
     func pace() {
         #expect(Dictation.wordsPerSecond == 2.6)
-        #expect(Dictation.wordsPerSecond >= 2.5 && Dictation.wordsPerSecond <= 2.8)
-        #expect(Dictation.wordsPerSecond <= 1.25 * 2.2)
-        // Words show one slot apart, and the sentence, said at that pace, fits the recording.
+        #expect(Dictation.wordsPerSecond <= 1.25 * 2.2, "the voice stays believable")
+        #expect(Dictation.textWordsPerSecond == 7.2)
+        // Words show one text slot apart, and the whole sentence is written before the end.
         for index in 1..<Dictation.words.count {
-            #expect(abs(Dictation.wordShows(index) - Dictation.wordShows(index - 1) - 1 / Dictation.wordsPerSecond) < 1e-9)
+            #expect(abs(Dictation.wordShows(index) - Dictation.wordShows(index - 1) - 1 / Dictation.textWordsPerSecond) < 1e-9)
         }
-        let spoken = Dictation.wordShows(Dictation.words.count - 1) - Dictation.recordingStarts
-        #expect(Double(Dictation.words.count) / spoken >= 2.4, "about 2.5 words a second over the whole recording")
-        #expect(spoken < Dictation.recordingDuration, "the last word before the end, then a short silence")
+        #expect(Dictation.wordShows(Dictation.words.count - 1) < Dictation.recordingEnds, "the last word before the end")
     }
 
-    @Test("From the press: idle at 0:00, recording 0:00 → 0:04, Transcribing 0.8 s, Pasted 0.35 s, then the veil")
+    @Test("From the press: idle at 0:00, recording 0:00 → 0:04, Transcribing 0.8 s, Pasted 1.85 s, then the veil")
     func timeline() {
         // The opening scene's values: the recorder fades up from 0.25 s after the press, over
         // 0.45 s, and records 0.125 s after it has arrived (the prototype's saved Tweaks).
@@ -375,13 +373,13 @@ struct WelcomeRecorderTests {
         #expect(Dictation.recordingDuration == 4.3, "about 4 s, long enough to show 0:04")
         let end = Dictation.recordingEnds
         #expect(abs(end - 5.125) < 0.001)
-        #expect(Dictation.transcribingDuration == 0.8 && Dictation.pastedDuration == 0.35)
-        #expect(abs(Dictation.endsAt(stoppedAt: nil) - 6.275) < 0.001)
+        #expect(Dictation.transcribingDuration == 0.8 && Dictation.pastedDuration == 1.85, "Replay 1.5 s after the check")
+        #expect(abs(Dictation.endsAt(stoppedAt: nil) - 7.775) < 0.001)
 
         let phases: [(Double, Dictation.Phase)] = [
             (0, .idle), (Dictation.entranceEnds, .idle), (start - 0.001, .idle), (start, .recording), (end - 0.001, .recording),
-            (end, .transcribing), (end + 0.79, .transcribing), (end + 0.8, .pasted), (end + 1.14, .pasted),
-            (end + 1.151, .ended), (end + 60, .ended),
+            (end, .transcribing), (end + 0.79, .transcribing), (end + 0.8, .pasted), (end + 2.64, .pasted),
+            (end + 2.651, .ended), (end + 60, .ended),
         ]
         for (time, phase) in phases {
             #expect(Dictation.phase(at: time) == phase, "at \(time)")
@@ -401,8 +399,8 @@ struct WelcomeRecorderTests {
     @Test("The words: none while idle, each once said, the newest two dimmer; the pasted text is the whole phrase")
     func words() {
         let start = Dictation.recordingStarts
-        #expect(OnboardingText.welcomeSentence == "So the plan for this week is the payment flow.")
-        #expect(Dictation.words.count == 10)
+        #expect(OnboardingText.welcomeSentence.hasPrefix("So the plan for this week is the payment flow, then"))
+        #expect(Dictation.words.count == 29)
         for time in [0, Dictation.entranceEnds, start, Dictation.speechStarts, Dictation.wordShows(0) - 0.001] {
             #expect(Dictation.wordCount(at: time) == 0)
             #expect(Dictation.text(at: time) == ("", ""))
@@ -413,13 +411,13 @@ struct WelcomeRecorderTests {
         #expect(third.stable == "So" && third.volatile == " the plan")
         let counts = stride(from: start, to: Dictation.recordingEnds + 1, by: 0.02).map { Dictation.wordCount(at: $0) }
         #expect(counts == counts.sorted(), "words only ever arrive")
-        #expect(Dictation.wordCount(at: Dictation.recordingEnds) == 10, "the whole phrase before the end")
+        #expect(Dictation.wordCount(at: Dictation.recordingEnds) == 29, "the whole sentence before the end")
 
         let end = Dictation.text(at: Dictation.recordingEnds)
-        #expect(end.stable == "So the plan for this week is the")
-        #expect(end.volatile == " payment flow.", "the last two words stay dimmer until the final text")
+        #expect(end.stable.hasSuffix("the checkout screens, and"))
+        #expect(end.volatile == " we’ll see", "the last two words stay dimmer until the final text")
         #expect(Dictation.text(at: Dictation.recordingEnds + 5) == end, "nothing changes after the end")
-        #expect(Dictation.finalText() == "So the plan for this week is the payment flow.")
+        #expect(Dictation.finalText() == "So the plan for this week is the payment flow, then the mobile release. Let’s split it in two: first the API, then the checkout screens, and we’ll see.")
     }
 
     @Test("Stop ends the recording at any moment: the words and the timer stop, then Transcribing, Pasted, the veil")
@@ -428,16 +426,16 @@ struct WelcomeRecorderTests {
         let cases: [(stop: Double, final: String, seconds: Int)] = [
             (0.75, "", 0),                     // the recorder has arrived, not recording yet
             (start + 0.1, "", 0),              // before the first word
-            (start + 1.5, "So the plan.", 1),  // cut mid-phrase: a full stop, as a transcription writes it
-            (start + 3.0, "So the plan for this week is.", 3),
-            (start + 4.2, "So the plan for this week is the payment flow.", 4),
+            (start + 1.5, "So the plan for this week is the payment.", 1),  // cut mid-phrase: a full stop
+            (start + 3.0, "So the plan for this week is the payment flow, then the mobile release. Let’s split it in two: first.", 3),
+            (start + 4.2, "So the plan for this week is the payment flow, then the mobile release. Let’s split it in two: first the API, then the checkout screens, and we’ll see.", 4),
         ]
         for (stop, final, seconds) in cases {
             #expect(Dictation.recordingEnd(stoppedAt: stop) == stop)
             #expect(Dictation.phase(at: stop - 0.001, stoppedAt: stop) == (stop < start ? .idle : .recording))
             #expect(Dictation.phase(at: stop, stoppedAt: stop) == .transcribing)
             #expect(Dictation.phase(at: stop + 0.8, stoppedAt: stop) == .pasted)
-            #expect(Dictation.phase(at: stop + 1.16, stoppedAt: stop) == .ended)
+            #expect(Dictation.phase(at: stop + 2.66, stoppedAt: stop) == .ended)
             #expect(Dictation.finalText(stoppedAt: stop) == final, "stopped at \(stop)")
             #expect(Dictation.elapsedSeconds(at: stop + 10, stoppedAt: stop) == seconds)
             #expect(Dictation.text(at: stop + 10, stoppedAt: stop) == Dictation.text(at: stop), "the words stop with it")
@@ -467,23 +465,23 @@ struct WelcomeRecorderTests {
     func levels() {
         let start = Dictation.recordingStarts
         #expect(Dictation.level(at: start) < WaveformMetrics.silenceFloor, "silence before the first word")
-        #expect(Dictation.level(at: Dictation.recordingEnds - 0.1) < WaveformMetrics.silenceFloor, "silence before the end")
         let samples = stride(from: start, to: Dictation.recordingEnds, by: 0.005).map { Dictation.level(at: $0) }
         // One burst per word: silence → speech as many times as there are words.
         var bursts = 0
         for (a, b) in zip(samples, samples.dropFirst()) where a < WaveformMetrics.silenceFloor && b >= WaveformMetrics.silenceFloor {
             bursts += 1
         }
-        #expect(bursts == Dictation.words.count)
+        // Still speaking at the end (the voice is slower than the text): a burst per word begun.
+        let begun = Int(((Dictation.recordingEnds - Dictation.speechStarts) * Dictation.wordsPerSecond).rounded(.up))
+        #expect(abs(bursts - begun) <= 1, "\(bursts) bursts, \(begun) words begun")
         // Syllables: "payment" has two bumps, "flow" one; about three a second, not frantic.
         #expect(Dictation.syllableCount("payment") == 2 && Dictation.syllableCount("flow.") == 1)
         #expect(Dictation.syllableCount("So") == 1 && Dictation.syllableCount("this") == 1)
-        let syllables = Dictation.words.map(Dictation.syllableCount).reduce(0, +)
+        let syllables = Dictation.words.prefix(begun).map(Dictation.syllableCount).reduce(0, +)
         #expect(Double(syllables) / Dictation.recordingDuration < 4)
         let history = Dictation.history(until: Dictation.recordingEnds)
         let bars = WaveformMetrics.bars(for: history, count: 75)
         #expect(bars.filter { $0.height > WaveformMetrics.dotHeight }.count > 30, "the card shows speech bars")
-        #expect(bars.suffix(2).allSatisfy { $0.height == WaveformMetrics.dotHeight }, "the silence before the end")
     }
 
     @Test("The demo plays the steps: idle, recording, Transcribing, Pasted, then the veil, its clock stopped")
@@ -520,13 +518,13 @@ struct WelcomeRecorderTests {
         #expect(demo.phase == .transcribing)
         #expect(model.state == .loading)
         #expect(!model.waveform.isStatic && model.waveform.stoppedAt != nil)
-        #expect(model.visibleTranscript?.volatileText == " payment flow.")
+        #expect(model.visibleTranscript?.volatileText == " we’ll see")
 
         // Pasted: the check, the final text, 0:04.
         demo.advance(to: Dictation.recordingEnds + 0.85)
         #expect(demo.phase == .pasted)
         #expect(model.state == .finished(.pasted))
-        #expect(model.visibleTranscript?.finalText == "So the plan for this week is the payment flow.")
+        #expect(model.visibleTranscript?.finalText == "So the plan for this week is the payment flow, then the mobile release. Let’s split it in two: first the API, then the checkout screens, and we’ll see.")
         #expect(model.elapsedFormatted == "0:04")
         #expect(!demo.showsReplay)
 
@@ -556,9 +554,9 @@ struct WelcomeRecorderTests {
         #expect(demo.stoppedAt == Dictation.recordingStarts + 1.5)
         demo.advance(to: Dictation.recordingStarts + 1.5 + 0.8)
         #expect(demo.phase == .pasted)
-        #expect(demo.viewModel.visibleTranscript?.finalText == "So the plan.")
+        #expect(demo.viewModel.visibleTranscript?.finalText == "So the plan for this week is the payment.")
         #expect(demo.viewModel.elapsedFormatted == "0:01")
-        demo.advance(to: Dictation.recordingStarts + 1.5 + 1.2)
+        demo.advance(to: Dictation.recordingStarts + 1.5 + 2.7)
         #expect(demo.phase == .ended)
 
         // Stop while it waits at 0:00 (Stop shows under the pointer then too).
@@ -568,7 +566,7 @@ struct WelcomeRecorderTests {
         early.stopRecording()
         #expect(early.phase == .transcribing)
         #expect(!early.viewModel.waveform.isStatic, "the sweep runs")
-        early.advance(to: Dictation.entranceEnds + 1.2)
+        early.advance(to: Dictation.entranceEnds + 2.7)
         #expect(early.phase == .ended)
         #expect(early.viewModel.visibleTranscript?.finalText == "")
     }
@@ -597,7 +595,7 @@ struct WelcomeRecorderTests {
             // The page goes away mid-flow: it rests on the end, its clock stopped.
             demo.stop()
             #expect(demo.phase == .ended && !demo.isPlaying)
-            #expect(demo.viewModel.visibleTranscript?.finalText == "So the plan for this week is the payment flow.")
+            #expect(demo.viewModel.visibleTranscript?.finalText == "So the plan for this week is the payment flow, then the mobile release. Let’s split it in two: first the API, then the checkout screens, and we’ll see.")
         }
     }
 
@@ -609,7 +607,7 @@ struct WelcomeRecorderTests {
         #expect(!demo.isPlaying)
         #expect(demo.viewModel.state == .finished(.pasted))
         #expect(demo.viewModel.elapsedFormatted == "0:04")
-        #expect(demo.viewModel.visibleTranscript?.finalText == "So the plan for this week is the payment flow.")
+        #expect(demo.viewModel.visibleTranscript?.finalText == "So the plan for this week is the payment flow, then the mobile release. Let’s split it in two: first the API, then the checkout screens, and we’ll see.")
         demo.start(reduceMotion: true)
         #expect(demo.phase == .ended, "starts once")
         demo.replay()

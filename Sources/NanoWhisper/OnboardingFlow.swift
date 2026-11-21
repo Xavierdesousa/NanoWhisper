@@ -396,6 +396,10 @@ enum WelcomeDictation {
     /// believable (the former 29 words in 2.7 s, 10.7 words per second, read as sped up). The
     /// words and the waveform's syllables both follow it.
     static let wordsPerSecond: Double = 2.6
+    /// The live text writes faster than the voice (maintainer, 2026-11-21: the waveform's pace is
+    /// right, but more text must show in the 4 s): the whole sentence is written by the end of the
+    /// recording. The waveform keeps `wordsPerSecond`.
+    static let textWordsPerSecond: Double = 7.2
     /// The first word starts a moment after the recording, as when someone starts speaking.
     static let speechLeadIn: TimeInterval = 0.2
     static var speechStarts: TimeInterval { recordingStarts + speechLeadIn }
@@ -409,7 +413,9 @@ enum WelcomeDictation {
     /// Transcribing, then Pasted, as the real recorder shows them, short (maintainer: well under
     /// a second, long enough to see the sweep; the check long enough to be seen).
     static let transcribingDuration: TimeInterval = 0.8
-    static let pastedDuration: TimeInterval = 0.35
+    /// The Pasted card stays this long before the veil and Replay (maintainer, 2026-11-21: Replay
+    /// came too soon; 1.5 s later than the first 0.35 s).
+    static let pastedDuration: TimeInterval = 0.35 + 1.5
     /// The veil fades in over this time (at once with Reduce Motion).
     static let veilFade: TimeInterval = 0.3
 
@@ -442,16 +448,16 @@ enum WelcomeDictation {
 
     // MARK: Words
 
-    /// Words shown at `time`: each once it has been said, at `wordsPerSecond`.
+    /// Words shown at `time`: one every 1 / `textWordsPerSecond`.
     static func wordCount(at time: TimeInterval) -> Int {
         guard time >= speechStarts else { return 0 }
-        let said = ((time - speechStarts) * wordsPerSecond - wordShowsAt + 1e-9).rounded(.down) + 1
+        let said = ((time - speechStarts) * textWordsPerSecond - wordShowsAt + 1e-9).rounded(.down) + 1
         return min(words.count, max(0, Int(said)))
     }
 
     /// When word `index` (from 0) shows.
     static func wordShows(_ index: Int) -> TimeInterval {
-        speechStarts + (Double(index) + wordShowsAt) / wordsPerSecond
+        speechStarts + (Double(index) + wordShowsAt) / textWordsPerSecond
     }
 
     /// The live text at `time`: the settled words, and the newest ones (dimmer) with their
