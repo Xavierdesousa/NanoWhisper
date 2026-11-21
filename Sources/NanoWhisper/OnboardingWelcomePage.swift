@@ -279,6 +279,12 @@ private struct WelcomeRecorderContent: View {
             .frame(width: OverlayMetrics.cardWidth, height: OnboardingWindowPlacement.recorderSize.height, alignment: .top)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(OnboardingText.welcomeRecorderLabel)
+            // Stop is hover-only for the pointer; VoiceOver gets it as an action.
+            .accessibilityActions {
+                if demo.canStop {
+                    Button(OnboardingText.stopRecording) { demo.stopRecording() }
+                }
+            }
             // Over the card, outside its shadows and its accessibility element.
             .overlay(alignment: .top) {
                 ReplayVeil(isShown: demo.showsReplay, action: { demo.replay() })
