@@ -7,7 +7,7 @@ gotchas and untested areas that the code alone does not tell. How to maintain it
 
 | Page | One line |
 |---|---|
-| [architecture.md](architecture.md) | Components, the menu bar menu (AppKit, states), the recording pipeline from hotkey to paste, history storage. |
+| [architecture.md](architecture.md) | Components, the menu bar menu (AppKit, states), the recording pipeline from hotkey to paste, history storage and settings, the History window (list and detail, keys without a menu bar). |
 | [transcription-engines.md](transcription-engines.md) | Parakeet and Whisper engines, model rules, migration schema and smooth switchover, obsolete models, cache layout and model removal, transcription concurrency. |
 | [media-pause.md](media-pause.md) | Pausing media during dictation through Now Playing (osascript/JXA), and why not the media key. |
 | [live-transcription.md](live-transcription.md) | Live transcription (beta), PR #16, debug build only: re-decode the growing buffer, window cap on long recordings, which engines offer it and why. |

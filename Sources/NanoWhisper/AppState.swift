@@ -10,18 +10,14 @@ class AppState: ObservableObject {
     @Published var isEngineReady = false
     @Published var lastError: String?
 
-    /// Encrypted history, loaded at launch (see `HistoryStore`).
+    /// Encrypted history, loaded at launch (see `HistoryStore`). The History window edits it
+    /// through `HistoryWindowModel`.
     let historyStore = HistoryStore()
-    /// Newest first. Setting it (the History window's delete and clear) saves it.
-    var history: [HistoryEntry] {
-        get { historyStore.entries }
-        set { historyStore.replaceEntries(newValue) }
-    }
     /// The history file could not be decrypted (or encrypted): history is off until relaunch.
     var historyUnavailable: Bool { historyStore.isUnavailable }
 
-    private static let historyEnabledKey = "historyEnabled"
-    private static let maxHistoryKey = "maxHistoryCount"
+    private static let historyEnabledKey = HistorySettings.enabledKey
+    private static let maxHistoryKey = HistorySettings.maxCountKey
 
     @Published var launchAtLogin = false {
         didSet { updateLaunchAtLogin() }
@@ -103,7 +99,7 @@ class AppState: ObservableObject {
         }
     }
 
-    @Published var maxHistoryCount: Int = 15 {
+    @Published var maxHistoryCount: Int = HistorySettings.defaultMaxCount {
         didSet {
             UserDefaults.standard.set(maxHistoryCount, forKey: Self.maxHistoryKey)
             historyStore.trim(to: maxHistoryCount)
@@ -220,13 +216,13 @@ class AppState: ObservableObject {
 
         // Sync settings
         soundEnabled = sound.isEnabled
-        if UserDefaults.standard.object(forKey: Self.historyEnabledKey) == nil {
-            historyEnabled = true
-        } else {
-            historyEnabled = UserDefaults.standard.bool(forKey: Self.historyEnabledKey)
+        historyEnabled = HistorySettings.isEnabled(in: .standard)
+        maxHistoryCount = HistorySettings.maxCount(in: .standard)
+        // Once, after the update that made "off" mean "nothing kept": a file kept while
+        // history was off is deleted, silently.
+        if HistorySettings.runOffCleanupOnce(defaults: .standard, store: historyStore) {
+            Self.logger.notice("History was off: the history file kept from before was deleted")
         }
-        let storedMax = UserDefaults.standard.integer(forKey: Self.maxHistoryKey)
-        maxHistoryCount = storedMax > 0 ? storedMax : 15
         debugMode = UserDefaults.standard.bool(forKey: "debugMode")
         // Stored, so it does not change once this install counts as an existing one.
         pauseMediaEnabled = NewInstallDefaults.apply(isExistingInstall: isExistingInstall, to: .standard)
@@ -307,7 +303,7 @@ class AppState: ObservableObject {
                 do {
                     // The transcriber discards this engine (returns false) if a newer
                     // initialization or a model switch happened while it was loading.
-                    let installed = try await transcriber.initializeParakeet(models: models)
+                    let installed = try await transcriber.initializeParakeet(models: models, variant: variant)
                     guard installed,
                           selectedModelType == .parakeet,
                           setupManager.loadedParakeetVariant == variant else { return }
@@ -326,7 +322,7 @@ class AppState: ObservableObject {
                 engineError = Self.engineStartFailedMessage
                 return
             }
-            transcriber.initializeWhisper(engine: engine, settings: whisperSettings)
+            transcriber.initializeWhisper(engine: engine, settings: whisperSettings, size: setupManager.loadedWhisperModelSize)
             isEngineReady = true
             engineDidBecomeReady()
         }
@@ -374,7 +370,7 @@ class AppState: ObservableObject {
             let variant = parakeetVariant
             Task {
                 do {
-                    let prepared = try await transcriber.prepareParakeet(models: models)
+                    let prepared = try await transcriber.prepareParakeet(models: models, variant: variant)
                     guard selectedModelType == .parakeet, parakeetVariant == variant,
                           setupManager.loadedParakeetVariant == variant else { return }
                     pendingEngine = .parakeet(prepared)
@@ -401,7 +397,7 @@ class AppState: ObservableObject {
         case .parakeet(let prepared):
             guard transcriber.installPrepared(prepared) else { return }
         case .whisper(let engine):
-            transcriber.initializeWhisper(engine: engine, settings: whisperSettings)
+            transcriber.initializeWhisper(engine: engine, settings: whisperSettings, size: setupManager.loadedWhisperModelSize)
         }
         // Also covers a previous engine whose start was overtaken by the upgrade.
         isEngineReady = true
@@ -673,8 +669,25 @@ class AppState: ObservableObject {
         historyWindow.show(appState: self)
     }
 
-    func showSettings() {
-        settingsWindow.show(appState: self)
+    /// The "Keep a history" switch (Settings › General, onboarding's setup page). Turning it off
+    /// with dictations kept first asks "Turn off history and delete it?"; on Turn Off and Delete
+    /// the history is deleted (`HistoryStore.deleteAll`) and turned off, on Cancel it stays on.
+    /// Nothing kept: off at once, no alert.
+    func setHistoryEnabled(_ isOn: Bool) {
+        HistoryTurnOff.setEnabled(
+            isOn, current: historyEnabled, store: historyStore,
+            apply: { [weak self] in self?.historyEnabled = $0 },
+            confirm: { [weak self] count, done in
+                // The switch shows on again while the alert is up (and after Cancel).
+                self?.objectWillChange.send()
+                HistoryAlerts.confirmTurnOff(count: count, completion: done)
+            }
+        )
+    }
+
+    /// Open Settings, on `pane` if given (else where it was left).
+    func showSettings(pane: SettingsPane? = nil) {
+        settingsWindow.show(appState: self, pane: pane)
     }
 
     func updateShortcut(_ newShortcut: Shortcut) {

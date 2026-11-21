@@ -415,8 +415,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private var permissions: PermissionMonitor?
 
-    func show(appState: AppState) {
+    /// - Parameter pane: the pane to show (History's "Change…" opens General, where the kept
+    ///   count is set); `nil` reopens the last pane.
+    func show(appState: AppState, pane: SettingsPane? = nil) {
         if let window, window.isVisible {
+            if let pane { (window.contentViewController as? SettingsTabViewController)?.select(pane) }
             window.collectionBehavior = [.moveToActiveSpace]
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -429,6 +432,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             AnyView(LiveSettingsPane(pane: pane, appState: appState, permissions: permissions))
         }
         tabs.onSelect = { UserDefaults.standard.set($0.rawValue, forKey: SettingsPane.defaultsKey) }
+        if let pane { tabs.select(pane) }
 
         let w = Self.makeWindow(tabs: tabs)
         w.delegate = self

@@ -41,8 +41,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) var appState: AppState?
     /// The status item; onboarding's Finish Setup calls its `showOnboardingHandoff()`.
     private(set) var menuBar: MenuBarController?
+    /// Debug builds, `--history-sample`: the History window with invented entries, alone.
+    private var historySample: HistorySample.Session?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if HistorySample.isRequestedAtLaunch(arguments: CommandLine.arguments, flavor: .current) {
+            // Nothing else starts (no `AppState`): the real history is never read.
+            NSApp.setActivationPolicy(.accessory)
+            historySample = HistorySample.show()
+            return
+        }
         let onboardingComplete = UserDefaults.standard.bool(forKey: AppState.onboardingCompleteKey)
         let showsOnboarding = LaunchOptions.current.showsOnboardingAtLaunch(onboardingComplete: onboardingComplete)
         // Dock icon only while onboarding is open.

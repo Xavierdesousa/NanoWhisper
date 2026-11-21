@@ -82,7 +82,7 @@ State in the PR what was not verified. See [testing](docs/wiki/testing-and-verif
 | Media pause | `MediaController.swift`, `MediaPlaybackController.swift`, `NowPlayingPlaybackController.swift`, `MediaRemoteJXA.swift`, `Subprocess.swift` |
 | Settings | `SettingsView.swift` (window, `SettingsPane`, `SettingsTabViewController`, `SettingsPaneController`), `Settings*Pane.swift`, `Settings*Section.swift` (panes, and the rows onboarding shares: `ShortcutRecorderRow`, `EngineChoiceSection`), `SettingsStyle.swift`, `SettingsContext.swift`, `ShortcutKeysView.swift`, `Permissions.swift`, `ModelComparisonView.swift` |
 | Onboarding | `OnboardingFlow.swift` (pages, row states, `TryItStage`, new-install defaults, window placement, the welcome's dictation, `LaunchOptions`), `OnboardingView.swift` (`OnboardingContent`, `OnboardingWindowController`), `OnboardingWelcomePage.swift`, `OnboardingSetupPage.swift`, `OnboardingTryItPage.swift`, `OnboardingStyle.swift`, `OnboardingText.swift` (every string) |
-| History window | `HistoryView.swift` |
+| History window | `HistoryWindow.swift` (window, toolbar, split, key routing, `HistoryWindowController`), `HistoryWindowModel.swift` (search, selection, copy, delete/undo, wording), `HistoryView.swift` (list, detail, messages), `HistoryAlerts.swift` (turning history off, Clear All), `HistorySample.swift` (`--history-sample`, debug builds) |
 | Build flavor, updates | `BuildFlavor.swift`, `AutoUpdater.swift` |
 | Misc | `WindowUtils.swift` |
 

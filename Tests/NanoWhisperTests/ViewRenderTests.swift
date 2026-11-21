@@ -379,7 +379,7 @@ enum Fixtures {
             offersLiveTranscription: offersLiveTranscription,
             historyEnabled: .constant(historyEnabled),
             historyUnavailable: false,
-            maxHistoryCount: .constant(15),
+            maxHistoryCount: .constant(HistorySettings.defaultMaxCount),
             recorderPosition: .constant(recorderPosition),
             storage: ModelStorageContext(
                 unavailableReason: ModelStorageContext.unavailableReason(state),

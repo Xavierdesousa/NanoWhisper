@@ -24,6 +24,9 @@ Swift Testing (`@Suite`, `@Test`) in `Tests/NanoWhisperTests/`. CI runs `swift t
 | `TranscriptionFailureTests.swift` | Engine error and missing engine reported as a failure, not as empty text; `DictationOutcome` with a failure |
 | `InterruptedRecordingsTests.swift` | Recordings left by a crash: header repair of the crash state (copied from an open `RecordingWriter` file), what is kept or deleted (too short, too old, unreadable, already attempted, history off; the other build's files untouched), the silent recovery to History at the recording's date, exactly once (a crash during the attempt is not retried), the user's dictation first (a real `Transcriber` queue with its test handler), `HistoryStore.insert` order |
 | `HistoryStoreTests.swift` | Encrypted round trip (no plain text on disk), trimming, unreadable file ⇒ unavailable and never overwritten, plain-text file never read, pinned key derivation |
+| `HistorySettingsTests.swift` | Default kept count 25 (a stored one kept); the one-time cleanup (history off: file deleted once, never again; history on: nothing deleted, done for good; an unreadable file deleted too); `deleteAll`; turning history off (alert only with dictations kept, Cancel keeps everything, confirm deletes then turns off, turning on never asks); the alerts' wording; entries saved without model or language still load (a sealed file in the old format) |
+| `HistoryWindowTests.swift`, `HistoryFixtures.swift` | History window model with invented entries (`HistoryFixtures`: a temporary store, a test key, a private pasteboard): search ranges and highlight, search selection and its restore, copy only to the pasteboard, delete / undo / redo and the selection after each, Clear All, states and subtitles, day sections, wording (titles, dates, debug rows), `HistoryKeyRouting`, and the real `HistoryWindow` handling ⌘C, ⌫, ⌘Z, ⌘F itself; the toolbar's order and tooltips |
+| `ViewRenderHistoryTests.swift` | With `NANOWHISPER_RENDER_DIR` (`--filter ViewRender` runs it too): the real History window in every state, light and dark, invented entries; the two alerts' windows |
 | `LiveTranscriptionTests.swift`, `LiveTranscriptionFlavorTests.swift` | Live preview schedule, window, joins, transcript; availability per engine; debug-only flag and hidden toggle |
 | `ViewRenderTests.swift`, `RenderFixtures.swift` | Offscreen renders (below); skipped unless `NANOWHISPER_RENDER_DIR` is set |
 | `SettingsWindowTests.swift` | Opt-in (`NANOWHISPER_WINDOW_TESTS`): the real Settings window on screen. Every pane switch ends at the pane's height with the top edge fixed and one pane shown; each frame of a resize (forced heights, with a layout pass) keeps the window's height and never puts pane content above the content area; the real animation (sampled every 16 ms) is monotonic with the pane hidden until the end; content height changes are followed; the Engine comparison stays on the same pixel row while its speed bar slides to the new value (Parakeet → Whisper → Turbo). With `NANOWHISPER_CAPTURE_DIR`, PNGs of all of it |
@@ -150,6 +153,19 @@ Agents had **no screen capture** until 2026-11-21. These worked on 2026-11-19:
      on Try it (Start Recording opens the microphone). A test process cannot activate itself
      (cooperative activation), so test windows draw controls in their inactive look; the debug
      app's captures show the active look.
+
+10. **Keys in an active app, without touching the debug app or the real data**
+    (`feat/history-redesign`, 2026-11-21). Copy `.build/debug/NanoWhisper` into a bundle in the
+    scratchpad with another `CFBundleIdentifier` and executable name (flavor debug, own
+    defaults), ad-hoc sign it, `open -n <bundle> --args --history-sample`: LaunchServices
+    activates it (a test process cannot activate itself: a test that sent keys through
+    `NSApp.sendEvent` found its window never key, so it was dropped), and the History sample
+    window is key.
+    Post keys to that pid only with `CGEvent.postToPid` (from a `swift` script; nothing reaches the
+    frontmost app if it changes), read the app's log and its private pasteboard by name, then
+    `pkill -x <harness name>`. **Traps:** virtual key codes are key positions, and the
+    maintainer's Mac uses French AZERTY (`com.apple.keylayout.French`): ANSI Z (6) types "w" and
+    ANSI W (13) types "z"; `log` in zsh is a builtin, call `/usr/bin/log`.
 
 ## What agents cannot verify
 

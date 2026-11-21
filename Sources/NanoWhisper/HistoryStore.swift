@@ -4,19 +4,43 @@ import Foundation
 import IOKit
 import os
 
-struct TranscriptionDebugInfo: Codable {
+/// What History shows with "Show debug info in history". Every field is optional: entries saved
+/// before a field existed decode without it (the model and language arrived in November 2026).
+struct TranscriptionDebugInfo: Codable, Equatable, Sendable {
     let audioDuration: Double?
     let transcribeDuration: Double?
     let rtf: Double?
+    /// The model that transcribed it, as Settings names it ("Parakeet Ultra",
+    /// "Whisper Large v3 Turbo").
+    var model: String?
+    /// Whisper only: the language code it transcribed in ("fr").
+    var language: String?
+    /// Whisper only: `true` when Whisper detected `language`, `false` when Settings set it.
+    var languageDetected: Bool?
+
+    init(
+        audioDuration: Double?, transcribeDuration: Double?, rtf: Double?,
+        model: String? = nil, language: String? = nil, languageDetected: Bool? = nil
+    ) {
+        self.audioDuration = audioDuration
+        self.transcribeDuration = transcribeDuration
+        self.rtf = rtf
+        self.model = model
+        self.language = language
+        self.languageDetected = languageDetected
+    }
 
     enum CodingKeys: String, CodingKey {
         case audioDuration = "audio_duration"
         case transcribeDuration = "transcribe_duration"
         case rtf
+        case model
+        case language
+        case languageDetected = "language_detected"
     }
 }
 
-struct HistoryEntry: Codable, Identifiable {
+struct HistoryEntry: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
     let text: String
     let date: Date
@@ -24,8 +48,8 @@ struct HistoryEntry: Codable, Identifiable {
 
     /// - Parameter date: when it was dictated; now, except for a recording recovered after a
     ///   crash (the recording's date).
-    init(text: String, date: Date = Date(), debugInfo: TranscriptionDebugInfo? = nil) {
-        self.id = UUID()
+    init(id: UUID = UUID(), text: String, date: Date = Date(), debugInfo: TranscriptionDebugInfo? = nil) {
+        self.id = id
         self.text = text
         self.date = date
         self.debugInfo = debugInfo
@@ -90,11 +114,34 @@ final class HistoryStore: ObservableObject {
         replaceEntries(Array(entries.prefix(max(0, maxCount))))
     }
 
-    /// Replace the whole list (the History window's delete and clear).
+    /// Replace the whole list (the History window's delete and its undo).
     func replaceEntries(_ newEntries: [HistoryEntry]) {
         guard !isUnavailable else { return }
         entries = newEntries
         save()
+    }
+
+    /// Whether the history file is on disk (read or not).
+    var hasFile: Bool { FileManager.default.fileExists(atPath: fileURL.path) }
+
+    /// Delete everything: the entries, and the file itself, overwritten with zeros first
+    /// (`TemporaryRecordings.securelyDelete`, best effort on APFS). Used by Clear All, by
+    /// turning history off, and by the one-time cleanup of a file kept while history was off.
+    /// Also removes a file that could not be read: once it is gone there is nothing left to
+    /// protect, so the history is available again (a missing key makes the next save fail
+    /// and mark it unavailable again).
+    /// - Returns: whether the file is gone (also when there was none).
+    @discardableResult
+    func deleteAll() -> Bool {
+        entries = []
+        guard hasFile else { return true }
+        TemporaryRecordings.securelyDelete(at: fileURL)
+        guard !hasFile else {
+            Self.logger.error("History file could not be deleted")
+            return false
+        }
+        isUnavailable = false
+        return true
     }
 
     private func load() {
@@ -124,6 +171,58 @@ final class HistoryStore: ObservableObject {
         } catch {
             Self.logger.error("History could not be written: \(String(describing: error), privacy: .public)")
         }
+    }
+}
+
+// MARK: - Settings and one-time cleanup
+
+/// History settings stored in `UserDefaults`, and the cleanup that runs once after the update
+/// that made "history off" mean "nothing kept".
+enum HistorySettings {
+    static let enabledKey = "historyEnabled"
+    static let maxCountKey = "maxHistoryCount"
+    /// Set once the cleanup below has nothing left to do (the file gone, or history on).
+    static let offCleanupDoneKey = "historyOffCleanupDone"
+
+    /// What History keeps when the user never chose (the maintainer's decision, 2026-11-21;
+    /// it was 15). A stored choice is kept.
+    static let defaultMaxCount = 25
+
+    /// History is on unless the user turned it off.
+    static func isEnabled(in defaults: UserDefaults) -> Bool {
+        defaults.object(forKey: enabledKey) == nil ? true : defaults.bool(forKey: enabledKey)
+    }
+
+    /// The stored count, or `defaultMaxCount` when none was stored.
+    static func maxCount(in defaults: UserDefaults) -> Int {
+        let stored = defaults.integer(forKey: maxCountKey)
+        return stored > 0 ? stored : defaultMaxCount
+    }
+
+    /// Before this version, turning history off kept the file. Now it deletes it (after an
+    /// alert in Settings), so at the first launch after the update an install with history off
+    /// gets its old file deleted, silently. Runs once: the flag is set once nothing is left to delete, so
+    /// a later launch never deletes anything here (turning history off later goes through the
+    /// alert). Deletes the file even if it cannot be read: history is off, nothing in it is
+    /// shown or kept.
+    /// - Returns: whether a file was deleted.
+    @MainActor
+    @discardableResult
+    static func runOffCleanupOnce(defaults: UserDefaults, store: HistoryStore) -> Bool {
+        guard !defaults.bool(forKey: offCleanupDoneKey) else { return false }
+        guard !isEnabled(in: defaults), store.hasFile else {
+            defaults.set(true, forKey: offCleanupDoneKey)
+            return false
+        }
+        // Done only once the file is gone: a failed deletion is tried again at the next launch.
+        let deleted = store.deleteAll()
+        if deleted { defaults.set(true, forKey: offCleanupDoneKey) }
+        return deleted
+    }
+
+    /// History was turned off but its file could not be deleted: the launch cleanup tries again.
+    static func retryOffCleanup(defaults: UserDefaults) {
+        defaults.removeObject(forKey: offCleanupDoneKey)
     }
 }
 
