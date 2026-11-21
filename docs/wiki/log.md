@@ -5,6 +5,17 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-21
 
+- **Onboarding and Settings polish after the maintainer's test** (`fix/onboarding-settings-polish`):
+  the welcome's recorder now waits idle at 0:00 until 0.25 s after the page has arrived
+  (`WelcomeDictation.idleWait`; 1 s was "far too long"), records 5.6 s (a three-line
+  sentence) and stops **paused** at 0:05 (`RecordingOverlayViewModel.isPaused`: still capsule,
+  steady caret, still waveform); the Engine section always shows the model picker with the
+  speed/accuracy bars and key points under it, at a fixed height, the bars sliding and the text
+  cross-fading on a change; Settings no longer uses a grouped `Form`: one card style
+  (`GroupedStyle`, `groupedCard()`) for Settings and onboarding, no border, radius 12, the
+  onboarding colors; toolbar icons drawn at their real proportions on 1x displays
+  (`ToolbarSymbol`), Recorder's icon is `waveform`. Details and causes:
+  [onboarding-and-settings.md](onboarding-and-settings.md).
 - **Onboarding redesign, direction "Icon"** (`feat/onboarding-icon`): one 580 × 640 pt window,
   three pages. Welcome with the approved copy, the four facts and the real recorder view playing
   a simulated dictation, frozen mid-sentence at 0:03 (staged fade-up entrance; Reduce Motion:

@@ -1,6 +1,6 @@
 # Onboarding and Settings
 
-Last verified against the code: 2026-11-21 (`feat/settings-and-menu-redesign`; End of onboarding against `feat/menu-bar-handoff`; the Settings window, colors and sizing again in `feat/redesign-feedback`; onboarding rewritten in `feat/onboarding-icon`), with unit tests, offscreen renders and window captures; the Settings redesign was not run in the app (see Known limits). Source: PR #15, the model migration PR, the Settings and menu redesign PR, the handoff PR #31, the onboarding "Icon" PR and the code.
+Last verified against the code: 2026-11-21 (`feat/settings-and-menu-redesign`; End of onboarding against `feat/menu-bar-handoff`; the Settings window, colors and sizing again in `feat/redesign-feedback`; onboarding rewritten in `feat/onboarding-icon`; welcome sequence, cards, toolbar icons and the Engine comparison in `fix/onboarding-settings-polish`, also run in the debug app), with unit tests, offscreen renders and window captures; the Settings redesign was not run in the app (see Known limits). Source: PR #15, the model migration PR, the Settings and menu redesign PR, the handoff PR #31, the onboarding "Icon" PR and the code.
 
 ## What it is
 
@@ -44,11 +44,39 @@ Design: Claude Design canvas "NanoWhisper Redesign", Settings page, proposal 1 "
     view; `onDisappear` does not run). The window controller already did all of that. The app
     keeps an empty `Settings` scene only as its Scene; its "Settings…" command (app menu,
     visible while onboarding shows the Dock icon) opens the real window.
-  - **Sizing:** each pane is a grouped `Form` with `.scrollDisabled(true)` and
+  - **Sizing:** each pane is a `VStack` of `SettingsSection`s with
     `.fixedSize(horizontal: false, vertical: true)` (`SettingsPaneForm`), so its fitting size is
     its content. `SettingsTabViewController` alone sizes the window, keeping the top edge: on a
     pane switch, and when the selected pane's content changes height (Whisper options, pending
     change, update states).
+  - **Cards (since 2026-11-21): no grouped `Form`.** The maintainer saw a 1 px line around the
+    cards, clipped at the corners (sometimes visible, sometimes not), and different radii and
+    colors between onboarding and Settings side by side. Causes: the native grouped `Form`
+    draws its section cards with a hairline border, which on a 1x display (the maintainer's
+    2560 × 1440 screen) lands on fractional pixels and is clipped at the rounded corners; and
+    its card color cannot be changed (`.listRowBackground` has no effect on a macOS grouped
+    `Form`, tried in a harness), while onboarding drew its own 10 pt cards with a 0.5 pt stroke.
+    Now one style for both (`GroupedStyle`, `groupedCard()`, `GroupedRowDivider` in
+    `SettingsStyle.swift`): no border, radius 12 pt continuous (what the native grouped form
+    drew, measured on its render), the onboarding colors (window #F2F2F4 / #1E1E20, card white /
+    #2A2A2D; maintainer's choice), the Settings window's background set to the same window
+    color. Rows get `.settingsRow()` padding and explicit dividers. Measured in the debug app
+    (dark, 1x screen): Settings background and card pixels now equal onboarding's.
+    - The grey switches in the maintainer's onboarding screenshot were only the inactive-window
+      look (confirmed by the maintainer).
+  - **Toolbar icons (since 2026-11-21): `ToolbarSymbol`.** "Horizontally stretched" icons: on
+    a 1x display, a plain `NSImage(systemSymbolName:)` comes out about 1.5 px wider and 1 px
+    shorter than the glyph (Engine's square `cpu` drew 21 × 19 px; `slider.horizontal.3` 1.31
+    wide for 1.20). The same symbol drawn alone into a 1x bitmap does the same, so it is the
+    system's 1x glyph rasterizer, not the toolbar's scaling (in Retina captures the ratios are
+    exact). `ToolbarSymbol.image` draws the symbol at 4× into a bitmap and scales it down on a
+    1x display (true proportions, slightly softer), as is on Retina; the image is a 32 × 32
+    template canvas (the size the toolbar gives a non-symbol image, drawn 1:1; a smaller one is
+    scaled up), the glyph at 20 pt as the toolbar showed plain symbols. Trap: the bitmap's
+    `size` must be set before `NSGraphicsContext(bitmapImageRep:)` is created, or the symbol is
+    drawn at a quarter size (the icons came out as dots). Recorder's icon is `waveform` (what
+    the recorder shows; `capsule.portrait` read as an empty outline, `record.circle` reads as a
+    Record button).
   - **Pane switch (since 2026-11-20):** no crossfade; the new pane is swapped in at once,
     hidden, the window animates to its height (0.2 s, ease in-out, non-blocking `animator()`),
     then the pane fades in (0.12 s). Reduce Motion: no animation. Each pane is a
@@ -103,9 +131,20 @@ Design: Claude Design canvas "NanoWhisper Redesign", Settings page, proposal 1 "
   when it downloads, else "Changes not applied" with `ModelActionText.applyDetail`). As drawn,
   a pending change replaces the status row while the model in use is ready; otherwise both
   rows show.
-  - The model line under the selected engine is quiet ("Parakeet Ultra, ~630 MB. Change…");
-    Change… shows the picker and the speed/accuracy comparison (`ModelComparisonView`, kept from
-    the old Settings). It stays open while the draft names another model.
+  - **Model and comparison (since 2026-11-21, maintainer's request):** under the two engines,
+    one "Model" row (Parakeet's versions or Whisper's sizes) and right under it the speed and
+    accuracy bars and the key points (`ModelComparisonView`, values in `ModelComparison`),
+    always shown, in Settings › Engine and in onboarding's model sheet (the former quiet model
+    line and its Change… are gone). The comparison keeps the height of the tallest model's
+    text (every offered model's points are laid out in a `ZStack`, only the current one
+    visible), so changing engine or model moves nothing; Whisper's language and vocabulary come
+    below it. On a change the bars slide (0.35 s) and the text cross-fades (0.25 s); Reduce
+    Motion: the bars change at once. The animations are scoped (`animation(_:body:)`, the fill
+    an animatable modifier): with `.animation(_:value:)` the same change's layout (Whisper's
+    options appearing, the window growing) was animated too, and the text and fills slid
+    down and back (seen in a real-window capture). Verified in the real window
+    (`SettingsWindowTests`, "comparison stays in place"): the speed bar stays on the same pixel
+    row and shrinks 1152 → 1140 → 1012 → 922 px from Parakeet Ultra to Whisper Base.
   - **Whisper language and vocabulary apply right away** (`SettingsContext
     .setWhisperOptions`), as the design asks: they never load a model. The same in onboarding's
     model sheet, which shows the same `EngineChoiceSection`.
@@ -157,7 +196,7 @@ want, or [esc] to cancel."
   a progress bar and "<previous> stays in use until it is ready."; after a failed or offline
   download, "<previous> is in use. <new> will download at next launch." The menu shows the same
   progress line while downloading and nothing after a failure.
-- Pickers: the Parakeet "Version" picker offers Ultra and v3; the Whisper size picker offers
+- Pickers (one "Model" row for both engines): Parakeet's offers Ultra and v3; Whisper's offers
   `WhisperModelSize.selectable` (Base, Small, Large v3 Turbo). The recommended item of each reads
   "<name> (<size>) · Recommended" (`ModelLabel.pickerTitle`, from the model metadata).
 - Applying a different Parakeet variant or Whisper size clears that engine's pending migration
@@ -219,11 +258,22 @@ becomes a check, the fade-up, `InlineShortcutText`).
   from the start (`RecordingOverlayViewModel.showsCardWhileEmpty`), levels sent every 20 ms
   through `OverlayWaveform.start(levels:)` (the real envelope, normalizer and 50 ms slots), words
   set as `LiveTranscript(stable:volatile:)` (the newest two dimmer), the timer from
-  `WelcomeDictation.elapsedSeconds`. At 3.55 s it freezes (`OverlayWaveform.freeze(with:)`: still
-  bars, no per-frame timeline): two lines, "team review" dimmer, the caret, 0:03; the capsule
-  keeps pulsing and the caret blinking, as in the real recorder. Not interactive
-  (`allowsHitTesting(false)`, so no Stop under the pointer). Reduce Motion: the frozen frame at
-  once (`WelcomeDictation.frozenHistory()` computes the bars the same way), no fades.
+  `WelcomeDictation.elapsedSeconds`. **Sequence (maintainer's feedback, 2026-11-21;
+  `WelcomeRecorderDemo.Phase`):** idle while the page arrives (0:00, no text, flat still
+  waveform, `RecordingOverlayViewModel.isPaused`: the capsule still at the dim end of its
+  breath, the caret steady); at `recordingStarts` = the last element arrived (1.45 s) +
+  `idleWait` (**0.25 s**; 1 s was "far too long", 0.5 s may be tried) it records for 5.6 s
+  (pulse, timer, moving waveform, 27 words over 4.9 s); then it freezes, **paused**: three lines,
+  "next week" dimmer, the caret shown steady (a hidden caret read as a finished note; steady
+  reads as stopped where the next word would go), the capsule still, the waveform still
+  (`OverlayWaveform.freeze(with:)`), 0:05. A real-window test checks that the idle and the
+  frozen recorder draw identical pixels over time. Two traps: a `repeatForever` pulse is not
+  stopped by later non-animated changes, so the indicator gets a new identity when it pauses or
+  resumes (`.id(isPaused)`); and `OverlayWaveform` is not observable, so the view takes its
+  `revision` (bumped on start and freeze) as an input, or it kept its first body (no bars at
+  all while recording). Not interactive (`allowsHitTesting(false)`, so no Stop under the
+  pointer). Reduce Motion: the frozen frame at once (`WelcomeDictation.frozenHistory()`
+  computes the bars the same way), no fades.
 - **Setup page:** header (icon 36 pt, "Set up NanoWhisper", subtitle), then four grouped sections:
   - *Getting ready* (`PermissionChecklistDisplay`): Microphone (Required) and "Pasting into other
     apps" (Recommended), each with a circle that becomes a check. Microphone not asked: "Allow…"
@@ -412,3 +462,12 @@ re-downloads anything unless the user applies another model.
   and keyboard navigation between panes, VoiceOver on the key caps and the engine radio rows,
   the toolbar's translucency (drawn by the window server, not in captures). Offscreen windows
   are never key, so controls render in their inactive look.
+- Polish of 2026-11-21 (`fix/onboarding-settings-polish`), verified: unit tests (the welcome's
+  phases and timing, the three-line sentence measured with `NSLayoutManager`, the comparison
+  values per engine and model); real-window tests (the welcome idle and frozen recorder pixel
+  for pixel still, the comparison in place while its bar slides); offscreen renders; in the
+  debug app (dark, captures by window id on the 1x and Retina screens): the welcome sequence,
+  every Settings pane (toolbar icons, cards), the setup page. **Not verified:** the Settings
+  panes in light mode in the app (the system appearance was not changed; light is from renders
+  and window tests), the model sheet opened in the app (its Change… is hover-only and was not
+  reached through Accessibility), keyboard focus on the new rows, VoiceOver.

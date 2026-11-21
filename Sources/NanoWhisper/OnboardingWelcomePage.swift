@@ -155,17 +155,27 @@ private struct IBeamGlyph: Shape {
 
 // MARK: - The recorder's simulated dictation
 
-/// Plays `WelcomeDictation` in the real recorder's view model: the card with no text, levels
-/// and words fed programmatically (no microphone), then frozen mid-sentence. The record
-/// capsule keeps pulsing and the caret blinking, as in the real recorder.
+/// Plays `WelcomeDictation` in the real recorder's view model, levels and words fed
+/// programmatically (no microphone): idle at 0:00 (paused: still capsule, no text, flat
+/// waveform), then the recording (pulsing capsule, running timer, moving waveform, words
+/// arriving), then frozen mid-sentence and paused again: the capsule, caret, timer and
+/// waveform all stop.
 @MainActor
 final class WelcomeRecorderDemo: ObservableObject {
+    enum Phase: Equatable {
+        /// The page arrives; the recorder waits at 0:00.
+        case idle
+        case recording
+        /// Stopped mid-sentence, and stays.
+        case frozen
+    }
+
     let viewModel: RecordingOverlayViewModel
     private let levels = PassthroughSubject<Float, Never>()
     private var timer: Timer?
     private var startDate: Date?
-    private var waveformStarted = false
-    private(set) var isFrozen = false
+    private(set) var phase = Phase.idle
+    var isFrozen: Bool { phase == .frozen }
 
     init() {
         viewModel = RecordingOverlayViewModel()
@@ -173,6 +183,9 @@ final class WelcomeRecorderDemo: ObservableObject {
         viewModel.showsCardWhileEmpty = true
         viewModel.transcript = LiveTranscript()
         viewModel.elapsedSeconds = 0
+        viewModel.isPaused = true
+        // Flat and still (no per-frame timeline) until the recording starts.
+        viewModel.waveform.freeze(with: LevelHistory())
     }
 
     /// Start when the window opens (time 0 of `WelcomeDictation`). With Reduce Motion the
@@ -196,30 +209,38 @@ final class WelcomeRecorderDemo: ObservableObject {
         self.timer = timer
     }
 
-    private func tick(at date: Date) {
-        guard let startDate, !isFrozen else { return }
-        let time = date.timeIntervalSince(startDate)
-        guard time >= WelcomeDictation.recorderAppears else { return }
+    /// Advances the demo to `time` seconds after the window opened (the timer calls it every
+    /// 20 ms; tests call it directly).
+    func advance(to time: TimeInterval) {
+        guard !isFrozen, time >= WelcomeDictation.recordingStarts else { return }
         if time >= WelcomeDictation.freezeTime {
             showFrozen()
             return
         }
-        if !waveformStarted {
-            waveformStarted = true
+        if phase == .idle {
+            phase = .recording
             viewModel.waveform.start(levels: levels)
+            viewModel.isPaused = false
         }
         levels.send(WelcomeDictation.level(at: time))
         show(at: time)
     }
 
-    /// The frame the welcome rests on: two lines, the last words dimmer, the caret, 0:03.
+    private func tick(at date: Date) {
+        guard let startDate else { return }
+        advance(to: date.timeIntervalSince(startDate))
+    }
+
+    /// The frame the welcome rests on, paused: the sentence on up to three lines, the last
+    /// words dimmer, a steady caret, a still capsule and waveform, 0:05.
     func showFrozen() {
         timer?.invalidate()
         timer = nil
-        isFrozen = true
         // Live bars as they are when it ran; computed the same way when it never ran.
-        viewModel.waveform.freeze(with: waveformStarted ? nil : WelcomeDictation.frozenHistory())
+        viewModel.waveform.freeze(with: phase == .recording ? nil : WelcomeDictation.frozenHistory())
+        phase = .frozen
         show(at: WelcomeDictation.freezeTime)
+        viewModel.isPaused = true
         // Redraw now: the still waveform no longer needs its per-frame timeline.
         viewModel.objectWillChange.send()
     }
@@ -228,7 +249,7 @@ final class WelcomeRecorderDemo: ObservableObject {
     func stop() {
         timer?.invalidate()
         timer = nil
-        if !isFrozen { viewModel.waveform.stop() }
+        if phase == .recording { viewModel.waveform.stop() }
     }
 
     private func show(at time: TimeInterval) {

@@ -95,7 +95,7 @@ struct AdvancedPane: View {
 
     var body: some View {
         SettingsPaneForm {
-            Section("Updates") {
+            SettingsSection("Updates") {
                 VStack(alignment: .leading, spacing: 8) {
                     SettingsRow(title: updates.versionLine, caption: updates.note) {
                         updateButton
@@ -107,16 +107,20 @@ struct AdvancedPane: View {
                         SettingsCaption(error, color: .red)
                     }
                 }
+                .settingsRow()
             }
-            Section("Debug") {
+            SettingsSection("Debug") {
                 SettingsToggle(
                     title: "Show debug info in history",
                     caption: "Audio length, transcription time and speed next to each entry.",
                     isOn: $debugMode
                 )
+                .settingsRow()
+                GroupedRowDivider()
                 SettingsRow(title: "Onboarding", caption: "Your settings are kept; nothing downloads unless you apply another model.") {
                     Button("Show Onboarding Again…", action: showOnboarding)
                 }
+                .settingsRow()
             }
         }
     }

@@ -9,13 +9,17 @@ struct PermissionsPane: View {
 
     var body: some View {
         SettingsPaneForm {
-            Section {
+            SettingsSection {
                 ForEach(Permission.allCases) { permission in
+                    if permission != Permission.allCases.first {
+                        GroupedRowDivider()
+                    }
                     PermissionPaneRow(
                         permission: permission,
                         status: context.status(of: permission),
                         onRequest: { context.requestPermission(permission) }
                     )
+                    .settingsRow()
                 }
             } header: {
                 Text("Access")

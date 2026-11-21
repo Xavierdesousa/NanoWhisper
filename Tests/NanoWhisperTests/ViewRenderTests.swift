@@ -176,9 +176,16 @@ struct ViewRenderTests {
         whisper.draft = whisper.applied
         try renderSettings(.engine, "settings-engine-whisper-french", whisper, dark: true)
 
-        var revealed = SettingsFixture()
-        revealed.showsModelPicker = true
-        try renderSettings(.engine, "settings-engine-version-revealed", revealed)
+        // The comparison of the draft's model: Parakeet v3 picked, not applied yet.
+        var otherVersion = SettingsFixture()
+        otherVersion.draft = Fixtures.parakeetUltra
+        otherVersion.draft?.parakeetVariant = .v3
+        try renderSettings(.engine, "settings-engine-other-version", otherVersion)
+        // Whisper picked while Parakeet is in use: the comparison stays in place.
+        var otherEngine = SettingsFixture()
+        otherEngine.draft = Fixtures.parakeetUltra
+        otherEngine.draft?.modelType = .whisper
+        try renderSettings(.engine, "settings-engine-other-engine", otherEngine, dark: true)
 
         var deferred = SettingsFixture()
         deferred.state.upgrade = ModelUpgrade(from: .parakeet(.v3), to: .parakeet(.ultra), status: .deferred)
@@ -210,8 +217,9 @@ struct ViewRenderTests {
         try renderSettings(.general, "settings-general-custom-shortcut", customShortcut, dark: true)
         for (suffix, appearance) in [("", NSAppearance.Name.aqua), ("-dark", .darkAqua)] {
             try render(SettingsPaneForm {
-                Section("Shortcut") {
+                SettingsSection("Shortcut") {
                     ShortcutRecorderRow(shortcut: Fixtures.productionShortcut, onChange: { _ in }, isRecording: true)
+                        .settingsRow()
                 }
             }, "settings-general-shortcut-recording\(suffix)", appearance: appearance)
         }

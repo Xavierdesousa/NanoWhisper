@@ -32,7 +32,8 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .general: return "gearshape"
         case .engine: return "cpu"
-        case .recorder: return "capsule.portrait"
+        // The recorder draws a waveform; "capsule.portrait" read as an empty outline.
+        case .recorder: return "waveform"
         case .permissions: return "checkmark.shield"
         case .advanced: return "slider.horizontal.3"
         }
@@ -44,6 +45,74 @@ enum SettingsPane: String, CaseIterable, Identifiable {
             return pane
         }
         return visible.first ?? .general
+    }
+}
+
+// MARK: - Toolbar icons
+
+/// The pane icons. A plain symbol image (`NSImage(systemSymbolName:)`) drawn by the toolbar on
+/// a 1x display comes out about 1.5 px wider and 1 px shorter than the glyph (the system's 1x
+/// glyph rasterizer; measured 2026-11-21 on the maintainer's 2560 × 1440 screen: Engine's
+/// `cpu`, square, drew 21 × 19 px; `slider.horizontal.3` 1.31 wide for 1.20): the
+/// "horizontally stretched" icons. The same symbol drawn on its own into a 1x bitmap does the
+/// same, so it is not the toolbar's scaling. Here, on a 1x display, the symbol is drawn at
+/// 4x into a bitmap and scaled down, which keeps its real proportions; on Retina it is drawn
+/// as is. The 32 × 32 canvas is the size the toolbar gives a non-symbol image, so it is
+/// drawn 1:1 (a smaller one is scaled up), and the symbol inside keeps the size the toolbar
+/// gave plain symbols (20 pt).
+enum ToolbarSymbol {
+    static let canvasSize = NSSize(width: 32, height: 32)
+    static let pointSize: CGFloat = 20
+    static let supersampling: CGFloat = 4
+
+    static func image(_ systemName: String, accessibilityDescription: String) -> NSImage? {
+        guard let symbol = symbol(systemName) else { return nil }
+        let size = symbol.size
+        let image = NSImage(size: canvasSize, flipped: false) { rect in
+            // Rebuilt in the handler (it may run on any thread; nothing captured is shared).
+            guard let symbol = Self.symbol(systemName) else { return false }
+            let frame = NSRect(x: ((rect.width - size.width) / 2).rounded(), y: ((rect.height - size.height) / 2).rounded(),
+                               width: size.width, height: size.height)
+            let pixelsPerPoint = NSGraphicsContext.current.map {
+                abs($0.cgContext.convertToDeviceSpace(CGSize(width: 1, height: 1)).width)
+            } ?? 2
+            if pixelsPerPoint < 1.5, let bitmap = Self.supersampled(symbol) {
+                NSGraphicsContext.current?.imageInterpolation = .high
+                bitmap.draw(in: NSRect(origin: frame.origin, size: bitmap.size))
+            } else {
+                symbol.draw(in: frame)
+            }
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = accessibilityDescription
+        return image
+    }
+
+    private static func symbol(_ systemName: String) -> NSImage? {
+        NSImage(systemSymbolName: systemName, accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: pointSize, weight: .regular))
+    }
+
+    /// The symbol drawn at `supersampling` times its size, as an image of its own size.
+    private static func supersampled(_ symbol: NSImage) -> NSImage? {
+        let width = Int((symbol.size.width * supersampling).rounded(.up))
+        let height = Int((symbol.size.height * supersampling).rounded(.up))
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ) else { return nil }
+        // The size in points first: the context takes its scale from it (created before, it
+        // drew the symbol at a quarter of the bitmap, and the icons came out as dots).
+        rep.size = NSSize(width: CGFloat(width) / supersampling, height: CGFloat(height) / supersampling)
+        guard let context = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        symbol.draw(in: NSRect(origin: .zero, size: symbol.size))
+        NSGraphicsContext.restoreGraphicsState()
+        let image = NSImage(size: rep.size)
+        image.addRepresentation(rep)
+        return image
     }
 }
 
@@ -199,7 +268,7 @@ final class SettingsTabViewController: NSTabViewController {
             let item = NSTabViewItem(viewController: controller)
             item.label = pane.title
             item.identifier = pane.rawValue
-            item.image = NSImage(systemSymbolName: pane.systemImage, accessibilityDescription: pane.title)
+            item.image = ToolbarSymbol.image(pane.systemImage, accessibilityDescription: pane.title)
             addTabViewItem(item)
             controller.onContentHeightChange = { [weak self, weak controller] height in
                 guard let self, !self.isSelecting, let controller, controller === self.selectedController else { return }
@@ -383,6 +452,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let w = NSWindow(contentViewController: tabs)
         w.styleMask = [.titled, .closable]
         w.toolbarStyle = .preference
+        // The panes' color (`GroupedStyle`), also under the toolbar.
+        w.backgroundColor = GroupedStyle.windowNSColor
         w.isReleasedWhenClosed = false
         w.isRestorable = false
         w.collectionBehavior = [.moveToActiveSpace]

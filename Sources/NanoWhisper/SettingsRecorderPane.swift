@@ -13,9 +13,10 @@ struct RecorderPane: View {
     var body: some View {
         SettingsPaneForm {
             // The picker is the Voice note overlay's own control (`RecorderPositionPicker.swift`).
-            Section {
+            SettingsSection {
                 RecorderPositionPicker(selection: context.recorderPosition)
                     .padding(.vertical, 4)
+                    .settingsRow()
             } header: {
                 Text("Recorder position")
             } footer: {
@@ -23,7 +24,7 @@ struct RecorderPane: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             if context.offersLiveTranscription {
-                Section {
+                SettingsSection {
                     SettingsToggle(
                         title: Self.liveTranscriptionLabel,
                         caption: liveTranscriptionAvailable
@@ -32,6 +33,7 @@ struct RecorderPane: View {
                         isOn: context.liveTranscriptionEnabled
                     )
                     .disabled(!liveTranscriptionAvailable)
+                    .settingsRow()
                 } header: {
                     HStack(spacing: 6) {
                         Text("Live transcription")

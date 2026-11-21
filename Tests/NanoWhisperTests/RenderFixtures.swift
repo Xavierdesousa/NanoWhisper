@@ -14,7 +14,6 @@ struct SettingsFixture {
     var offersLiveTranscription = true
     var shortcut: Shortcut = Fixtures.productionShortcut
     var historyEnabled = true
-    var showsModelPicker = false
     var recorderPosition: RecorderPosition = .defaultPosition
     var updates = Fixtures.updates(.upToDate(lastChecked: Fixtures.checkDate))
 
@@ -36,8 +35,7 @@ struct SettingsFixture {
         case .general:
             return AnyView(GeneralPane(context: context))
         case .engine:
-            return AnyView(EnginePane(draft: .constant(draft ?? applied), context: context,
-                                      showsModelPicker: showsModelPicker))
+            return AnyView(EnginePane(draft: .constant(draft ?? applied), context: context))
         case .recorder:
             return AnyView(RecorderPane(context: context))
         case .permissions:
@@ -73,10 +71,10 @@ struct ResizingPane: View {
 
     var body: some View {
         SettingsPaneForm {
-            Section("A") {
-                Text("First row")
+            SettingsSection("A") {
+                Text("First row").settingsRow()
                 if model.isTall {
-                    ForEach(0..<8) { Text("Row \($0)") }
+                    ForEach(0..<8) { Text("Row \($0)").settingsRow() }
                 }
             }
         }

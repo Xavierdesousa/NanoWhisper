@@ -32,8 +32,9 @@ enum OnboardingText {
         Fact(systemImage: nil, title: "Pasted for you", detail: "Right where your cursor is, in any app."),
     ]
 
-    /// Dictated by the welcome's recorder, which stops before its end.
-    static let welcomeSentence = "Thanks for the notes. I’ll send the revised plan on Friday morning, after the team review"
+    /// Dictated by the welcome's recorder, which stops before its end. Spoken, not written: most
+    /// dictations are someone talking an agent through a plan (maintainer, 2026-11-21).
+    static let welcomeSentence = "So the plan for this week is the payment flow, then the mobile release. Let’s split it in two: first the API, then the checkout screens, and we’ll see"
     static let welcomeRecorderLabel = "Recorder, as it appears while you dictate"
 
     // MARK: Setup page
