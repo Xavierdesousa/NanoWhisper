@@ -452,8 +452,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let w = NSWindow(contentViewController: tabs)
         w.styleMask = [.titled, .closable]
         w.toolbarStyle = .preference
-        // The panes' color (`GroupedStyle`), also under the toolbar.
-        w.backgroundColor = GroupedStyle.windowNSColor
+        // No custom background: the system draws the toolbar header and the window background,
+        // as in Finder's settings (2026-11-21); the panes use the same `windowBackgroundColor`.
         w.isReleasedWhenClosed = false
         w.isRestorable = false
         w.collectionBehavior = [.moveToActiveSpace]
