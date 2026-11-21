@@ -5,6 +5,8 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-21
 
+- **Try it result in a serif** (`feat/try-it-serif`): the transcribed words use New York (system serif,
+  21 pt), like a quotation, at the maintainer's request.
 - **Finder's colors, the app in the macOS 26+ design** (`fix/welcome-faster`): the app's binary
   recorded SDK 14.0 (SwiftPM's default build system writes the deployment target), so AppKit ran
   it in the pre-26 design: lighter window and a wallpaper-tinted toolbar, unlike Finder.

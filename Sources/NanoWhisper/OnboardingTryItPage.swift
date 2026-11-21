@@ -109,9 +109,10 @@ struct TryItPage: View {
                     Text(OnboardingText.youSaid)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(OnboardingPalette.secondaryLabel)
+                    // The user's own words in a serif (New York, the system serif), set apart from
+                    // the interface like a quotation (maintainer, 2026-11-21).
                     Text(text)
-                        .font(.system(size: 19, weight: .medium))
-                        .tracking(-0.2)
+                        .font(.system(size: 21, weight: .regular, design: .serif))
                         .lineSpacing(4)
                         .multilineTextAlignment(.center)
                         .foregroundStyle(OnboardingPalette.label)
