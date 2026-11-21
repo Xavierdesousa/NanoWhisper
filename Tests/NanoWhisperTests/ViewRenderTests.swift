@@ -4,7 +4,7 @@ import SwiftUI
 import Testing
 @testable import NanoWhisper
 
-/// Renders the onboarding steps and Settings offscreen to PNG, with fixed fake state, to
+/// Renders the onboarding pages and Settings offscreen to PNG, with fixed fake state, to
 /// check layout without running the app or granting screen recording. Opt-in:
 ///
 ///     NANOWHISPER_RENDER_DIR=/tmp/renders swift test --filter ViewRender
@@ -17,53 +17,97 @@ struct ViewRenderTests {
 
     // MARK: - Onboarding
 
-    @Test("Onboarding steps")
-    func onboardingSteps() throws {
-        let parakeet = Fixtures.parakeetUltra
-        let notLoaded = Fixtures.context(applied: parakeet, state: EngineState())
+    @Test("Onboarding pages and states, light and dark")
+    func onboardingPages() throws {
+        let ultra = Fixtures.parakeetUltra
+        let downloading = { (percent: Int) in EngineState(isSettingUp: true, progressText: "Downloading model (\(percent)%)...") }
+        for dark in [false, true] {
+            let suffix = dark ? "-dark" : ""
+            try renderOnboarding("onboarding-1-welcome\(suffix)", page: .welcome,
+                                 context: Fixtures.onboardingContext(), dark: dark)
 
-        try render(onboarding(.welcome, context: notLoaded), "onboarding-1-welcome")
-        try render(onboarding(.welcome, context: notLoaded, isReplay: true), "onboarding-1-welcome-replay")
-        try render(onboarding(.model, context: notLoaded), "onboarding-2-model-not-downloaded")
+            // Setup page: first arrival (nothing allowed, the download started), everything done,
+            // and the pointer over the model with the microphone denied and the shortcut changing.
+            try renderOnboarding("onboarding-2-setup-first-arrival\(suffix)", page: .setup,
+                                 context: Fixtures.onboardingContext(state: downloading(23)), dark: dark)
+            try renderOnboarding("onboarding-2-setup-done\(suffix)", page: .setup,
+                                 context: Fixtures.onboardingContext(microphone: .granted, accessibility: .granted),
+                                 dark: dark)
+            try renderOnboarding("onboarding-2-setup-denied-pointer-shortcut\(suffix)", page: .setup,
+                                 context: Fixtures.onboardingContext(state: downloading(61), microphone: .denied, accessibility: .granted),
+                                 dark: dark, revealsModelChange: true, recordsShortcut: true)
 
-        let downloading = Fixtures.context(
-            applied: parakeet,
-            state: EngineState(isSettingUp: true, progressText: "Downloading model (42%)...")
+            // Try it.
+            let granted = Fixtures.onboardingContext(microphone: .granted, accessibility: .granted)
+            for (name, stage) in [
+                ("ready", TryItStage.ready), ("listening", .listening), ("transcribing", .transcribing),
+                ("result", .result("Let’s meet on Thursday at ten and go through the launch checklist together.")),
+                ("downloading", .modelNotReady(.downloading(fraction: 0.64))),
+                ("microphone-denied", .microphoneMissing(.denied)),
+            ] {
+                try renderOnboarding("onboarding-3-try-\(name)\(suffix)", page: .tryIt, context: granted,
+                                     tryIt: Fixtures.tryIt(stage), dark: dark)
+            }
+
+            try render(ModelChoiceSheet(draft: .constant(ultra), context: granted, onDone: {})
+                .background(OnboardingPalette.window),
+                       "onboarding-2-model-choice-sheet\(suffix)", appearance: dark ? .darkAqua : .aqua)
+        }
+
+        // States drawn in light only.
+        try renderOnboarding("onboarding-2-setup-preparing", page: .setup, context: Fixtures.onboardingContext(
+            state: EngineState(isSettingUp: true, progressText: "Preparing download..."), microphone: .granted), dark: false)
+        try renderOnboarding("onboarding-2-setup-model-failed", page: .setup, context: Fixtures.onboardingContext(
+            state: EngineState(error: "Model setup failed. Please check your internet connection and try again."),
+            microphone: .granted, accessibility: .granted), dark: false)
+        var whisper = ultra
+        whisper.modelType = .whisper
+        whisper.whisperSettings.modelSize = .small
+        try renderOnboarding("onboarding-2-setup-existing-user-whisper-history-off", page: .setup, context: Fixtures.onboardingContext(
+            applied: whisper, microphone: .granted, accessibility: .denied, switchesOn: false, historyEnabled: false), dark: true)
+        let granted = Fixtures.onboardingContext(microphone: .granted, accessibility: .granted)
+        for (name, stage, live) in [
+            ("listening-live-words", TryItStage.listening, true),
+            ("nothing-recognized", .result(""), false),
+            ("optimizing", .modelNotReady(.compiling), false),
+            ("model-failed", .modelNotReady(.failed("Model setup failed. Please check your internet connection and try again.")), false),
+            ("microphone-not-asked", .microphoneMissing(.notDetermined), false),
+        ] {
+            var inputs = Fixtures.tryIt(stage)
+            inputs.showsLiveWords = live
+            try renderOnboarding("onboarding-3-try-\(name)", page: .tryIt, context: granted, tryIt: inputs, dark: false)
+        }
+        var bottom = Fixtures.tryIt(.ready)
+        bottom.recorderPosition = .bottomCenter
+        try renderOnboarding("onboarding-3-try-ready-recorder-bottom", page: .tryIt, context: granted, tryIt: bottom, dark: true)
+    }
+
+    /// The real onboarding window (title bar, size, background) around fixture pages, never
+    /// shown: controls draw in their inactive look. Reduce Motion is set so every entrance shows
+    /// its end (the welcome's recorder rests on its frozen frame).
+    private func renderOnboarding(
+        _ name: String, page: OnboardingPage, context: SettingsContext, tryIt: TryItInputs? = nil, dark: Bool,
+        revealsModelChange: Bool = false, recordsShortcut: Bool = false
+    ) throws {
+        _ = NSApplication.shared
+        let demo = WelcomeRecorderDemo()
+        demo.showFrozen()
+        let content = OnboardingContent(
+            model: OnboardingModel(page: page), demo: demo, context: context,
+            tryIt: tryIt ?? Fixtures.tryIt(.ready), appIcon: Fixtures.appIcon,
+            modelChoice: { AnyView(EmptyView()) },
+            revealsModelChange: revealsModelChange, recordsShortcut: recordsShortcut
         )
-        try render(onboarding(.model, context: downloading), "onboarding-2-model-downloading")
-
-        var whisperDraft = parakeet
-        whisperDraft.modelType = .whisper
-        whisperDraft.whisperSettings.modelSize = .largev3Turbo
-        try render(onboarding(.model, context: Fixtures.context(applied: parakeet, state: Fixtures.ready),
-                              draft: whisperDraft),
-                   "onboarding-2-model-whisper-draft")
-        try render(onboarding(.model, context: Fixtures.context(applied: parakeet, state: Fixtures.ready),
-                              draft: whisperDraft, height: 1000),
-                   "onboarding-2-model-whisper-draft-full")
-
-        try render(onboarding(.permissions, context: Fixtures.context(
-            applied: parakeet, state: Fixtures.ready, microphone: .granted, accessibility: .notDetermined
-        )), "onboarding-3-permissions")
-        try render(onboarding(.permissions, context: Fixtures.context(
-            applied: parakeet, state: Fixtures.ready, microphone: .denied, accessibility: .denied
-        )), "onboarding-3-permissions-denied")
-
-        try render(onboarding(.shortcut, context: Fixtures.context(applied: parakeet, state: Fixtures.ready)),
-                   "onboarding-4-shortcut")
-        try render(onboarding(.shortcut, context: Fixtures.context(
-            applied: parakeet, state: Fixtures.ready, offersLiveTranscription: false
-        )), "onboarding-4-shortcut-production")
-
-        try render(onboarding(.done, context: Fixtures.context(
-            applied: parakeet, state: Fixtures.ready, microphone: .granted, accessibility: .granted
-        ), transcript: "Hello, this is a test of NanoWhisper."), "onboarding-5-done")
-        try render(onboarding(.done, context: Fixtures.context(
-            applied: parakeet, state: EngineState(), microphone: .granted, accessibility: .notDetermined
-        )), "onboarding-5-done-pending")
-        try render(onboarding(.done, context: Fixtures.context(
-            applied: parakeet, state: EngineState(), microphone: .granted, accessibility: .notDetermined
-        ), height: 900), "onboarding-5-done-pending-full")
+        .environment(\._accessibilityReduceMotion, true)
+        let window = OnboardingWindowController.makeWindow(content: content)
+        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+        let frameView = try #require(window.contentView?.superview)
+        frameView.layoutSubtreeIfNeeded()
+        let rep = try #require(frameView.bitmapImageRepForCachingDisplay(in: frameView.bounds))
+        frameView.cacheDisplay(in: frameView.bounds, to: rep)
+        try write(rep, name)
+        window.close()
     }
 
     // MARK: - Settings window (toolbar panes)
@@ -231,28 +275,6 @@ struct ViewRenderTests {
 
     // MARK: - Helpers
 
-    private func onboarding(
-        _ step: OnboardingStep,
-        context: SettingsContext,
-        draft: EngineConfiguration? = nil,
-        isReplay: Bool = false,
-        transcript: String? = nil,
-        height: CGFloat = OnboardingContent.size.height
-    ) -> some View {
-        OnboardingContent(
-            step: .constant(step),
-            draft: .constant(draft ?? context.appliedEngine),
-            context: context,
-            tryIt: TryItState(
-                isEngineReady: context.engineState.isReady, isRecording: false, isTranscribing: false,
-                transcript: transcript, toggleRecording: {}
-            ),
-            isReplay: isReplay,
-            onFinish: {},
-            height: height
-        )
-    }
-
     private func render<V: View>(_ view: V, _ name: String, appearance: NSAppearance.Name = .aqua) throws {
         _ = NSApplication.shared
         let hosting = NSHostingView(rootView: view)
@@ -298,7 +320,9 @@ enum Fixtures {
         offersLiveTranscription: Bool = true,
         shortcut: Shortcut = .default,
         historyEnabled: Bool = true,
-        recorderPosition: RecorderPosition = .defaultPosition
+        recorderPosition: RecorderPosition = .defaultPosition,
+        launchAtLogin: Bool = false,
+        pauseMediaEnabled: Bool = false
     ) -> SettingsContext {
         SettingsContext(
             appliedEngine: applied,
@@ -319,9 +343,9 @@ enum Fixtures {
             requestPermission: { _ in },
             shortcut: shortcut,
             setShortcut: { _ in },
-            launchAtLogin: .constant(false),
+            launchAtLogin: .constant(launchAtLogin),
             soundEnabled: .constant(true),
-            pauseMediaEnabled: .constant(false),
+            pauseMediaEnabled: .constant(pauseMediaEnabled),
             liveTranscriptionEnabled: liveTranscriptionEnabled,
             offersLiveTranscription: offersLiveTranscription,
             historyEnabled: .constant(historyEnabled),
@@ -335,6 +359,37 @@ enum Fixtures {
             )
         )
     }
+
+    /// Onboarding's setup page as a new install sees it: ⌥Space, the four switches on.
+    static func onboardingContext(
+        applied: EngineConfiguration = parakeetUltra,
+        state: EngineState = ready,
+        microphone: PermissionStatus = .notDetermined,
+        accessibility: PermissionStatus = .notDetermined,
+        switchesOn: Bool = true,
+        historyEnabled: Bool = true
+    ) -> SettingsContext {
+        context(
+            applied: applied, state: state, microphone: microphone, accessibility: accessibility,
+            shortcut: productionShortcut, historyEnabled: historyEnabled,
+            launchAtLogin: switchesOn, pauseMediaEnabled: switchesOn
+        )
+    }
+
+    static func tryIt(_ stage: TryItStage) -> TryItInputs {
+        TryItInputs(
+            stage: stage, shortcut: productionShortcut, recorderPosition: .defaultPosition,
+            showsLiveWords: false, model: parakeetUltra
+        )
+    }
+
+    /// The app icon from `Resources/` (a test process has no app bundle).
+    static let appIcon: NSImage = {
+        let resources = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Resources")
+        return NSImage(contentsOf: resources.appendingPathComponent("AppIcon.png")) ?? NSImage()
+    }()
 
     static let samplePreview = UnusedModelsPreview(
         removable: [

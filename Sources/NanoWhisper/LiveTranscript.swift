@@ -25,6 +25,13 @@ struct LiveTranscript: Equatable, Sendable {
 
     init() {}
 
+    /// A fixed transcript, already split (onboarding's welcome plays a simulated dictation).
+    init(stable: String, volatile: String) {
+        text = stable + volatile
+        stableText = stable
+        volatileText = volatile
+    }
+
     /// The final transcription (what is pasted) once set, else `nil`.
     var finalText: String? { isFinal ? text : nil }
 

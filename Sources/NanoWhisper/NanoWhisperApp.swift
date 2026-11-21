@@ -33,7 +33,8 @@ struct NanoWhisperApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) var appState: AppState?
-    private var menuBar: MenuBarController?
+    /// The status item; onboarding's Finish Setup calls its `showOnboardingHandoff()`.
+    private(set) var menuBar: MenuBarController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let onboardingComplete = UserDefaults.standard.bool(forKey: AppState.onboardingCompleteKey)
@@ -43,7 +44,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let appState = AppState()
         self.appState = appState
-        menuBar = MenuBarController(appState: appState)
+        let menuBar = MenuBarController(appState: appState)
+        self.menuBar = menuBar
+        // Finish Setup: the menu bar takes over, with the "After setup" popover.
+        appState.onOnboardingFinished = { [weak menuBar] in menuBar?.showOnboardingHandoff() }
 
         // On first launch, or with `--onboarding` / `--reset-onboarding`. A short delay lets
         // the app finish launching.

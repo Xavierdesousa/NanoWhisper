@@ -1,93 +1,404 @@
+import AppKit
 import Foundation
 
-// MARK: - Steps
+// MARK: - Pages
 
-/// The onboarding steps, in order. Every step can be left with Continue (or Skip Setup):
-/// a step that is not done yet is marked in the step indicator, never blocking.
-enum OnboardingStep: Int, CaseIterable, Identifiable, Comparable {
+/// The onboarding pages, in one window: Welcome, the setup page, then Try it. Nothing blocks:
+/// Continue is always available and Try it says what is missing, if anything.
+enum OnboardingPage: Int, CaseIterable, Equatable, Sendable {
     case welcome
-    case model
-    case permissions
-    case shortcut
-    case done
+    case setup
+    case tryIt
 
-    var id: Self { self }
+    /// Where Continue leads (none from Try it, whose button is Finish Setup).
+    var next: OnboardingPage? { OnboardingPage(rawValue: rawValue + 1) }
 
-    static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
+    /// Where Back leads. Only Try it has a Back button (to the setup page); the setup page has
+    /// none, as drawn.
+    var previous: OnboardingPage? { self == .tryIt ? .setup : nil }
 
-    /// Short name shown in the step indicator.
-    var title: String {
-        switch self {
-        case .welcome: return "Welcome"
-        case .model: return "Model"
-        case .permissions: return "Permissions"
-        case .shortcut: return "Shortcut"
-        case .done: return "Done"
-        }
-    }
-
-    var next: OnboardingStep? { OnboardingStep(rawValue: rawValue + 1) }
-    var previous: OnboardingStep? { OnboardingStep(rawValue: rawValue - 1) }
-
-    /// Title of the button that moves forward from this step.
-    var primaryButtonTitle: String {
-        switch self {
-        case .welcome: return "Get Started"
-        case .model, .permissions, .shortcut: return "Continue"
-        case .done: return "Finish"
-        }
-    }
-
-    var canGoBack: Bool { previous != nil }
-    /// "Skip Setup" closes onboarding from any step but the last, where Finish does the same.
-    var canSkip: Bool { self != .done }
+    /// A recording started while this page shows (with the app in front) is a test whose text
+    /// shows in the window, never pasted or saved (`DictationDestination.onboardingTest`).
+    var capturesTestTranscription: Bool { self == .tryIt }
 }
 
-// MARK: - Completion
+// MARK: - Setup page: the circles on the left
 
-/// What the app already has, which decides which steps count as done.
-struct OnboardingProgress: Equatable {
-    var modelReady: Bool
-    var microphoneGranted: Bool
-    var accessibilityGranted: Bool
+/// The mark on the left of a setup row: a circle that becomes a check.
+enum SetupMark: Equatable, Sendable {
+    /// Not done yet.
+    case empty
+    case checked
+    /// Needs the user (denied microphone, failed model setup).
+    case attention
+    /// A download with a known fraction: the ring fills.
+    case progress(Double)
+    /// Working without a fraction (preparing, optimizing, loading).
+    case busy
+}
 
-    /// Whether the step's goal is met. Welcome and Shortcut have nothing to fulfil
-    /// (a default shortcut always exists); Done is the end of the flow.
-    func isComplete(_ step: OnboardingStep) -> Bool {
-        switch step {
-        case .welcome, .shortcut: return true
-        case .model: return modelReady
-        case .permissions: return microphoneGranted && accessibilityGranted
-        case .done: return false
-        }
-    }
+/// One permission row of "Getting ready".
+struct PermissionChecklistDisplay: Equatable {
+    var mark: SetupMark
+    var caption: String
+    /// The caption says something is wrong (drawn in red).
+    var isProblem = false
+    /// "Allow…" (system request) or "Open System Settings"; nil once granted.
+    var buttonTitle: String?
 
-    /// Steps whose goal is not met, listed on the Done step.
-    var pendingSteps: [OnboardingStep] {
-        [.model, .permissions].filter { !isComplete($0) }
-    }
-
-    /// How a step appears in the step indicator while `current` is shown.
-    /// Model and Permissions show as done as soon as their goal is met, even before the user
-    /// reaches them (model already downloaded, permissions already granted); the others only
-    /// once passed. A passed step whose goal is not met is flagged.
-    func indicatorState(of step: OnboardingStep, current: OnboardingStep) -> StepIndicatorState {
-        if step == current { return .current }
-        switch step {
-        case .model, .permissions:
-            if isComplete(step) { return .complete }
-            return step < current ? .needsAttention : .upcoming
-        case .welcome, .shortcut, .done:
-            return step < current ? .complete : .upcoming
+    /// - Parameter historyEnabled: Without Accessibility nothing is pasted; the text is only
+    ///   kept when history is on, so the caption says so only then.
+    static func resolve(_ permission: Permission, status: PermissionStatus, historyEnabled: Bool) -> PermissionChecklistDisplay {
+        let button = Permission.actionTitle(for: status)
+        switch permission {
+        case .microphone:
+            switch status {
+            case .granted: return PermissionChecklistDisplay(mark: .checked, caption: OnboardingText.microphoneCaption)
+            case .notDetermined: return PermissionChecklistDisplay(mark: .empty, caption: OnboardingText.microphoneCaption, buttonTitle: button)
+            case .denied:
+                return PermissionChecklistDisplay(
+                    mark: .attention, caption: OnboardingText.microphoneDeniedCaption, isProblem: true, buttonTitle: button)
+            }
+        case .accessibility:
+            let caption = historyEnabled ? OnboardingText.pastingCaption : OnboardingText.pastingCaptionWithoutHistory
+            // Accessibility has no "denied" answer: after the system prompt, the way left is
+            // System Settings. The circle stays empty rather than warning.
+            return PermissionChecklistDisplay(mark: status.isGranted ? .checked : .empty, caption: caption, buttonTitle: button)
         }
     }
 }
 
-enum StepIndicatorState: Equatable {
-    case current
-    case complete
-    case needsAttention
-    case upcoming
+/// The Model row: the model in effect, its status on the left, a short status on the right.
+struct ModelChecklistDisplay: Equatable {
+    var mark: SetupMark
+    /// "Parakeet Ultra by NVIDIA".
+    var title: String
+    var caption: String
+    var isProblem = false
+    /// Right of the title while working ("23% of ~630 MB"); hidden under the pointer, where
+    /// Change… takes its place.
+    var detail: String?
+    /// The setup failed: Try Again retries it.
+    var offersRetry = false
+    /// Still downloading (the footer says it keeps going).
+    var isDownloading = false
+
+    var isDone: Bool { mark == .checked }
+
+    static func resolve(
+        applied: EngineConfiguration, state: EngineState, availability: ModelAvailability
+    ) -> ModelChecklistDisplay {
+        let title = OnboardingText.modelTitle(applied)
+        let caption = OnboardingText.modelCaption
+        let status = ModelStatus.resolve(state)
+        if case .failed(let message) = status {
+            return ModelChecklistDisplay(mark: .attention, title: title, caption: message, isProblem: true, offersRetry: true)
+        }
+        // A migration's new model downloading while the previous one is in use.
+        if status == .ready, let upgrade = state.upgrade, case .downloading(let fraction) = upgrade.status {
+            return ModelChecklistDisplay(
+                mark: fraction.map(SetupMark.progress) ?? .busy, title: title, caption: ModelUpgradeText.detail(upgrade),
+                detail: OnboardingText.downloadAmount(fraction, of: upgrade.to.sizeDescription), isDownloading: true)
+        }
+        // On this Mac (loaded, or its files complete on disk): checked, even while it loads.
+        if status == .ready || availability == .downloaded {
+            return ModelChecklistDisplay(mark: .checked, title: title, caption: caption)
+        }
+        switch status {
+        case .downloading(let fraction):
+            return ModelChecklistDisplay(
+                mark: fraction.map(SetupMark.progress) ?? .busy, title: title, caption: caption,
+                detail: OnboardingText.downloadAmount(fraction, of: applied.downloadSize), isDownloading: true)
+        case .compiling:
+            return ModelChecklistDisplay(mark: .busy, title: title, caption: caption, detail: OnboardingText.optimizing)
+        case .loading:
+            return ModelChecklistDisplay(mark: .busy, title: title, caption: caption, detail: OnboardingText.loading)
+        case .notLoaded:
+            return ModelChecklistDisplay(mark: .empty, title: title, caption: caption, detail: applied.downloadSize)
+        case .ready, .failed:
+            return ModelChecklistDisplay(mark: .checked, title: title, caption: caption)
+        }
+    }
+}
+
+/// The line on the left of the setup page's footer.
+enum SetupFooterNote {
+    static func resolve(microphone: PermissionStatus, model: ModelChecklistDisplay, engine: TranscriptionModelType) -> String {
+        switch microphone {
+        case .notDetermined: return OnboardingText.footerAllowMicrophone
+        case .denied: return OnboardingText.footerMicrophoneNeeded
+        case .granted:
+            return model.isDownloading ? OnboardingText.footerKeepsDownloading(engine) : OnboardingText.footerChangeLater
+        }
+    }
+}
+
+// MARK: - Try it
+
+/// What the Try it page shows. The recorder itself is the real overlay, at its real place.
+enum TryItStage: Equatable {
+    case ready
+    case listening
+    case transcribing
+    /// The text of the test (empty: nothing was recognized).
+    case result(String)
+    /// The microphone is not allowed: never asked (`.notDetermined`) or denied.
+    case microphoneMissing(PermissionStatus)
+    /// The model in effect is not ready yet (downloading, optimizing, loading, failed).
+    case modelNotReady(ModelStatus)
+
+    /// - Parameters:
+    ///   - isRecording: a recording is in progress.
+    ///   - isFinishing: the recording was stopped and still captures its last few hundred ms
+    ///     (`AppState.recordingTail`): already shown as transcribing.
+    ///   - transcript: the last test's text, nil before the first one.
+    static func resolve(
+        microphone: PermissionStatus, modelStatus: ModelStatus, isEngineReady: Bool,
+        isRecording: Bool, isFinishing: Bool, isTranscribing: Bool, transcript: String?
+    ) -> TryItStage {
+        if isRecording { return .listening }
+        if isFinishing || isTranscribing { return .transcribing }
+        if !microphone.isGranted { return .microphoneMissing(microphone) }
+        if !isEngineReady { return .modelNotReady(modelStatus == .ready ? .loading : modelStatus) }
+        if let transcript { return .result(transcript) }
+        return .ready
+    }
+
+    /// Finish Setup is off only while it listens or transcribes.
+    var allowsFinish: Bool {
+        switch self {
+        case .listening, .transcribing: return false
+        default: return true
+        }
+    }
+
+    /// Whether Start Recording (and the shortcut) can start a test now.
+    var canStartRecording: Bool {
+        switch self {
+        case .ready, .result: return true
+        default: return false
+        }
+    }
+}
+
+// MARK: - Navigation
+
+/// The onboarding window's state: the page shown and the model sheet. Its actions reach the app
+/// through `Actions`, so the flow is tested without a running app.
+@MainActor
+final class OnboardingModel: ObservableObject {
+    struct Actions {
+        /// A page was shown (also the first one). The app starts the model download on the
+        /// setup page and captures test dictations on Try it.
+        var pageDidAppear: (OnboardingPage) -> Void = { _ in }
+        /// Finish Setup: complete onboarding, close the window, hand over to the menu bar.
+        var finish: () -> Void = {}
+    }
+
+    @Published private(set) var page: OnboardingPage
+    /// The model choice sheet (Change… on the Model row).
+    @Published var showsModelChoice = false
+    private let actions: Actions
+
+    init(page: OnboardingPage = .welcome, actions: Actions = Actions()) {
+        self.page = page
+        self.actions = actions
+    }
+
+    /// Call once the window shows its first page.
+    func start() {
+        actions.pageDidAppear(page)
+    }
+
+    func goForward() {
+        guard let next = page.next else { return }
+        show(next)
+    }
+
+    func goBack() {
+        guard let previous = page.previous else { return }
+        show(previous)
+    }
+
+    /// Finish Setup. Refused while a test listens or transcribes (the button is off then).
+    /// - Returns: whether onboarding finished.
+    @discardableResult
+    func finish(stage: TryItStage) -> Bool {
+        guard page == .tryIt, stage.allowsFinish else { return false }
+        actions.finish()
+        return true
+    }
+
+    private func show(_ newPage: OnboardingPage) {
+        showsModelChoice = false
+        page = newPage
+        actions.pageDidAppear(newPage)
+    }
+}
+
+/// Finish Setup, in order: remember onboarding as done, close the window (the app returns to
+/// the menu bar only), make sure a model loads, then let the menu bar take over (the "After
+/// setup" popover under the status item).
+enum OnboardingCompletion {
+    @MainActor
+    static func finish(
+        defaults: UserDefaults, closeWindow: () -> Void, loadModel: () -> Void, handoff: (() -> Void)?
+    ) {
+        defaults.set(true, forKey: AppState.onboardingCompleteKey)
+        closeWindow()
+        loadModel()
+        handoff?()
+    }
+}
+
+// MARK: - Defaults for a new install
+
+/// Settings that start on for a new install, as the setup page draws them: all four switches.
+/// Existing installs keep what they had (stored or, for a value never stored, the old default).
+enum NewInstallDefaults {
+    static let pauseMediaKey = "pauseMediaEnabled"
+    /// Set at the first launch of a new install; consumed when the setup page first shows.
+    static let launchAtLoginPendingKey = "launchAtLoginDefaultPending"
+
+    /// "Pause music and videos while recording": on for a new install (since the onboarding
+    /// redesign), off for an install that ran before and never chose (the old default).
+    static func pauseMedia(stored: Bool?, isExistingInstall: Bool) -> Bool {
+        stored ?? !isExistingInstall
+    }
+
+    /// At launch, before anything writes a setting: resolve the pause-media setting and store
+    /// it (so it does not change once the install counts as existing), and remember that a new
+    /// install should open at login.
+    /// - Returns: the pause-media setting.
+    static func apply(isExistingInstall: Bool, to defaults: UserDefaults) -> Bool {
+        let pauseMedia = pauseMedia(stored: defaults.object(forKey: pauseMediaKey) as? Bool, isExistingInstall: isExistingInstall)
+        defaults.set(pauseMedia, forKey: pauseMediaKey)
+        if !isExistingInstall {
+            defaults.set(true, forKey: launchAtLoginPendingKey)
+        }
+        return pauseMedia
+    }
+
+    /// Whether "Open at login" should be turned on now (the setup page shows it on). True once
+    /// per new install: the login item is registered when the user sees the switch, not at an
+    /// unseen first launch.
+    static func takeLaunchAtLogin(from defaults: UserDefaults) -> Bool {
+        guard defaults.bool(forKey: launchAtLoginPendingKey) else { return false }
+        defaults.removeObject(forKey: launchAtLoginPendingKey)
+        return true
+    }
+}
+
+// MARK: - Window placement
+
+/// Where the onboarding window opens: centred on the screen, moved away from the recorder's
+/// place if they would meet, so the real recorder never covers the window during Try it.
+@MainActor
+enum OnboardingWindowPlacement {
+    /// Every page: 580 × 640 pt.
+    static let size = CGSize(width: 580, height: 640)
+    /// The recorder at its largest: the card with three lines of live text (380 × 106 pt).
+    static var recorderSize: CGSize {
+        CGSize(
+            width: OverlayMetrics.cardWidth,
+            height: OverlayMetrics.headerHeight + LiveTranscriptText.height(lines: LiveTranscriptText.defaultLineCount)
+                + OverlayMetrics.textBottomInset
+        )
+    }
+    /// Space kept between the recorder and the window.
+    static let gap: CGFloat = 16
+
+    /// - Parameters:
+    ///   - visible: the screen's visible frame (AppKit coordinates).
+    ///   - recorder: where the recorder appears (`AppState.recorderPosition`).
+    static func frame(size: CGSize = size, in visible: NSRect, recorder: RecorderPosition) -> NSRect {
+        var frame = NSRect(
+            x: (visible.midX - size.width / 2).rounded(),
+            y: (visible.midY - size.height / 2).rounded(),
+            width: size.width, height: size.height
+        )
+        let card = recorder.initialFrame(size: recorderSize, in: visible)
+        let overlapsHorizontally = frame.minX < card.maxX + gap && card.minX - gap < frame.maxX
+        if overlapsHorizontally {
+            switch recorder.verticalAnchor {
+            case .top: frame.origin.y = min(frame.origin.y, card.minY - gap - size.height)
+            case .bottom: frame.origin.y = max(frame.origin.y, card.maxY + gap)
+            }
+        }
+        // Never outside the visible frame (a very small screen: the window wins).
+        frame.origin.y = min(max(frame.minY, visible.minY), visible.maxY - size.height)
+        frame.origin.x = min(max(frame.minX, visible.minX), visible.maxX - size.width)
+        return frame
+    }
+}
+
+// MARK: - Welcome recorder (simulated dictation)
+
+/// The dictation the welcome's recorder plays: the card appears with no text, a sentence is
+/// dictated for about 2.7 s, then it stops mid-sentence and stays (two lines, the last two
+/// words dimmer, the caret at the end, 0:03). Times are seconds from the window opening.
+enum WelcomeDictation {
+    /// When the recorder fades in and its waveform starts.
+    static let recorderAppears: TimeInterval = 0.5
+    static let firstWord: TimeInterval = 0.9
+    static let span: TimeInterval = 2.65
+    /// When it stops and stays.
+    static var freezeTime: TimeInterval { firstWord + span }
+    /// The newest words are shown dimmer, as the live text's tail.
+    static let dimWordCount = 2
+
+    static var words: [String] {
+        OnboardingText.welcomeSentence.split(separator: " ").map(String.init)
+    }
+
+    /// Words shown at `time`.
+    static func wordCount(at time: TimeInterval) -> Int {
+        guard time >= firstWord else { return 0 }
+        let step = span / Double(words.count)
+        return min(words.count, Int(((time - firstWord) / step).rounded(.down)) + 1)
+    }
+
+    /// The text at `time`: the settled words, and the newest ones (dimmer) with their leading space.
+    static func text(at time: TimeInterval) -> (stable: String, volatile: String) {
+        let shown = Array(words.prefix(wordCount(at: time)))
+        let settled = max(0, shown.count - dimWordCount)
+        let stable = shown.prefix(settled).joined(separator: " ")
+        let tail = shown.dropFirst(settled).joined(separator: " ")
+        return (stable, tail.isEmpty ? "" : (stable.isEmpty ? tail : " " + tail))
+    }
+
+    /// The timer: whole seconds since the recorder appeared.
+    static func elapsedSeconds(at time: TimeInterval) -> Int {
+        max(0, Int((time - recorderAppears).rounded(.down)))
+    }
+
+    /// A speech-like level (the `AudioRecorder` scale, 0…1): room noise until just before the
+    /// first word, then syllables with short pauses.
+    static func level(at time: TimeInterval) -> Float {
+        guard time >= firstWord - 0.08 else { return 0.04 }
+        let pause = sin(time * 2.3 + 0.5) > 0.82 ? 0.0 : 1.0
+        let syllable = abs(sin(time * 7.7 + 0.3)) * (0.45 + 0.55 * abs(sin(time * 1.6 + 1.2)))
+        return Float(max(0.04, pause * min(1, 0.25 + 0.75 * syllable)))
+    }
+
+    /// Interval between two levels, as `AudioRecorder` publishes them.
+    static let levelInterval: TimeInterval = 0.02
+
+    /// The waveform at the freeze, computed the way `OverlayWaveform` builds it live (envelope,
+    /// normalizer, 50 ms slots): what Reduce Motion shows at once.
+    static func frozenHistory() -> LevelHistory {
+        var history = LevelHistory()
+        var envelope = LevelEnvelope()
+        var normalizer = LevelNormalizer()
+        let steps = Int(((freezeTime - recorderAppears) / levelInterval).rounded())
+        let perSlot = Int((LevelHistory.slotDuration / levelInterval).rounded(.up))
+        for step in 0..<steps {
+            let time = recorderAppears + Double(step) * levelInterval
+            history.record(normalizer.normalize(envelope.follow(level(at: time))))
+            if step % perSlot == perSlot - 1 { history.advance() }
+        }
+        return history
+    }
 }
 
 // MARK: - Launch arguments

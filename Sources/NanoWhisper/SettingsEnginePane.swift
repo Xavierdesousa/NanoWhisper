@@ -137,10 +137,28 @@ struct EngineApplyDisplay: Equatable {
 /// Settings › Engine: the engine and its model, the model status with Apply / Download &
 /// Apply and Revert, Whisper's language and vocabulary, and the downloaded models.
 ///
-/// Apply rule (as in onboarding's `ModelSettingsSection`): the engine and the model are a
-/// draft until Apply / Download & Apply, whose wording states the download first; Revert drops
-/// it. Whisper's language and vocabulary never load a model, so they apply right away here.
+/// Apply rule: the engine and the model are a draft until Apply / Download & Apply, whose
+/// wording states the download first; Revert drops it. Whisper's language and vocabulary never
+/// load a model, so they apply right away here.
 struct EnginePane: View {
+    @Binding var draft: EngineConfiguration
+    let context: SettingsContext
+    var showsModelPicker = false
+
+    var body: some View {
+        SettingsPaneForm {
+            EngineChoiceSection(draft: $draft, context: context, showsModelPicker: showsModelPicker)
+            Section("Downloaded models") {
+                ModelStorageRow(storage: context.storage)
+            }
+        }
+    }
+}
+
+/// The "Engine" section: each engine with its model under the selected one, the status of the
+/// model in effect and the apply row. Settings › Engine and onboarding's model sheet (Change…
+/// on the setup page's Model row) both show it.
+struct EngineChoiceSection: View {
     @Binding var draft: EngineConfiguration
     let context: SettingsContext
     /// Shows the model picker under the selected engine ("Change…").
@@ -156,24 +174,19 @@ struct EnginePane: View {
     private var isDirty: Bool { draft != applied }
 
     var body: some View {
-        SettingsPaneForm {
-            Section("Engine") {
-                ForEach(TranscriptionModelType.allCases, id: \.self) { engine in
-                    EngineChoiceRow(
-                        engine: engine,
-                        isSelected: draft.modelType == engine,
-                        select: { draft.modelType = engine }
-                    ) {
-                        if draft.modelType == engine {
-                            modelDetails(for: engine)
-                        }
+        Section("Engine") {
+            ForEach(TranscriptionModelType.allCases, id: \.self) { engine in
+                EngineChoiceRow(
+                    engine: engine,
+                    isSelected: draft.modelType == engine,
+                    select: { draft.modelType = engine }
+                ) {
+                    if draft.modelType == engine {
+                        modelDetails(for: engine)
                     }
                 }
-                statusRows
             }
-            Section("Downloaded models") {
-                ModelStorageRow(storage: context.storage)
-            }
+            statusRows
         }
     }
 

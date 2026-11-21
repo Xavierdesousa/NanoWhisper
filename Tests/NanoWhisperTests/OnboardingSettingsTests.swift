@@ -3,67 +3,6 @@ import Foundation
 import Testing
 @testable import NanoWhisper
 
-@Suite("Onboarding flow")
-struct OnboardingFlowTests {
-    private let nothingDone = OnboardingProgress(modelReady: false, microphoneGranted: false, accessibilityGranted: false)
-    private let allDone = OnboardingProgress(modelReady: true, microphoneGranted: true, accessibilityGranted: true)
-
-    @Test("Steps run Welcome, Model, Permissions, Shortcut, Done")
-    func order() {
-        #expect(OnboardingStep.allCases.map(\.title) == ["Welcome", "Model", "Permissions", "Shortcut", "Done"])
-        #expect(OnboardingStep.welcome.previous == nil)
-        #expect(OnboardingStep.welcome.next == .model)
-        #expect(OnboardingStep.shortcut.next == .done)
-        #expect(OnboardingStep.done.next == nil)
-        #expect(OnboardingStep.done.previous == .shortcut)
-    }
-
-    @Test("Buttons: Get Started, Continue, Finish; Skip everywhere but Done; Back after Welcome")
-    func buttons() {
-        #expect(OnboardingStep.welcome.primaryButtonTitle == "Get Started")
-        #expect(OnboardingStep.model.primaryButtonTitle == "Continue")
-        #expect(OnboardingStep.done.primaryButtonTitle == "Finish")
-        #expect(OnboardingStep.allCases.filter(\.canSkip) == [.welcome, .model, .permissions, .shortcut])
-        #expect(OnboardingStep.allCases.filter(\.canGoBack) == [.model, .permissions, .shortcut, .done])
-    }
-
-    @Test("Completion: model needs a ready model, permissions need both")
-    func completion() {
-        #expect(nothingDone.isComplete(.welcome))
-        #expect(nothingDone.isComplete(.shortcut))
-        #expect(!nothingDone.isComplete(.model))
-        #expect(!nothingDone.isComplete(.done))
-        let micOnly = OnboardingProgress(modelReady: true, microphoneGranted: true, accessibilityGranted: false)
-        #expect(micOnly.isComplete(.model))
-        #expect(!micOnly.isComplete(.permissions))
-        #expect(allDone.isComplete(.permissions))
-        #expect(nothingDone.pendingSteps == [.model, .permissions])
-        #expect(micOnly.pendingSteps == [.permissions])
-        #expect(allDone.pendingSteps.isEmpty)
-    }
-
-    @Test("Already-done steps show as done ahead of the current step")
-    func alreadyDoneAhead() {
-        for step in [OnboardingStep.model, .permissions] {
-            #expect(allDone.indicatorState(of: step, current: .welcome) == .complete)
-            #expect(nothingDone.indicatorState(of: step, current: .welcome) == .upcoming)
-        }
-        // Steps without a goal only show as done once passed.
-        #expect(allDone.indicatorState(of: .shortcut, current: .welcome) == .upcoming)
-        #expect(allDone.indicatorState(of: .done, current: .welcome) == .upcoming)
-    }
-
-    @Test("Passed steps: done, or flagged when their goal is not met")
-    func passedSteps() {
-        #expect(nothingDone.indicatorState(of: .welcome, current: .model) == .complete)
-        #expect(nothingDone.indicatorState(of: .model, current: .permissions) == .needsAttention)
-        #expect(nothingDone.indicatorState(of: .permissions, current: .done) == .needsAttention)
-        #expect(nothingDone.indicatorState(of: .shortcut, current: .done) == .complete)
-        #expect(nothingDone.indicatorState(of: .model, current: .model) == .current)
-        #expect(allDone.indicatorState(of: .done, current: .done) == .current)
-    }
-}
-
 @Suite("Launch options")
 struct LaunchOptionsTests {
     @Test("No arguments: nothing forced")
@@ -120,11 +59,13 @@ struct PermissionStatusTests {
         #expect(PermissionStatus.accessibility(trusted: false, promptShown: true) == .denied)
     }
 
-    @Test("Every permission explains itself and links to its privacy pane")
+    @Test("Every permission links to its privacy pane; one action per status")
     func descriptions() {
         #expect(Permission.allCases == [.microphone, .accessibility])
+        #expect(Permission.actionTitle(for: .notDetermined) == "Allow…")
+        #expect(Permission.actionTitle(for: .denied) == "Open System Settings")
+        #expect(Permission.actionTitle(for: .granted) == nil)
         for permission in Permission.allCases {
-            #expect(!permission.reason.isEmpty)
             #expect(permission.settingsURL.scheme == "x-apple.systempreferences")
             #expect(permission.settingsURL.absoluteString.hasSuffix(permission == .microphone
                 ? "Privacy_Microphone" : "Privacy_Accessibility"))

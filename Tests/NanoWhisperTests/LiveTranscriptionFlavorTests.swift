@@ -31,7 +31,7 @@ struct LiveTranscriptionFlavorTests {
         #expect(!LiveTranscriptionSupport.startsSession(enabled: true, flavor: .debug, configuration: turbo))
     }
 
-    @Test("Stored on + production: the General section has no live toggle", arguments: [false, true])
+    @Test("Stored on + production: the Recorder pane has no live toggle", arguments: [false, true])
     @MainActor
     func toggleVisibility(offered: Bool) {
         var stored = true
@@ -41,13 +41,13 @@ struct LiveTranscriptionFlavorTests {
             offersLiveTranscription: offered
         )
 
-        // The view tree the section builds, as text (offscreen hosting views expose no
+        // The view tree the pane builds, as text (offscreen hosting views expose no
         // accessibility tree without an assistive client, so the tree is inspected directly).
         var tree = ""
-        dump(GeneralSettingsSection(context: storedOn).body, to: &tree)
-        // Positive control: the section's title is found.
-        #expect(tree.contains("\"General\""))
-        #expect(tree.contains("\"\(GeneralSettingsSection.liveTranscriptionLabel)\"") == offered)
+        dump(RecorderPane(context: storedOn).body, to: &tree)
+        // Positive control: the position section's title is found.
+        #expect(tree.contains("\"Recorder position\""))
+        #expect(tree.contains("\"\(RecorderPane.liveTranscriptionLabel)\"") == offered)
         #expect(stored, "showing or hiding the toggle must not change the stored value")
     }
 }

@@ -1,472 +1,111 @@
 import SwiftUI
 
-/// User-facing app name of this build ("NanoWhisper" or "NanoWhisper Debug").
-private let appName = BuildFlavor.current.displayName
+// MARK: - Pages
 
-struct OnboardingView: View {
-    @ObservedObject var appState: AppState
-    @StateObject private var permissions = PermissionMonitor()
-    @State private var step: OnboardingStep = .welcome
-    /// Model choices are edited here and take effect on Apply, as in Settings.
-    @State private var draft: EngineConfiguration
-    /// Replaying (onboarding already completed): settings are kept as they are.
-    private let isReplay: Bool
-    var onFinish: () -> Void
-
-    init(appState: AppState, onFinish: @escaping () -> Void) {
-        self.appState = appState
-        self.onFinish = onFinish
-        isReplay = !appState.isFirstLaunch
-        _draft = State(initialValue: appState.engineConfiguration)
-    }
-
-    var body: some View {
-        OnboardingContent(
-            step: $step,
-            draft: $draft,
-            context: appState.settingsContext(permissions: permissions),
-            tryIt: TryItState(
-                isEngineReady: appState.isEngineReady,
-                isRecording: appState.isRecording,
-                isTranscribing: appState.isTranscribing,
-                transcript: appState.testTranscription,
-                toggleRecording: { appState.toggleRecording() }
-            ),
-            isReplay: isReplay,
-            onFinish: onFinish
-        )
-        .onAppear { permissions.start() }
-        .onDisappear {
-            permissions.stop()
-            appState.capturesTestTranscription = false
-        }
-        .onChange(of: step) { _, newStep in
-            appState.capturesTestTranscription = newStep == .done
-        }
-    }
-}
-
-/// State of the "Try It" box on the last step.
-struct TryItState {
-    var isEngineReady: Bool
-    var isRecording: Bool
-    var isTranscribing: Bool
-    /// Last test dictation: nil before the first one, empty when nothing was recognized.
-    var transcript: String?
-    var toggleRecording: () -> Void
-}
-
-// MARK: - Layout
-
-/// The onboarding screens: a step indicator, one step at a time, and Back / Continue.
+/// The onboarding window's content: one page at a time (Welcome, setup page, Try it), fading
+/// in over 0.3 s on Continue. Reads plain values (`SettingsContext`, `TryItInputs`), so the
+/// render tests draw every page and state without a running app.
 struct OnboardingContent: View {
-    @Binding var step: OnboardingStep
-    @Binding var draft: EngineConfiguration
+    @ObservedObject var model: OnboardingModel
+    @ObservedObject var demo: WelcomeRecorderDemo
     let context: SettingsContext
-    let tryIt: TryItState
-    let isReplay: Bool
-    let onFinish: () -> Void
-
-    /// Fixed window size; fits a 13" display at its largest text size setting.
-    static let size = CGSize(width: 560, height: 600)
-    /// Only the render tests change it, to see a step's whole content.
-    var height: CGFloat = Self.size.height
-
-    private var progress: OnboardingProgress {
-        OnboardingProgress(
-            modelReady: context.engineState.isReady && draft == context.appliedEngine,
-            microphoneGranted: context.microphone.isGranted,
-            accessibilityGranted: context.accessibility.isGranted
-        )
-    }
+    let tryIt: TryItInputs
+    let appIcon: NSImage
+    /// The model choice sheet (Change… on the Model row).
+    let modelChoice: () -> AnyView
+    /// Renders only (see `SetupPage`).
+    var revealsModelChange = false
+    var recordsShortcut = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(spacing: 0) {
-            OnboardingStepIndicator(current: step, progress: progress)
-                .padding(.vertical, 12)
-                .padding(.horizontal, 20)
-            Divider()
-            stepContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            Divider()
-            footer
+        ZStack {
+            OnboardingPalette.window
+            page
+                .id(model.page)
+                .transition(.asymmetric(insertion: .opacity, removal: .identity))
         }
-        .frame(width: Self.size.width, height: height)
+        .frame(width: OnboardingWindowPlacement.size.width, height: OnboardingWindowPlacement.size.height)
+        // The content runs under the transparent title bar, as drawn (traffic lights over it).
+        .ignoresSafeArea()
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.3), value: model.page)
+        .sheet(isPresented: $model.showsModelChoice) { modelChoice() }
     }
 
     @ViewBuilder
-    private var stepContent: some View {
-        switch step {
+    private var page: some View {
+        switch model.page {
         case .welcome:
-            WelcomeStep(isReplay: isReplay)
-        case .model:
-            OnboardingForm(
-                title: "Choose a speech model",
-                subtitle: "It runs entirely on this Mac and is downloaded once. You can continue while it downloads, and change it later in Settings."
-            ) {
-                ModelSettingsSection(draft: $draft, context: context)
-            }
-        case .permissions:
-            OnboardingForm(
-                title: "Allow access",
-                subtitle: "\(appName) needs two permissions. Changes made in System Settings show up here automatically."
-            ) {
-                PermissionsSettingsSection(context: context)
-            }
-        case .shortcut:
-            OnboardingForm(
-                title: "Shortcut and essentials",
-                subtitle: "Choose how you start dictating. Everything here is also in Settings."
-            ) {
-                ShortcutSettingsSection(context: context)
-                GeneralSettingsSection(context: context)
-            }
-        case .done:
-            DoneStep(context: context, progress: progress, tryIt: tryIt)
-        }
-    }
-
-    private var footer: some View {
-        HStack {
-            if step.canSkip {
-                Button("Skip Setup", action: onFinish)
-                    .help("Close onboarding and keep the current settings")
-            }
-            Spacer()
-            if let previous = step.previous {
-                Button("Back") { step = previous }
-            }
-            Button(step.primaryButtonTitle) {
-                if let next = step.next {
-                    step = next
-                } else {
-                    onFinish()
-                }
-            }
-            .keyboardShortcut(.defaultAction)
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
-    }
-}
-
-/// Step names with their state: done, current, to do, or passed but not done.
-struct OnboardingStepIndicator: View {
-    let current: OnboardingStep
-    let progress: OnboardingProgress
-
-    var body: some View {
-        HStack(spacing: 6) {
-            ForEach(OnboardingStep.allCases) { step in
-                if step != OnboardingStep.allCases.first {
-                    Rectangle()
-                        .fill(Color.secondary.opacity(0.3))
-                        .frame(height: 1)
-                        .frame(maxWidth: .infinity)
-                }
-                item(for: step)
-            }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Step \(current.rawValue + 1) of \(OnboardingStep.allCases.count): \(current.title)")
-    }
-
-    private func item(for step: OnboardingStep) -> some View {
-        let state = progress.indicatorState(of: step, current: current)
-        return HStack(spacing: 4) {
-            Image(systemName: symbol(for: step, state: state))
-                .foregroundStyle(color(for: state))
-            Text(step.title)
-                .font(.caption)
-                .fontWeight(state == .current ? .semibold : .regular)
-                .foregroundStyle(state == .current ? .primary : .secondary)
-        }
-        .fixedSize()
-        .help(help(for: step, state: state))
-    }
-
-    private func symbol(for step: OnboardingStep, state: StepIndicatorState) -> String {
-        switch state {
-        case .complete: return "checkmark.circle.fill"
-        case .needsAttention: return "exclamationmark.circle.fill"
-        case .current: return "\(step.rawValue + 1).circle.fill"
-        case .upcoming: return "\(step.rawValue + 1).circle"
-        }
-    }
-
-    private func color(for state: StepIndicatorState) -> Color {
-        switch state {
-        case .complete: return .green
-        case .needsAttention: return .orange
-        case .current: return .accentColor
-        case .upcoming: return .secondary
-        }
-    }
-
-    private func help(for step: OnboardingStep, state: StepIndicatorState) -> String {
-        switch state {
-        case .complete: return "\(step.title): done"
-        case .needsAttention: return "\(step.title): not done yet"
-        case .current, .upcoming: return step.title
+            WelcomePage(demo: demo, appIcon: appIcon, onContinue: model.goForward)
+        case .setup:
+            SetupPage(
+                context: context, appIcon: appIcon,
+                onChangeModel: { model.showsModelChoice = true },
+                onContinue: model.goForward,
+                revealsModelChange: revealsModelChange,
+                recordsShortcut: recordsShortcut
+            )
+        case .tryIt:
+            TryItPage(
+                inputs: tryIt,
+                onBack: model.goBack,
+                onFinish: { model.finish(stage: tryIt.stage) }
+            )
         }
     }
 }
 
-/// A step's title and explanation above its grouped form.
-private struct OnboardingForm<Content: View>: View {
-    let title: String
-    let subtitle: String
-    @ViewBuilder let content: Content
+// MARK: - Bound to the app
+
+/// The content bound to the running app: permissions polled while the window is open, the
+/// Try it state from the recording in progress.
+struct OnboardingView: View {
+    @ObservedObject var appState: AppState
+    @ObservedObject var model: OnboardingModel
+    @StateObject private var permissions = PermissionMonitor()
+    @StateObject private var demo = WelcomeRecorderDemo()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            OnboardingHeader(title: title, subtitle: subtitle)
-                .padding(.horizontal, 20)
-                .padding(.top, 18)
-            Form { content }
-                .formStyle(.grouped)
+        let context = appState.settingsContext(permissions: permissions)
+        OnboardingContent(
+            model: model, demo: demo, context: context, tryIt: tryItInputs(context),
+            appIcon: OnboardingAppIcon.image,
+            modelChoice: {
+                AnyView(LiveModelChoiceSheet(appState: appState, permissions: permissions) {
+                    model.showsModelChoice = false
+                })
+            }
+        )
+        .onAppear {
+            permissions.start()
+            model.start()
         }
-    }
-}
-
-private struct OnboardingHeader: View {
-    let title: String
-    let subtitle: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.title2)
-                .fontWeight(.semibold)
-            Text(subtitle)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-// MARK: - Steps
-
-private struct WelcomeStep: View {
-    let isReplay: Bool
-
-    var body: some View {
-        VStack(spacing: 0) {
-            VStack(spacing: 8) {
-                AppIconImage()
-                    .frame(width: 72, height: 72)
-                Text("Welcome to \(appName)")
-                    .font(.title)
-                    .fontWeight(.semibold)
-                Text("Dictate into any app from your menu bar. Speech is transcribed on this Mac and never sent to a server.")
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 420)
-            }
-            .padding(.top, 24)
-
-            Form {
-                Section("Setup takes a minute") {
-                    WelcomeRow(systemImage: "cpu", title: "Choose a speech model",
-                               detail: "Downloaded once, then everything works offline.")
-                    WelcomeRow(systemImage: "lock.shield", title: "Allow the microphone and accessibility",
-                               detail: "To hear you, and to paste the text where you type.")
-                    WelcomeRow(systemImage: "keyboard", title: "Pick your shortcut",
-                               detail: "Press it anywhere to start and stop dictating.")
-                }
-                if isReplay {
-                    Section {
-                        Label("Your current settings are kept. Nothing is downloaded unless you apply another model.",
-                              systemImage: "info.circle")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .formStyle(.grouped)
-            .scrollDisabled(true)
-        }
-    }
-}
-
-private struct WelcomeRow: View {
-    let systemImage: String
-    let title: String
-    let detail: String
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.title2)
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 28)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.vertical, 2)
-    }
-}
-
-private struct DoneStep: View {
-    let context: SettingsContext
-    let progress: OnboardingProgress
-    let tryIt: TryItState
-
-    private var shortcut: String { context.shortcut.displayString }
-
-    var body: some View {
-        OnboardingForm(
-            title: progress.pendingSteps.isEmpty ? "You're all set" : "Almost done",
-            subtitle: progress.pendingSteps.isEmpty
-                ? "\(appName) is ready. It lives in your menu bar."
-                : "\(appName) lives in your menu bar. A few things still need attention."
-        ) {
-            Section("How to use it") {
-                HStack(spacing: 12) {
-                    MenuBarIconImage()
-                        .frame(width: 28)
-                    Text("Click the \(appName) icon in the menu bar for your history, settings and status.")
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                HStack(spacing: 12) {
-                    Image(systemName: "keyboard")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 28)
-                    Text("Press **\(shortcut)** to start recording, and again to stop. The text is pasted where your cursor is.")
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            if !progress.pendingSteps.isEmpty {
-                Section {
-                    if !progress.isComplete(.model) {
-                        ModelStatusRow(context: context)
-                    }
-                    ForEach(Permission.allCases.filter { !context.status(of: $0).isGranted }) { permission in
-                        PermissionRow(
-                            permission: permission,
-                            status: context.status(of: permission),
-                            onRequest: { context.requestPermission(permission) }
-                        )
-                    }
-                } header: {
-                    Text("Still to do")
-                } footer: {
-                    if context.modelStatus == .notLoaded {
-                        Text("If you finish now, the model downloads in the background.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-            }
-
-            Section("Try it") {
-                TryItRows(tryIt: tryIt, shortcut: context.shortcut, microphoneGranted: context.microphone.isGranted)
-            }
-        }
-    }
-}
-
-/// Record a short test and show the text here instead of pasting it.
-private struct TryItRows: View {
-    let tryIt: TryItState
-    let shortcut: Shortcut
-    let microphoneGranted: Bool
-
-    /// The button and the shortcut are two equal ways to start and stop the test: the global
-    /// shortcut, pressed while this window is in front, records a test too
-    /// (`DictationDestination.atStart(testBoxShowing:appIsActive:)`).
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Button {
-                    tryIt.toggleRecording()
-                } label: {
-                    Label(tryIt.isRecording ? "Stop" : "Record a Test",
-                          systemImage: tryIt.isRecording ? "stop.fill" : "mic.fill")
-                }
-                .disabled(!canRecord)
-                HStack(spacing: 8) {
-                    Text("or press")
-                        .foregroundStyle(.secondary)
-                    ShortcutKeysView(shortcut: shortcut)
-                }
-                .opacity(canRecord ? 1 : 0.5)
-                Spacer(minLength: 0)
-            }
-            Text(caption)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-
-        if tryIt.isTranscribing {
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text("Transcribing…")
-                    .foregroundStyle(.secondary)
-            }
-        } else if let transcript = tryIt.transcript {
-            if transcript.isEmpty {
-                Label("Nothing was recognized. Try again and speak a little longer.",
-                      systemImage: "exclamationmark.bubble")
-                    .foregroundStyle(.secondary)
-            } else {
-                Text(transcript)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(8)
-                    .background(.background, in: RoundedRectangle(cornerRadius: 6))
-                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
-            }
+        .onDisappear {
+            permissions.stop()
+            demo.stop()
+            appState.capturesTestTranscription = false
         }
     }
 
-    private var canRecord: Bool { tryIt.isEngineReady && !tryIt.isTranscribing }
-
-    private var caption: String {
-        if !tryIt.isEngineReady { return "Available once the model is ready." }
-        if !microphoneGranted { return "Allow the microphone first." }
-        if tryIt.isRecording { return "Listening… click Stop or press \(shortcut.displayString) again when done." }
-        return "Say a sentence, then stop. The text shows here instead of being pasted."
-    }
-}
-
-// MARK: - Icons
-
-private struct AppIconImage: View {
-    var body: some View {
-        if let icon = NSImage(named: "AppIcon") {
-            Image(nsImage: icon).resizable()
-        } else {
-            Image(nsImage: NSApp?.applicationIconImage ?? NSImage())
-                .resizable()
-        }
-    }
-}
-
-private struct MenuBarIconImage: View {
-    var body: some View {
-        if let url = Bundle.main.url(forResource: "menubar_icon", withExtension: "png"),
-           let image = NSImage(contentsOf: url) {
-            Image(nsImage: image)
-                .resizable()
-                .renderingMode(.template)
-                .foregroundStyle(.secondary)
-                .frame(width: 18, height: 18)
-        } else {
-            Image(systemName: "mic")
-                .font(.title3)
-                .foregroundStyle(.secondary)
-        }
+    private func tryItInputs(_ context: SettingsContext) -> TryItInputs {
+        TryItInputs(
+            stage: TryItStage.resolve(
+                microphone: permissions.microphone, modelStatus: context.modelStatus,
+                isEngineReady: appState.isEngineReady, isRecording: appState.isRecording,
+                isFinishing: appState.isFinishingRecording, isTranscribing: appState.isTranscribing,
+                transcript: appState.testTranscription
+            ),
+            shortcut: appState.shortcut,
+            recorderPosition: appState.recorderPosition,
+            showsLiveWords: LiveTranscriptionSupport.startsSession(
+                enabled: appState.liveTranscriptionEnabled, flavor: .current, configuration: appState.engineConfiguration
+            ),
+            model: appState.engineConfiguration,
+            toggleRecording: { appState.toggleRecording() },
+            tryAgain: { appState.clearTestTranscription() },
+            requestMicrophone: { permissions.request(.microphone) },
+            retryModel: { appState.switchModel(to: appState.selectedModelType) }
+        )
     }
 }
 
@@ -478,7 +117,7 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
     private var onClose: (() -> Void)?
 
     /// - Parameters:
-    ///   - onFinish: Finish or Skip Setup was clicked.
+    ///   - onFinish: Finish Setup was clicked.
     ///   - onClose: the window closed, by any means (also after `onFinish`).
     func show(appState: AppState, onFinish: @escaping () -> Void, onClose: @escaping () -> Void) {
         self.onClose = onClose
@@ -488,33 +127,76 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        // A new window each time, so a replay starts again from the first step.
-        let w = NSWindow(
-            contentRect: NSRect(origin: .zero, size: OnboardingContent.size),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        w.title = appName
-        w.contentView = NSHostingView(rootView: OnboardingView(appState: appState, onFinish: onFinish))
-        w.isReleasedWhenClosed = false
-        w.isRestorable = false
-        w.collectionBehavior = [.moveToActiveSpace]
+        // A new window each time, so a replay starts again from the first page.
+        let model = OnboardingModel(actions: .init(
+            pageDidAppear: { [weak appState] page in appState?.onboardingPageDidAppear(page) },
+            finish: onFinish
+        ))
+        let w = Self.makeWindow(content: OnboardingView(appState: appState, model: model))
         w.delegate = self
-        centerOnCurrentScreen(w)
-        w.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        Self.place(w, recorder: appState.recorderPosition)
         window = w
+        Self.present(w)
     }
 
     func close() {
         window?.close()
     }
 
+    /// The window: 580 × 640 pt for every page, a transparent title bar with no title over the
+    /// content (traffic lights only), the design's background. Internal for the render tests.
+    static func makeWindow(content: some View) -> NSWindow {
+        let w = NSWindow(
+            contentRect: NSRect(origin: .zero, size: OnboardingWindowPlacement.size),
+            styleMask: [.titled, .closable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        // Not shown in the title bar; named in the Window menu, Mission Control and VoiceOver.
+        w.title = BuildFlavor.current.displayName
+        w.titleVisibility = .hidden
+        w.titlebarAppearsTransparent = true
+        w.backgroundColor = OnboardingPalette.windowNSColor
+        let hosting = NSHostingView(rootView: content)
+        // The whole window is 580 × 640, title bar included: the content runs under it. Left to
+        // size the window, the hosting view would add the title bar's safe area (672 pt).
+        hosting.sizingOptions = []
+        w.contentView = hosting
+        w.setFrame(NSRect(origin: .zero, size: OnboardingWindowPlacement.size), display: false)
+        w.isReleasedWhenClosed = false
+        w.isRestorable = false
+        w.restorationClass = nil
+        w.collectionBehavior = [.moveToActiveSpace]
+        return w
+    }
+
+    /// On the screen with the pointer (where the recorder will appear), centred, moved away
+    /// from the recorder's place (`OnboardingWindowPlacement`).
+    static func place(_ window: NSWindow, recorder: RecorderPosition, on screen: NSScreen? = nil) {
+        let mouse = NSEvent.mouseLocation
+        guard let screen = screen
+                ?? NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) })
+                ?? NSScreen.main ?? NSScreen.screens.first else { return }
+        window.setFrame(OnboardingWindowPlacement.frame(in: screen.visibleFrame, recorder: recorder), display: true)
+    }
+
+    /// Opens with a 0.25 s fade (none with Reduce Motion).
+    private static func present(_ window: NSWindow) {
+        let fades = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if fades { window.alphaValue = 0 }
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        guard fades else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.25
+            window.animator().alphaValue = 1
+        }
+    }
+
     func windowWillClose(_ notification: Notification) {
         guard (notification.object as? NSWindow) === window else { return }
         // Tear the SwiftUI view down with the window (a closed window keeps its content
-        // view), so its permission polling stops.
+        // view), so its permission polling and the welcome's recorder stop.
         window?.contentView = NSView()
         let onClose = onClose
         self.onClose = nil

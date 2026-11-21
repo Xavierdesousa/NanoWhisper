@@ -347,6 +347,9 @@ class RecordingOverlayViewModel: ObservableObject {
     @Published var isPointerOver = false
     /// Lines of live text in the card (tests capture other counts).
     @Published var transcriptLineCount = LiveTranscriptText.defaultLineCount
+    /// Show the card even while its text is empty (onboarding's welcome: the card appears
+    /// first, then the words arrive). The live overlay grows into the card with the first words.
+    @Published var showsCardWhileEmpty = false
 
     /// Waveform data; redrawn by its own timeline, not through this object's updates.
     let waveform: OverlayWaveform
@@ -357,7 +360,7 @@ class RecordingOverlayViewModel: ObservableObject {
 
     /// The transcript when it has text to show; the overlay is compact otherwise.
     var visibleTranscript: LiveTranscript? {
-        guard let transcript, !transcript.isEmpty else { return nil }
+        guard let transcript, !transcript.isEmpty || showsCardWhileEmpty else { return nil }
         return transcript
     }
 

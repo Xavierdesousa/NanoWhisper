@@ -1,23 +1,23 @@
 # Onboarding and Settings
 
-Last verified against the code: 2026-11-20 (`feat/settings-and-menu-redesign`; the Settings window, colors and sizing again in `feat/redesign-feedback`), with unit tests and offscreen renders; the Settings redesign was not run in the app (see Known limits). Source: PR #15, the model migration PR, the Settings and menu redesign PR and the code.
+Last verified against the code: 2026-11-20 (`feat/settings-and-menu-redesign`; the Settings window, colors and sizing again in `feat/redesign-feedback`; onboarding rewritten in `feat/onboarding-icon`), with unit tests, offscreen renders and window captures; the Settings redesign was not run in the app (see Known limits). Source: PR #15, the model migration PR, the Settings and menu redesign PR, the onboarding "Icon" PR and the code.
 
 ## What it is
 
-Settings and onboarding read the same `SettingsContext` and share their wording
-(`SettingsText`, `ShortcutRecorderRow`, `DictationBehaviorToggles`, `HistorySettingsRows`).
-Since the redesign (2026-11-20) Settings has its own pane views; onboarding keeps the sections
-it had (its redesign was not approved and is postponed).
+Settings and onboarding read the same `SettingsContext` and share their wording and rows
+(`SettingsText`, `ShortcutRecorderRow`, `EngineChoiceSection`). Settings has its toolbar panes;
+onboarding (redesigned 2026-11-20, direction "Icon") is one window of three pages with its own
+views (below).
 
 | Area | Settings pane (file) | Onboarding |
 |---|---|---|
-| Shortcut (`ShortcutRecorderRow`, `SettingsShortcutSection.swift`) | General | Shortcut step (`ShortcutSettingsSection`) |
-| Open at login, sounds, pause media, history on/off (`DictationBehaviorToggles`, `HistorySettingsRows`, `SettingsGeneralSection.swift`) | General, plus "Keep the last N" (disabled while history is off) | Shortcut step (`GeneralSettingsSection`) |
-| Engine, model, status, apply row, Whisper language and vocabulary | Engine (`EnginePane`, `SettingsEnginePane.swift`) | Model step (`ModelSettingsSection`, `SettingsModelSection.swift`) |
+| Shortcut (`ShortcutRecorderRow`, `SettingsShortcutSection.swift`) | General | Setup page, "Dictation" (the row with `isCompact`: no caption, no reset button) |
+| Open at login, sounds, pause media, history on/off (`DictationBehaviorToggles`, `HistorySettingsRows`, `SettingsGeneralSection.swift`) | General, plus "Keep the last N" (disabled while history is off) | Setup page, "Settings" (four switches, same labels; no history size) |
+| Engine, model, status, apply row, Whisper language and vocabulary (`EngineChoiceSection`, `SettingsEnginePane.swift`) | Engine (`EnginePane`) | Setup page, "Model" row; its Change… opens `ModelChoiceSheet` with the same section |
 | Downloaded models, "Remove Unused Models…" (`ModelStorageRow`, `UnusedModelsSheet`, `SettingsStorageSection.swift`) | Engine | — |
-| Live transcription (beta, debug builds only) | Recorder (`RecorderPane`, `SettingsRecorderPane.swift`) | Shortcut step |
-| Recorder position (`RecorderPositionPicker` from the Voice note overlay, PR #24; `AppState.recorderPosition` through `SettingsContext.recorderPosition`) | Recorder | — |
-| Microphone, Accessibility with live status | Permissions (`PermissionsPane`, `SettingsPermissionsSection.swift`) | Permissions step (`PermissionsSettingsSection`) |
+| Live transcription (beta, debug builds only) | Recorder (`RecorderPane`, `SettingsRecorderPane.swift`) | — (Try it says the words show in the recorder when it is on) |
+| Recorder position (`RecorderPositionPicker` from the Voice note overlay, PR #24; `AppState.recorderPosition` through `SettingsContext.recorderPosition`) | Recorder | — (Try it names where the recorder appears) |
+| Microphone, Accessibility with live status | Permissions (`PermissionsPane`, `SettingsPermissionsSection.swift`) | Setup page, "Getting ready" (`PermissionChecklistRow`) |
 | Updates, "Show debug info in history", "Show Onboarding Again…" | Advanced (`AdvancedPane`, `UpdateStatus`, `SettingsAdvancedPane.swift`) | — |
 
 The Advanced "Debug" group exists in both builds; it is unrelated to the debug **build
@@ -106,9 +106,9 @@ Design: Claude Design canvas "NanoWhisper Redesign", Settings page, proposal 1 "
   - The model line under the selected engine is quiet ("Parakeet Ultra, ~630 MB. Change…");
     Change… shows the picker and the speed/accuracy comparison (`ModelComparisonView`, kept from
     the old Settings). It stays open while the draft names another model.
-  - **Whisper language and vocabulary apply right away in Settings** (`SettingsContext
-    .setWhisperOptions`), as the design asks: they never load a model. Onboarding still applies
-    them with the draft.
+  - **Whisper language and vocabulary apply right away** (`SettingsContext
+    .setWhisperOptions`), as the design asks: they never load a model. The same in onboarding's
+    model sheet, which shows the same `EngineChoiceSection`.
   - "Recommended" also marks the Parakeet engine (`TranscriptionModelType.isRecommended`; its
     default model, Ultra, is the recommended one).
   - Not drawn as designed: "4 models, 1.7 GB on this Mac" (counting needs a scan of the Whisper
@@ -132,7 +132,8 @@ border, glyph inside, no fill or shadow (maintainer's request, reference: ⌥ �
 from the design notes: 20 pt caps, 11.5 pt medium glyph, radius 5, 3 pt apart; border black
 22 % / white 28 %, glyph #3C3C43 / white 85 % (light / dark); 16 pt caps with a 10 pt glyph in
 captions and menus. Keys come from `Shortcut.keys` (⌃ ⌥ ⇧ ⌘, then the key). Used in Settings ›
-General, the menu's Start Dictation item and onboarding's Try-it row. Change… swaps the caps
+General and onboarding's setup page and Try it page (also inline in a sentence,
+`InlineShortcutText`). Change… swaps the caps
 for a 150 × 22 pt "Press a shortcut…" field and Cancel; the caption becomes "Press the keys you
 want, or [esc] to cancel."
 

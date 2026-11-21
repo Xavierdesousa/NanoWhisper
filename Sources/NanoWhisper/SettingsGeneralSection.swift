@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Wording shared by the Settings panes and onboarding, so both say the same thing.
+/// Wording shared by the Settings panes and onboarding's setup page, so both say the same thing.
 enum SettingsText {
     static let openAtLogin = "Open at login"
     static let sounds = "Play a sound when recording starts and stops"
@@ -73,36 +73,6 @@ struct HistorySettingsRows: View {
                 }
             }
             .disabled(!context.historyEnabled.wrappedValue)
-        }
-    }
-}
-
-// MARK: - Onboarding
-
-/// General toggles on onboarding's Shortcut step (Settings shows them in `GeneralPane` and,
-/// for live transcription, `RecorderPane`).
-struct GeneralSettingsSection: View {
-    let context: SettingsContext
-
-    static let liveTranscriptionLabel = "Live transcription (beta)"
-
-    private var liveTranscriptionAvailable: Bool {
-        LiveTranscriptionSupport.isAvailable(for: context.appliedEngine)
-    }
-
-    var body: some View {
-        Section("General") {
-            DictationBehaviorToggles(context: context)
-            if context.offersLiveTranscription {
-                Toggle(Self.liveTranscriptionLabel, isOn: context.liveTranscriptionEnabled)
-                    .disabled(!liveTranscriptionAvailable)
-                Text(liveTranscriptionAvailable
-                     ? "Shows the text in the overlay while you speak."
-                     : LiveTranscriptionSupport.unavailableExplanation)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            HistorySettingsRows(context: context, showsLimit: false)
         }
     }
 }
