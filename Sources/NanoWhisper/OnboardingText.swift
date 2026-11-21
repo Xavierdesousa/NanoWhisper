@@ -33,7 +33,7 @@ enum OnboardingText {
     ]
 
     /// Dictated by the welcome's recorder, which stops before its end.
-    static let welcomeSentence = "Thanks for the notes. I’ll send the revised plan on Friday morning, after the team review"
+    static let welcomeSentence = "Thanks for the notes. I’ll send the revised plan on Friday morning, after the team review, so we can go over the budget together early next week"
     static let welcomeRecorderLabel = "Recorder, as it appears while you dictate"
 
     // MARK: Setup page

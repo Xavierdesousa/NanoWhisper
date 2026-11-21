@@ -102,6 +102,7 @@ struct RecordingOverlayView: View {
                     tailOpacity: viewModel.state == .loading
                         ? OverlayPalette.tailOpacityTranscribing : OverlayPalette.tailOpacity,
                     showsCaret: viewModel.state == .recording,
+                    caretBlinks: !viewModel.isPaused,
                     isFinal: transcript.isFinal,
                     lineCount: viewModel.transcriptLineCount
                 )
@@ -143,10 +144,15 @@ struct RecordingOverlayView: View {
                     }
                 }
             case .idle, .recording, .loading:
-                RecordIndicator(isTranscribing: isTranscribing)
+                RecordIndicator(isTranscribing: isTranscribing, isPaused: viewModel.isPaused)
+                    // A new indicator when it pauses or resumes: a repeating animation already
+                    // running is not stopped by later non-animated changes (the capsule kept
+                    // pulsing on the welcome's frozen card), and a resumed one starts again.
+                    .id(viewModel.isPaused)
                 // In the card the waveform takes the header's whole width (2026-11-20
                 // feedback); in the capsule it keeps its 26 bars.
-                OverlayWaveformView(waveform: viewModel.waveform, isTranscribing: isTranscribing, fillsWidth: hasText)
+                OverlayWaveformView(waveform: viewModel.waveform, isTranscribing: isTranscribing, fillsWidth: hasText,
+                                    revision: viewModel.waveform.revision)
                 trailing(flexible: !hasText) {
                     if isTranscribing && (hasText || reduceMotion) {
                         Text("Transcribing…")
@@ -234,9 +240,10 @@ private struct OverlayBackground: View {
 
 /// The glowing capsule from the app icon, 6 × 14 pt. It breathes while recording (glow
 /// radius and opacity, 2.4 s) and turns light, without glow, while transcribing. Static with
-/// Reduce Motion.
+/// Reduce Motion. Paused (onboarding's welcome at rest): still, at the dim end of its breath.
 struct RecordIndicator: View {
     let isTranscribing: Bool
+    var isPaused = false
     @State private var breathing = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -244,8 +251,8 @@ struct RecordIndicator: View {
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 3, style: .continuous)
-        let breathes = !reduceMotion && !isTranscribing
-        let glow = breathing || !breathes
+        let breathes = !reduceMotion && !isTranscribing && !isPaused
+        let glow = !isPaused && (breathing || !breathes)
         Group {
             if isTranscribing {
                 shape.fill(OverlayPalette.capsuleTranscribing)
@@ -358,6 +365,8 @@ struct LiveTranscriptText: View {
     var tailOpacity: Double = OverlayPalette.tailOpacity
     /// The caret blinks after the last word while recording.
     var showsCaret = false
+    /// False: the caret stays on, still (a paused recording: onboarding's welcome at rest).
+    var caretBlinks = true
     /// The final text (what is pasted): cross-faded in.
     var isFinal = false
     var lineCount = LiveTranscriptText.defaultLineCount
@@ -383,7 +392,7 @@ struct LiveTranscriptText: View {
 
     var body: some View {
         Group {
-            if showsCaret && !reduceMotion {
+            if showsCaret && caretBlinks && !reduceMotion {
                 TimelineView(.periodic(from: .now, by: 0.2)) { context in
                     let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1)
                     lines(caret: phase < 0.6 ? .on : .dim)

@@ -11,12 +11,12 @@ import Testing
 ///     NANOWHISPER_WINDOW_TESTS=1 swift test --filter OnboardingWindow
 ///
 /// With `NANOWHISPER_CAPTURE_DIR=<dir>` too, PNGs of the welcome's entrance (frames from 0 to
-/// 4 s) and of Try it with the recorder at its place on the screen are saved in `<dir>`.
+/// 9 s) and of Try it with the recorder at its place on the screen are saved in `<dir>`.
 @Suite("OnboardingWindow", .serialized, .enabled(if: ProcessInfo.processInfo.environment["NANOWHISPER_WINDOW_TESTS"] != nil))
 @MainActor
 struct OnboardingWindowTests {
 
-    @Test("Welcome: the elements arrive, the recorder plays its dictation, then rests at 0:03")
+    @Test("Welcome: the page arrives with the recorder idle, it records 0.25 s later, then stops paused at 0:05")
     func welcomeEntrance() async throws {
         let session = try ActiveApp()
         defer { session.end() }
@@ -25,34 +25,80 @@ struct OnboardingWindowTests {
         defer { window.close() }
         #expect(window.frame.size == OnboardingWindowPlacement.size)
 
+        let recording = WelcomeDictation.recordingStarts
+        let end = WelcomeDictation.freezeTime
         var captured: [(Double, NSBitmapImageRep)] = []
         let start = Date()
-        for time in [0.12, 0.3, 0.55, 0.9, 1.5, 2.2, 3.0, 4.2] {
+        for time in [0.12, 0.55, 1.0, recording - 0.15, recording + 0.5, recording + 2.0, recording + 3.5,
+                     recording + 5.0, end + 0.3, end + 1.0] {
             let wait = time - Date().timeIntervalSince(start)
             if wait > 0 { try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }
             captured.append((time, try Self.capture(window)))
-            if time == 2.2 {
-                let text = demo.viewModel.visibleTranscript
-                #expect(text?.isEmpty == false, "words are arriving")
-                #expect(!demo.isFrozen)
+            if time == recording - 0.15 {
+                #expect(demo.phase == .idle, "idle until the recording starts")
+                #expect(demo.viewModel.isPaused)
+                #expect(demo.viewModel.elapsedFormatted == "0:00")
+                #expect(demo.viewModel.visibleTranscript?.isEmpty == true)
+            }
+            if time == recording + 2.0 {
+                #expect(demo.phase == .recording)
+                #expect(!demo.viewModel.isPaused)
+                #expect(demo.viewModel.visibleTranscript?.isEmpty == false, "words are arriving")
             }
         }
         #expect(demo.isFrozen)
-        #expect(demo.viewModel.elapsedFormatted == "0:03")
-        #expect(demo.viewModel.visibleTranscript?.volatileText == " team review")
+        #expect(demo.viewModel.isPaused)
+        #expect(demo.viewModel.elapsedFormatted == "0:05")
+        #expect(demo.viewModel.visibleTranscript?.volatileText == " next week")
         #expect(demo.viewModel.waveform.isStatic)
+
+        // Paused means still: the idle card and the frozen card draw the same pixels over time
+        // (no capsule pulse, no caret blink, no waveform glide).
+        let idleA = try #require(captured.first { $0.0 == 1.0 }?.1)
+        let idleB = try #require(captured.first { $0.0 == recording - 0.15 }?.1)
+        let restA = try #require(captured.first { $0.0 == end + 0.3 }?.1)
+        let restB = try #require(captured.first { $0.0 == end + 1.0 }?.1)
+        let recorder = Self.recorderRect(in: window)
+        #expect(Self.samePixels(idleA, idleB, in: recorder), "the idle recorder does not move")
+        #expect(Self.samePixels(restA, restB, in: recorder), "the frozen recorder does not move")
 
         if let directory = OverlayCapture.directory {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             for (time, rep) in captured {
-                try OverlayCapture.write(rep, String(format: "onboarding-welcome-t%.2fs", time), in: directory)
+                try OverlayCapture.write(rep, String(format: "onboarding-welcome-t%05.2fs", time), in: directory)
             }
             // The resting frame in dark too.
             let dark = try Self.show(page: .welcome, demo: WelcomeRecorderDemo(), dark: true)
-            try await Task.sleep(nanoseconds: 4_200_000_000)
+            try await Task.sleep(nanoseconds: UInt64((end + 0.5) * 1_000_000_000))
             try OverlayCapture.write(try Self.capture(dark), "onboarding-welcome-rest-dark", in: directory)
             dark.close()
         }
+    }
+
+    /// The recorder card's area in the welcome window's frame view, in points (y down): the
+    /// card is 380 pt wide, centered, below the catch phrase.
+    private static func recorderRect(in window: NSWindow) -> NSRect {
+        let width = window.frame.width
+        return NSRect(x: (width - OverlayMetrics.cardWidth) / 2 - 8, y: 250, width: OverlayMetrics.cardWidth + 16, height: 140)
+    }
+
+    /// Whether two captures have the same pixels in `rect` (points, y down), within a small
+    /// tolerance for compositing noise.
+    private static func samePixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep, in rect: NSRect) -> Bool {
+        guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return false }
+        let scale = CGFloat(a.pixelsWide) / a.size.width
+        let x0 = max(0, Int(rect.minX * scale)), x1 = min(a.pixelsWide, Int(rect.maxX * scale))
+        let y0 = max(0, Int(rect.minY * scale)), y1 = min(a.pixelsHigh, Int(rect.maxY * scale))
+        var differing = 0
+        for y in y0..<y1 {
+            for x in x0..<x1 {
+                guard let ca = a.colorAt(x: x, y: y), let cb = b.colorAt(x: x, y: y) else { continue }
+                let delta = abs(ca.redComponent - cb.redComponent) + abs(ca.greenComponent - cb.greenComponent)
+                    + abs(ca.blueComponent - cb.blueComponent)
+                if delta > 0.03 { differing += 1 }
+            }
+        }
+        return differing == 0
     }
 
     @Test("Try it: the real recorder at Top Center never covers the window", arguments: [false, true])

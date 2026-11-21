@@ -20,14 +20,12 @@ enum OnboardingPalette {
                 blue: CGFloat(value & 0xFF) / 255, alpha: alpha)
     }
 
-    /// The window: #F2F2F4 / #1E1E20.
-    static let windowNSColor = dynamic("nwOnboardingWindow", light: hex(0xF2F2F4), dark: hex(0x1E1E20))
-    static let window = Color(nsColor: windowNSColor)
-    /// A group of rows: white / #2A2A2D.
-    static let group = Color(nsColor: dynamic("nwOnboardingGroup", light: .white, dark: hex(0x2A2A2D)))
+    /// The window: #F2F2F4 / #1E1E20, shared with Settings (`GroupedStyle`).
+    static let windowNSColor = GroupedStyle.windowNSColor
+    static let window = GroupedStyle.window
     /// Lines between rows and above the footer.
-    static let separator = Color(nsColor: dynamic("nwOnboardingSeparator", light: NSColor(white: 0, alpha: 0.08), dark: NSColor(white: 1, alpha: 0.08)))
-    /// Edges of groups, empty circles and tags.
+    static let separator = GroupedStyle.separator
+    /// Empty circles and tags.
     static let border = Color(nsColor: dynamic("nwOnboardingBorder", light: NSColor(white: 0, alpha: 0.14), dark: NSColor(white: 1, alpha: 0.14)))
     static let label = Color(nsColor: dynamic("nwOnboardingLabel", light: hex(0x1C1C1E), dark: hex(0xF2F2F4)))
     /// Captions and secondary text: #5E5E64 / #A8A8AF.
@@ -43,7 +41,7 @@ enum OnboardingPalette {
 
 // MARK: - Grouped rows
 
-/// A section title and its group of rows.
+/// A section title and its group of rows, on the card Settings uses too (`groupedCard()`).
 struct OnboardingSection<Content: View>: View {
     let title: String
     @ViewBuilder let content: Content
@@ -56,18 +54,13 @@ struct OnboardingSection<Content: View>: View {
                 .padding(.leading, 2)
                 .accessibilityAddTraits(.isHeader)
             VStack(spacing: 0) { content }
-                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(OnboardingPalette.group))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(OnboardingPalette.border, lineWidth: 0.5))
+                .groupedCard()
         }
     }
 }
 
-/// The line between two rows of a group.
-struct OnboardingRowDivider: View {
-    var body: some View {
-        Rectangle().fill(OnboardingPalette.separator).frame(height: 0.5)
-    }
-}
+/// The line between two rows of a group (the same as in Settings).
+typealias OnboardingRowDivider = GroupedRowDivider
 
 /// Secondary text under a row title: 11.5 pt.
 struct OnboardingCaption: View {

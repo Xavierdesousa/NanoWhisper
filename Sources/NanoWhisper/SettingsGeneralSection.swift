@@ -23,13 +23,14 @@ struct GeneralPane: View {
 
     var body: some View {
         SettingsPaneForm {
-            Section("Shortcut") {
+            SettingsSection("Shortcut") {
                 ShortcutRecorderRow(shortcut: context.shortcut, onChange: context.setShortcut)
+                    .settingsRow()
             }
-            Section("When you dictate") {
+            SettingsSection("When you dictate") {
                 DictationBehaviorToggles(context: context)
             }
-            Section("History") {
+            SettingsSection("History") {
                 HistorySettingsRows(context: context, showsLimit: true)
             }
         }
@@ -44,8 +45,13 @@ struct DictationBehaviorToggles: View {
 
     var body: some View {
         SettingsToggle(title: SettingsText.openAtLogin, isOn: context.launchAtLogin)
+            .settingsRow()
+        GroupedRowDivider()
         SettingsToggle(title: SettingsText.sounds, isOn: context.soundEnabled)
+            .settingsRow()
+        GroupedRowDivider()
         SettingsToggle(title: SettingsText.pauseMedia, isOn: context.pauseMediaEnabled)
+            .settingsRow()
     }
 }
 
@@ -62,17 +68,21 @@ struct HistorySettingsRows: View {
             isOn: context.historyEnabled
         )
         .disabled(context.historyUnavailable)
+        .settingsRow()
         if context.historyUnavailable {
+            GroupedRowDivider()
             Label(SettingsText.historyUnavailable, systemImage: "exclamationmark.triangle")
                 .font(.caption)
                 .foregroundStyle(.red)
+                .settingsRow()
         } else if showsLimit {
-            Picker(SettingsText.keepLast, selection: context.maxHistoryCount) {
-                ForEach(Self.limitChoices, id: \.self) { count in
-                    Text(SettingsText.historyLimit(count)).tag(count)
-                }
-            }
+            GroupedRowDivider()
+            SettingsPickerRow(
+                title: SettingsText.keepLast, selection: context.maxHistoryCount,
+                items: Self.limitChoices, itemTitle: SettingsText.historyLimit
+            )
             .disabled(!context.historyEnabled.wrappedValue)
+            .settingsRow()
         }
     }
 }

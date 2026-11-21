@@ -335,16 +335,30 @@ enum OnboardingWindowPlacement {
 
 // MARK: - Welcome recorder (simulated dictation)
 
-/// The dictation the welcome's recorder plays: the card appears with no text, a sentence is
-/// dictated for about 2.7 s, then it stops mid-sentence and stays (two lines, the last two
-/// words dimmer, the caret at the end, 0:03). Times are seconds from the window opening.
+/// The dictation the welcome's recorder plays (the maintainer's sequence, 2026-11-21): the page
+/// arrives with the recorder idle at 0:00 (still capsule, no text, flat waveform); `idleWait`
+/// after the page's last element has arrived the recording starts (the capsule pulses, the
+/// timer runs, the waveform moves, the words write themselves) and runs 5.6 s; then everything
+/// stops and stays, paused: up to three lines, the last two words dimmer, a steady caret, 0:05.
+/// Times are seconds from the window opening.
 enum WelcomeDictation {
-    /// When the recorder fades in and its waveform starts.
+    /// When the recorder fades in, idle.
     static let recorderAppears: TimeInterval = 0.5
-    static let firstWord: TimeInterval = 0.9
-    static let span: TimeInterval = 2.65
+    /// When the page's last element (Continue: 1 s delay, 0.45 s fade) has arrived.
+    static let entranceEnds: TimeInterval = 1.45
+    /// The pause between the page at rest and the start of the recording (the maintainer
+    /// found 1 s far too long, 2026-11-21; 0.5 s may be tried later).
+    static let idleWait: TimeInterval = 0.25
+    /// The recording starts: the capsule pulses, the timer and the waveform run.
+    static var recordingStarts: TimeInterval { entranceEnds + idleWait }
+    /// The first word, a moment after the start, as when someone starts speaking.
+    static var firstWord: TimeInterval { recordingStarts + 0.35 }
+    /// From the first word to the last.
+    static let span: TimeInterval = 4.9
+    /// How long the recording runs before it stops and stays.
+    static let recordingDuration: TimeInterval = 5.6
     /// When it stops and stays.
-    static var freezeTime: TimeInterval { firstWord + span }
+    static var freezeTime: TimeInterval { recordingStarts + recordingDuration }
     /// The newest words are shown dimmer, as the live text's tail.
     static let dimWordCount = 2
 
@@ -352,10 +366,10 @@ enum WelcomeDictation {
         OnboardingText.welcomeSentence.split(separator: " ").map(String.init)
     }
 
-    /// Words shown at `time`.
+    /// Words shown at `time`: the first at `firstWord`, the last `span` later.
     static func wordCount(at time: TimeInterval) -> Int {
         guard time >= firstWord else { return 0 }
-        let step = span / Double(words.count)
+        let step = span / Double(max(1, words.count - 1))
         return min(words.count, Int(((time - firstWord) / step).rounded(.down)) + 1)
     }
 
@@ -368,9 +382,9 @@ enum WelcomeDictation {
         return (stable, tail.isEmpty ? "" : (stable.isEmpty ? tail : " " + tail))
     }
 
-    /// The timer: whole seconds since the recorder appeared.
+    /// The timer: whole seconds since the recording started (0:00 while idle), stopped at the freeze.
     static func elapsedSeconds(at time: TimeInterval) -> Int {
-        max(0, Int((time - recorderAppears).rounded(.down)))
+        max(0, Int((min(time, freezeTime) - recordingStarts).rounded(.down)))
     }
 
     /// A speech-like level (the `AudioRecorder` scale, 0…1): room noise until just before the
@@ -385,16 +399,16 @@ enum WelcomeDictation {
     /// Interval between two levels, as `AudioRecorder` publishes them.
     static let levelInterval: TimeInterval = 0.02
 
-    /// The waveform at the freeze, computed the way `OverlayWaveform` builds it live (envelope,
-    /// normalizer, 50 ms slots): what Reduce Motion shows at once.
+    /// The waveform at the freeze, computed the way `OverlayWaveform` builds it live from the
+    /// start of the recording (envelope, normalizer, 50 ms slots): what Reduce Motion shows at once.
     static func frozenHistory() -> LevelHistory {
         var history = LevelHistory()
         var envelope = LevelEnvelope()
         var normalizer = LevelNormalizer()
-        let steps = Int(((freezeTime - recorderAppears) / levelInterval).rounded())
+        let steps = Int(((freezeTime - recordingStarts) / levelInterval).rounded())
         let perSlot = Int((LevelHistory.slotDuration / levelInterval).rounded(.up))
         for step in 0..<steps {
-            let time = recorderAppears + Double(step) * levelInterval
+            let time = recordingStarts + Double(step) * levelInterval
             history.record(normalizer.normalize(envelope.follow(level(at: time))))
             if step % perSlot == perSlot - 1 { history.advance() }
         }

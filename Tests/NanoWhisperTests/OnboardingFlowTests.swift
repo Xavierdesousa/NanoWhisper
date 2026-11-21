@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import Testing
 @testable import NanoWhisper
@@ -345,48 +346,145 @@ struct OnboardingWindowPlacementTests {
 @Suite("Welcome recorder")
 @MainActor
 struct WelcomeRecorderTests {
-    @Test("The card appears empty, the words arrive, then it stops mid-sentence at 0:03")
+    @Test("Idle at 0:00 once the page has arrived, recording 0.25 s later for 5.6 s, then stopped at 0:05")
     func timeline() {
+        // The page's last element (Continue) has arrived when the idle wait starts.
+        #expect(abs(WelcomeDictation.entranceEnds - (WelcomePage.Delay.button + 0.45)) < 0.001)
+        #expect(WelcomeDictation.recorderAppears < WelcomeDictation.entranceEnds)
+        let start = WelcomeDictation.recordingStarts
+        #expect(abs(start - WelcomeDictation.entranceEnds - WelcomeDictation.idleWait) < 0.001)
+        #expect(WelcomeDictation.idleWait == 0.25, "the maintainer's pause after the page has arrived")
+        let duration = WelcomeDictation.freezeTime - start
+        #expect(duration >= 5 && duration <= 6, "the dictation lasts 5 to 6 s")
+
+        // Idle: no text, 0:00.
+        for time in [0.0, WelcomeDictation.recorderAppears, WelcomeDictation.entranceEnds, start - 0.01] {
+            #expect(WelcomeDictation.wordCount(at: time) == 0)
+            #expect(WelcomeDictation.text(at: time) == ("", ""))
+            #expect(WelcomeDictation.elapsedSeconds(at: time) == 0)
+        }
+        #expect(WelcomeDictation.level(at: start - 0.5) < WaveformMetrics.silenceFloor)
+
+        // Recording: the words arrive, the timer runs.
         let words = WelcomeDictation.words
-        #expect(words.count == 16)
-        #expect(WelcomeDictation.wordCount(at: 0.5) == 0)
-        #expect(WelcomeDictation.text(at: 0.5) == ("", ""))
+        #expect(words.count == 27)
         #expect(WelcomeDictation.wordCount(at: WelcomeDictation.firstWord) == 1)
         let one = WelcomeDictation.text(at: WelcomeDictation.firstWord)
         #expect(one.stable == "" && one.volatile == "Thanks")
-        #expect(WelcomeDictation.elapsedSeconds(at: 1.4) == 0)
-        #expect(WelcomeDictation.elapsedSeconds(at: 1.5) == 1)
+        #expect(WelcomeDictation.elapsedSeconds(at: start + 0.99) == 0)
+        #expect(WelcomeDictation.elapsedSeconds(at: start + 1.0) == 1)
+        #expect(WelcomeDictation.elapsedSeconds(at: start + 4.2) == 4)
+        let counts = stride(from: WelcomeDictation.firstWord, to: WelcomeDictation.freezeTime, by: 0.05)
+            .map(WelcomeDictation.wordCount(at:))
+        #expect(counts == counts.sorted(), "words only ever arrive")
+        #expect(WelcomeDictation.wordCount(at: WelcomeDictation.firstWord + WelcomeDictation.span) == words.count,
+                "the last word arrives before the freeze")
+        #expect(WelcomeDictation.firstWord + WelcomeDictation.span < WelcomeDictation.freezeTime)
 
+        // Stopped: the whole sentence, the last two words dimmer, the timer stays at 0:05.
         let end = WelcomeDictation.freezeTime
-        #expect(abs(end - 3.55) < 0.001)
         let frozen = WelcomeDictation.text(at: end)
-        #expect(frozen.stable == "Thanks for the notes. I’ll send the revised plan on Friday morning, after the")
-        #expect(frozen.volatile == " team review", "the last two words stay dimmer")
-        #expect(WelcomeDictation.elapsedSeconds(at: end) == 3)
+        #expect(frozen.stable == "Thanks for the notes. I’ll send the revised plan on Friday morning, after the team review, so we can go over the budget together early")
+        #expect(frozen.volatile == " next week", "the last two words stay dimmer")
+        #expect(WelcomeDictation.elapsedSeconds(at: end) == 5)
+        #expect(WelcomeDictation.elapsedSeconds(at: end + 30) == 5, "the timer stops at the freeze")
+    }
+
+    @Test("The sentence fills up to three lines of the card, not more")
+    func sentenceFitsThreeLines() {
+        let width = OverlayMetrics.cardWidth - 2 * OverlayMetrics.textInset
+        let font = NSFont.systemFont(ofSize: LiveTranscriptText.fontSize)
+        let caret = Caret.leadingGap + Caret.size.width + Caret.glowPadding
+        let text = NSAttributedString(string: OnboardingText.welcomeSentence, attributes: [.font: font, .kern: -0.05])
+        let storage = NSTextStorage(attributedString: text)
+        let layout = NSLayoutManager()
+        let container = NSTextContainer(size: NSSize(width: width - caret, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        layout.addTextContainer(container)
+        storage.addLayoutManager(layout)
+        var lines = 0
+        layout.enumerateLineFragments(forGlyphRange: layout.glyphRange(for: container)) { _, _, _, _, _ in lines += 1 }
+        #expect(lines == LiveTranscriptText.defaultLineCount, "three lines: \(lines)")
     }
 
     @Test("Levels: room noise before the first word, speech after")
     func levels() {
-        #expect(WelcomeDictation.level(at: 0.6) < WaveformMetrics.silenceFloor)
-        let speech = stride(from: 1.0, to: 3.5, by: 0.02).map { WelcomeDictation.level(at: $0) }
+        let first = WelcomeDictation.firstWord
+        #expect(WelcomeDictation.level(at: first - 0.2) < WaveformMetrics.silenceFloor)
+        let speech = stride(from: first + 0.1, to: WelcomeDictation.freezeTime, by: 0.02).map { WelcomeDictation.level(at: $0) }
         #expect(speech.filter { $0 > 0.5 }.count > speech.count / 3)
         let history = WelcomeDictation.frozenHistory()
         let bars = WaveformMetrics.bars(for: history, count: 75)
-        #expect(bars.filter { $0.height > WaveformMetrics.dotHeight }.count > 25, "the frozen card shows speech bars")
-        #expect(bars.prefix(4).allSatisfy { $0.height == WaveformMetrics.dotHeight }, "silence before the recorder appeared")
+        #expect(bars.filter { $0.height > WaveformMetrics.dotHeight }.count > 40, "the frozen card shows speech bars")
     }
 
-    @Test("The demo drives the real overlay view model: recording, the card, then frozen")
-    func demo() {
+    @Test("The demo: idle and paused at 0:00, then recording, then frozen and paused at 0:05")
+    func demoPhases() {
         let demo = WelcomeRecorderDemo()
-        #expect(demo.viewModel.state == .recording)
-        #expect(demo.viewModel.visibleTranscript != nil, "the card shows before any word")
-        demo.start(reduceMotion: true) // Reduce Motion: the resting frame at once
+        let model = demo.viewModel
+        #expect(model.state == .recording)
+        #expect(model.visibleTranscript != nil, "the card shows before any word")
+
+        // Idle until the recording starts: paused (still capsule, steady caret), no text,
+        // 0:00, a still flat waveform.
+        for time in [0.0, 1.0, WelcomeDictation.recordingStarts - 0.02] {
+            demo.advance(to: time)
+            #expect(demo.phase == .idle)
+            #expect(model.isPaused)
+            #expect(model.elapsedFormatted == "0:00")
+            #expect(model.visibleTranscript?.isEmpty == true)
+            #expect(model.waveform.isStatic)
+            #expect(WaveformMetrics.bars(for: model.waveform.history, count: 30)
+                .allSatisfy { $0.height == WaveformMetrics.dotHeight })
+        }
+
+        // Recording: the capsule pulses, the waveform moves, the words and the timer run. The
+        // waveform's revision changes, so the view redraws from its timeline.
+        let idleRevision = model.waveform.revision
+        demo.advance(to: WelcomeDictation.recordingStarts + 2.3)
+        #expect(model.waveform.revision != idleRevision)
+        #expect(demo.phase == .recording)
+        #expect(!model.isPaused)
+        #expect(!model.waveform.isStatic)
+        #expect(model.elapsedFormatted == "0:02")
+        #expect(model.visibleTranscript?.isEmpty == false)
+
+        // Frozen: everything stops, paused again.
+        demo.advance(to: WelcomeDictation.freezeTime)
         #expect(demo.isFrozen)
-        #expect(demo.viewModel.elapsedFormatted == "0:03")
-        #expect(demo.viewModel.visibleTranscript?.volatileText == " team review")
+        #expect(model.isPaused)
+        #expect(model.waveform.isStatic)
+        #expect(model.elapsedFormatted == "0:05")
+        #expect(model.visibleTranscript?.volatileText == " next week")
+        demo.advance(to: WelcomeDictation.freezeTime + 10)
+        #expect(model.elapsedFormatted == "0:05", "nothing moves after the freeze")
+        demo.stop()
+    }
+
+    @Test("Reduce Motion: the frozen, paused frame at once")
+    func demoReduceMotion() {
+        let demo = WelcomeRecorderDemo()
+        demo.start(reduceMotion: true)
+        #expect(demo.isFrozen)
+        #expect(demo.viewModel.isPaused)
+        #expect(demo.viewModel.elapsedFormatted == "0:05")
+        #expect(demo.viewModel.visibleTranscript?.volatileText == " next week")
         #expect(demo.viewModel.waveform.isStatic)
-        #expect(demo.viewModel.state == .recording, "the capsule keeps pulsing, the caret blinking")
+        let bars = WaveformMetrics.bars(for: demo.viewModel.waveform.history, count: 75)
+        #expect(bars.filter { $0.height > WaveformMetrics.dotHeight }.count > 40, "the bars of the dictation, computed")
+    }
+
+    @Test("A live recording is never paused; the Settings preview waveform never starts")
+    func pausedOnlyForTheWelcome() {
+        #expect(!RecordingOverlayViewModel().isPaused)
+        let preview = OverlayWaveform(staticHistory: LevelHistory())
+        preview.start(levels: PassthroughSubject<Float, Never>())
+        #expect(preview.isStatic, "a preview stays still")
+        let welcome = OverlayWaveform()
+        welcome.freeze(with: LevelHistory())
+        welcome.start(levels: PassthroughSubject<Float, Never>())
+        #expect(!welcome.isStatic, "a frozen waveform starts again")
+        welcome.stop()
     }
 
     @Test("The live overlay stays compact until there is text")

@@ -239,19 +239,30 @@ final class OverlayWaveform {
     /// When the recording stopped, and the history at that moment (the sink's origin).
     private(set) var stoppedAt: Date?
     private(set) var historyAtStop = LevelHistory()
-    /// A frozen history (Settings preview, onboarding's welcome once it stops): no timer, no glide.
+    /// A frozen history (Settings preview, onboarding's welcome before and after its
+    /// dictation): no timer, no glide.
     private(set) var isStatic: Bool
+    /// Built with a fixed history (a preview): it never starts.
+    private let isPreview: Bool
+    /// Changes when the waveform starts or freezes. The view takes it as an input: this object
+    /// is not observable, so without it SwiftUI keeps the view's body (a still canvas, or the
+    /// timeline) from before the change.
+    private(set) var revision = 0
 
     private var timer: Timer?
     private var levelCancellable: AnyCancellable?
     private var envelope = LevelEnvelope()
     private var normalizer = LevelNormalizer()
 
-    init() { isStatic = false }
+    init() {
+        isStatic = false
+        isPreview = false
+    }
 
     init(staticHistory: LevelHistory) {
         history = staticHistory
         isStatic = true
+        isPreview = true
     }
 
     /// The bars shown at stop, for a row of `count` bars.
@@ -259,10 +270,13 @@ final class OverlayWaveform {
         WaveformMetrics.bars(for: historyAtStop, count: count)
     }
 
-    /// Start a recording: empty history, a slot every 50 ms, levels from `publisher`.
+    /// Start a recording: empty history, a slot every 50 ms, levels from `publisher`. A frozen
+    /// waveform starts moving again (the welcome's recorder, idle until its dictation starts).
     func start(levels publisher: some Publisher<Float, Never>) {
-        guard !isStatic else { return }
+        guard !isPreview else { return }
         stop()
+        isStatic = false
+        revision += 1
         history = LevelHistory()
         stoppedAt = nil
         historyAtStop = LevelHistory()
@@ -303,6 +317,7 @@ final class OverlayWaveform {
         if let history { self.history = history }
         stoppedAt = nil
         isStatic = true
+        revision += 1
     }
 
     func stop() {
@@ -330,6 +345,8 @@ struct OverlayWaveformView: View {
     let waveform: OverlayWaveform
     let isTranscribing: Bool
     var fillsWidth = false
+    /// `waveform.revision` when the parent rendered: redraws after a start or a freeze.
+    var revision = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {

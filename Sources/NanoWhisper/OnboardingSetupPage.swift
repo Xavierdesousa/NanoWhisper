@@ -131,7 +131,7 @@ struct SetupPage: View {
 
     private func footer(note: String) -> some View {
         VStack(spacing: 0) {
-            OnboardingRowDivider()
+            GroupedRowDivider(inset: 0)
             HStack(spacing: 12) {
                 Text(note)
                     .font(.system(size: 11.5))
@@ -257,8 +257,8 @@ struct ModelChecklistRow: View {
 
 // MARK: - Model choice (Change…)
 
-/// The model choice, as in Settings › Engine: the engines with their versions, the status and
-/// the apply row (nothing downloads until Apply / Download & Apply). Done closes it; a change
+/// The model choice, as in Settings › Engine: the engines, the model with its comparison, the
+/// status and the apply row (nothing downloads until Apply / Download & Apply). Done closes it; a change
 /// not applied is dropped, as when Settings closes.
 struct ModelChoiceSheet: View {
     @Binding var draft: EngineConfiguration
@@ -269,14 +269,12 @@ struct ModelChoiceSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Form {
-                EngineChoiceSection(draft: $draft, context: context, showsModelPicker: true)
-            }
-            .formStyle(.grouped)
-            .scrollDisabled(true)
-            .scrollContentBackground(.hidden)
-            .frame(width: Self.width)
-            .fixedSize(horizontal: false, vertical: true)
+            EngineChoiceSection(draft: $draft, context: context)
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+                .padding(.bottom, 16)
+                .frame(width: Self.width)
+                .fixedSize(horizontal: false, vertical: true)
             HStack {
                 Spacer()
                 Button(OnboardingText.modelChoiceDone, action: onDone)
@@ -286,6 +284,8 @@ struct ModelChoiceSheet: View {
             .padding(.bottom, 16)
         }
         .frame(width: Self.width)
+        // The cards' window color, as in Settings and onboarding.
+        .background(GroupedStyle.window)
     }
 }
 

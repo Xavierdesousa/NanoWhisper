@@ -60,8 +60,8 @@ struct TryItPage: View {
 
     private var stage: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 12, style: .continuous).fill(OnboardingPalette.group)
-            RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(OnboardingPalette.border, lineWidth: 0.5)
+            // The shared card (`GroupedStyle`): same color and radius, no border.
+            RoundedRectangle(cornerRadius: GroupedStyle.cornerRadius, style: .continuous).fill(GroupedStyle.card)
             stageContent
                 .id(StageKind(inputs.stage))
                 .transition(.opacity)
@@ -227,7 +227,7 @@ struct TryItPage: View {
 
     private var footer: some View {
         VStack(spacing: 0) {
-            OnboardingRowDivider()
+            GroupedRowDivider(inset: 0)
             HStack(spacing: 12) {
                 Button(OnboardingText.back, action: onBack)
                     .controlSize(.large)

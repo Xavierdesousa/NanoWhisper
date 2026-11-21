@@ -350,6 +350,9 @@ class RecordingOverlayViewModel: ObservableObject {
     /// Show the card even while its text is empty (onboarding's welcome: the card appears
     /// first, then the words arrive). The live overlay grows into the card with the first words.
     @Published var showsCardWhileEmpty = false
+    /// A recording shown stopped (onboarding's welcome, before and after its dictation): the
+    /// record capsule does not pulse and the caret does not blink. The live overlay never is.
+    @Published var isPaused = false
 
     /// Waveform data; redrawn by its own timeline, not through this object's updates.
     let waveform: OverlayWaveform

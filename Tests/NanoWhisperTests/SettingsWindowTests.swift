@@ -193,7 +193,7 @@ struct SettingsWindowTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         let model = PaneHeightModel()
         let tabs = SettingsWindowController.makeTabs(panes: [.general, .engine], selectedFrom: defaults) { pane in
-            pane == .general ? AnyView(ResizingPane(model: model)) : AnyView(SettingsPaneForm { Section("B") { Text("One row") } })
+            pane == .general ? AnyView(ResizingPane(model: model)) : AnyView(SettingsPaneForm { SettingsSection("B") { Text("One row").settingsRow() } })
         }
         var selected: [SettingsPane] = []
         tabs.onSelect = { selected.append($0) }
@@ -218,5 +218,96 @@ struct SettingsWindowTests {
         #expect(window.title == "Engine")
         #expect(contentHeight(window) < tall - 100)
         #expect(selected.last == .engine)
+    }
+
+    @Test("Engine: the comparison stays in place when the engine or model changes; the bars slide", arguments: [false, true])
+    func comparisonInPlace(dark: Bool) async throws {
+        _ = NSApplication.shared
+        let suite = "nanowhisper.window.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let draft = DraftModel(Fixtures.parakeetUltra)
+        let context = SettingsFixture().context
+        let tabs = SettingsWindowController.makeTabs(panes: [.engine], selectedFrom: defaults) { _ in
+            AnyView(DraftEnginePane(model: draft, context: context))
+        }
+        let window = SettingsWindowController.makeWindow(tabs: tabs)
+        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        window.setFrameTopLeftPoint(NSPoint(x: 80, y: (NSScreen.main?.visibleFrame.maxY ?? 900) - 40))
+        window.orderFrontRegardless()
+        defer { window.close() }
+        try await Task.sleep(for: .milliseconds(400))
+
+        let suffix = dark ? "dark" : "light"
+        let ultra = try snapshot(window)
+        try save(ultra, "engine-comparison-0-ultra-\(suffix)")
+        let before = try #require(Self.speedBar(in: ultra))
+
+        // Another engine: Whisper Base, Speed "High" (4/5 of the bar).
+        draft.configuration.modelType = .whisper
+        // Frames first (a capture is quick), analysed after (the pixel scan is not).
+        var frames: [NSBitmapImageRep] = []
+        for _ in 1...10 {
+            try await Task.sleep(for: .milliseconds(40))
+            frames.append(try snapshot(window))
+        }
+        try save(frames[3], "engine-comparison-1-to-whisper-mid-\(suffix)")
+        var lengths: [Int] = []
+        for frame in frames {
+            if let bar = Self.speedBar(in: frame) {
+                #expect(abs(bar.row - before.row) <= 2, "the bar stays in place while it slides")
+                lengths.append(bar.length)
+            }
+        }
+        print("speed bar every ~40 ms: \(before.length) → \(lengths)")
+        #expect(lengths == lengths.sorted(by: >), "the bar only shrinks toward its new value")
+        try await Task.sleep(for: .milliseconds(300))
+        let whisper = try snapshot(window)
+        try save(whisper, "engine-comparison-2-whisper-\(suffix)")
+        let after = try #require(Self.speedBar(in: whisper))
+        #expect(after.row == before.row, "the bar does not move: row \(before.row) → \(after.row)")
+        #expect(abs(Double(after.length) / Double(before.length) - 0.8) < 0.03,
+                "the speed bar ends at High: \(before.length) → \(after.length) px")
+
+        // Another Whisper model: the comparison stays where it is.
+        draft.configuration.whisperSettings.modelSize = .largev3Turbo
+        try await Task.sleep(for: .milliseconds(700))
+        let turbo = try snapshot(window)
+        try save(turbo, "engine-comparison-3-turbo-\(suffix)")
+        let turboBar = try #require(Self.speedBar(in: turbo))
+        #expect(turboBar.row == before.row)
+        #expect(abs(Double(turboBar.length) / Double(before.length) - 0.6) < 0.03, "Medium: 3/5")
+    }
+
+    /// The speed bar: the pixel row with the longest run of the system blue, and its length.
+    private static func speedBar(in rep: NSBitmapImageRep) -> (row: Int, length: Int)? {
+        var best: (row: Int, length: Int)?
+        for y in 0..<rep.pixelsHigh {
+            var run = 0, longest = 0
+            for x in 0..<rep.pixelsWide {
+                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                let isBlue = c.blueComponent > 0.8 && c.blueComponent - c.redComponent > 0.45 && c.blueComponent - c.greenComponent > 0.2
+                run = isBlue ? run + 1 : 0
+                longest = max(longest, run)
+            }
+            if longest > (best?.length ?? 40) { best = (y, longest) }
+        }
+        return best
+    }
+}
+
+/// The Engine pane with a draft the test changes, as the user would with the controls.
+@MainActor
+private final class DraftModel: ObservableObject {
+    @Published var configuration: EngineConfiguration
+    init(_ configuration: EngineConfiguration) { self.configuration = configuration }
+}
+
+private struct DraftEnginePane: View {
+    @ObservedObject var model: DraftModel
+    let context: SettingsContext
+
+    var body: some View {
+        EnginePane(draft: $model.configuration, context: context)
     }
 }

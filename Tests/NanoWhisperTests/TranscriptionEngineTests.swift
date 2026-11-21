@@ -62,6 +62,42 @@ struct TranscriptionEngineTests {
         #expect(accuracies == accuracies.sorted())
     }
 
+    @Test("Comparison values for each engine and model the Engine section offers")
+    func comparisonValuesPerModel() {
+        func values(_ model: ModelComparison) -> (MetricTier, MetricTier, Int) {
+            (model.speed, model.accuracy, model.bulletPoints.count)
+        }
+        let ultra = values(ModelComparison(modelType: .parakeet, parakeetVariant: .ultra))
+        #expect(ultra == (.highest, .highest, 4))
+        let v3 = values(ModelComparison(modelType: .parakeet, parakeetVariant: .v3))
+        #expect(v3 == (.highest, .high, 3))
+        #expect(values(ModelComparison(modelType: .whisper, whisperModelSize: .base)) == (.high, .low, 3))
+        #expect(values(ModelComparison(modelType: .whisper, whisperModelSize: .small)) == (.medium, .medium, 3))
+        #expect(values(ModelComparison(modelType: .whisper, whisperModelSize: .largev3Turbo)) == (.medium, .high, 3))
+        // The view shows the same values as the model it is given.
+        let view = ModelComparisonView(modelType: .whisper, parakeetVariant: .ultra, whisperModelSize: .small)
+        #expect(view.speed == .medium && view.accuracy == .medium)
+        #expect(view.comparison == ModelComparison(modelType: .whisper, whisperModelSize: .small))
+    }
+
+    @Test("Comparison identity ignores the other engine's choice; every offered model is reserved once")
+    func comparisonOffered() {
+        // Whisper's size does not change Parakeet's comparison (no cross-fade for nothing).
+        #expect(ModelComparison(modelType: .parakeet, parakeetVariant: .ultra, whisperModelSize: .base)
+            == ModelComparison(modelType: .parakeet, parakeetVariant: .ultra, whisperModelSize: .small))
+        #expect(ModelComparison(modelType: .parakeet, parakeetVariant: .ultra)
+            != ModelComparison(modelType: .whisper, whisperModelSize: .base))
+        let current = ModelComparison(modelType: .parakeet, parakeetVariant: .ultra, whisperModelSize: .small)
+        let offered = ModelComparison.offered(including: current)
+        #expect(offered.count == ParakeetVariant.allCases.count + WhisperModelSize.selectable.count)
+        #expect(Set(offered).count == offered.count)
+        // A stored size no longer offered is added, so its text is laid out too.
+        let obsolete = ModelComparison(modelType: .whisper, whisperModelSize: .medium)
+        #expect(ModelComparison.offered(including: obsolete).last == obsolete)
+        // The tallest text (the reserved height) is one of the offered models': Ultra, 4 points.
+        #expect(offered.map(\.bulletPoints.count).max() == 4)
+    }
+
     // MARK: - Whisper vocabulary hint
 
     @Test("Prompt tokens: leading space, special tokens dropped")

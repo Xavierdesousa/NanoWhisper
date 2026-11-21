@@ -143,116 +143,95 @@ struct EngineApplyDisplay: Equatable {
 struct EnginePane: View {
     @Binding var draft: EngineConfiguration
     let context: SettingsContext
-    var showsModelPicker = false
 
     var body: some View {
         SettingsPaneForm {
-            EngineChoiceSection(draft: $draft, context: context, showsModelPicker: showsModelPicker)
-            Section("Downloaded models") {
+            EngineChoiceSection(draft: $draft, context: context)
+            SettingsSection("Downloaded models") {
                 ModelStorageRow(storage: context.storage)
+                    .settingsRow()
             }
         }
     }
 }
 
-/// The "Engine" section: each engine with its model under the selected one, the status of the
-/// model in effect and the apply row. Settings › Engine and onboarding's model sheet (Change…
-/// on the setup page's Model row) both show it.
+/// The "Engine" section: the two engines, then the model of the selected one with its speed,
+/// accuracy and key points (always shown, at the same place, updated in place when the engine
+/// or the model changes), Whisper's options, the status of the model in effect and the apply
+/// row. Settings › Engine and onboarding's model sheet (Change… on the setup page's Model row)
+/// both show it.
 struct EngineChoiceSection: View {
     @Binding var draft: EngineConfiguration
     let context: SettingsContext
-    /// Shows the model picker under the selected engine ("Change…").
-    @State private var showsModelPicker: Bool
-
-    init(draft: Binding<EngineConfiguration>, context: SettingsContext, showsModelPicker: Bool = false) {
-        _draft = draft
-        self.context = context
-        _showsModelPicker = State(initialValue: showsModelPicker)
-    }
 
     private var applied: EngineConfiguration { context.appliedEngine }
     private var isDirty: Bool { draft != applied }
 
     var body: some View {
-        Section("Engine") {
+        SettingsSection("Engine") {
             ForEach(TranscriptionModelType.allCases, id: \.self) { engine in
+                if engine != TranscriptionModelType.allCases.first {
+                    GroupedRowDivider()
+                }
                 EngineChoiceRow(
                     engine: engine,
                     isSelected: draft.modelType == engine,
                     select: { draft.modelType = engine }
-                ) {
-                    if draft.modelType == engine {
-                        modelDetails(for: engine)
-                    }
-                }
+                )
+                .settingsRow()
+            }
+            GroupedRowDivider()
+            modelRow
+                .settingsRow()
+            if draft.modelType == .whisper {
+                GroupedRowDivider()
+                WhisperOptionsGrid(settings: $draft.whisperSettings, apply: context.setWhisperOptions)
+                    .settingsRow()
             }
             statusRows
         }
     }
 
-    // MARK: Model under the selected engine
+    // MARK: Model of the selected engine
+
+    /// The model picker and, right under it, the comparison. The picker is one row for both
+    /// engines and the comparison keeps the height of its longest version, so changing the
+    /// engine or the model moves nothing: the bars slide and the text cross-fades.
+    private var modelRow: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Text(EngineChoiceText.modelLabel)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(width: WhisperOptionsGrid.labelWidth, alignment: .leading)
+                modelPicker
+                    .labelsHidden()
+                    .fixedSize()
+                Spacer(minLength: 0)
+            }
+            ModelComparisonView(
+                modelType: draft.modelType,
+                parakeetVariant: draft.parakeetVariant,
+                whisperModelSize: draft.whisperSettings.modelSize
+            )
+        }
+    }
 
     @ViewBuilder
-    private func modelDetails(for engine: TranscriptionModelType) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if showsModelPicker || modelDiffersFromApplied {
-                modelPicker(for: engine)
-                ModelComparisonView(
-                    modelType: draft.modelType,
-                    parakeetVariant: draft.parakeetVariant,
-                    whisperModelSize: draft.whisperSettings.modelSize
-                )
-            } else {
-                HStack(spacing: 4) {
-                    Text("\(draft.modelName), \(draft.downloadSize).")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Button("Change…") { showsModelPicker = true }
-                        .buttonStyle(.link)
-                        .font(.caption)
-                        .foregroundStyle(Color.accentColor)
+    private var modelPicker: some View {
+        switch draft.modelType {
+        case .parakeet:
+            Picker(EngineChoiceText.modelLabel, selection: $draft.parakeetVariant) {
+                ForEach(ParakeetVariant.allCases, id: \.self) {
+                    Text(ModelLabel.pickerTitle(name: $0.displayName, size: $0.sizeDescription, isRecommended: $0.isRecommended)).tag($0)
                 }
             }
-            if engine == .whisper {
-                WhisperOptionsGrid(settings: $draft.whisperSettings, apply: context.setWhisperOptions)
-            }
-        }
-    }
-
-    /// The model picker stays open while the draft names another model than the applied one.
-    private var modelDiffersFromApplied: Bool {
-        guard draft.modelType == applied.modelType else { return false }
-        return draft.changesModel(from: applied)
-    }
-
-    @ViewBuilder
-    private func modelPicker(for engine: TranscriptionModelType) -> some View {
-        switch engine {
-        case .parakeet:
-            labeledPicker("Version", selection: $draft.parakeetVariant, items: ParakeetVariant.allCases) {
-                ModelLabel.pickerTitle(name: $0.displayName, size: $0.sizeDescription, isRecommended: $0.isRecommended)
-            }
         case .whisper:
-            labeledPicker("Model", selection: $draft.whisperSettings.modelSize, items: WhisperModelSize.selectable) {
-                ModelLabel.pickerTitle(name: $0.displayName, size: $0.sizeDescription, isRecommended: $0.isRecommended)
+            Picker(EngineChoiceText.modelLabel, selection: $draft.whisperSettings.modelSize) {
+                ForEach(WhisperModelSize.selectable, id: \.self) {
+                    Text(ModelLabel.pickerTitle(name: $0.displayName, size: $0.sizeDescription, isRecommended: $0.isRecommended)).tag($0)
+                }
             }
-        }
-    }
-
-    private func labeledPicker<Item: Hashable>(
-        _ label: String, selection: Binding<Item>, items: [Item], title: @escaping (Item) -> String
-    ) -> some View {
-        HStack(spacing: 8) {
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(width: WhisperOptionsGrid.labelWidth, alignment: .leading)
-            Picker(label, selection: selection) {
-                ForEach(items, id: \.self) { Text(title($0)).tag($0) }
-            }
-            .labelsHidden()
-            .fixedSize()
-            Spacer(minLength: 0)
         }
     }
 
@@ -266,37 +245,42 @@ struct EngineChoiceSection: View {
         // As drawn: a pending change replaces the status row while the model in use is ready;
         // a download, a failure or a not-loaded model stays visible above it.
         if !(isDirty && status.accessory == .ready && status.progress == .none) {
+            GroupedRowDivider()
             EngineStatusRow(display: status, action: context.loadAppliedModel)
+                .settingsRow()
         }
         if isDirty {
             let availability = context.availability(draft)
             let display = EngineApplyDisplay.resolve(
                 draft: draft, applied: applied, state: context.engineState, availability: availability
             )
+            GroupedRowDivider()
             SettingsRow(title: display.title, caption: display.detail) {
-                Button("Revert") {
-                    draft = applied
-                    showsModelPicker = false
-                }
+                Button("Revert") { draft = applied }
                 Button(display.applyTitle) { context.applyEngine(draft) }
                     .buttonStyle(.borderedProminent)
             }
+            .settingsRow()
         }
     }
 }
 
-/// Radio mark, name, vendor, "Recommended" and summary of an engine; `details` below it.
-private struct EngineChoiceRow<Details: View>: View {
+/// Labels of the Engine section.
+enum EngineChoiceText {
+    /// The picker's label, for both engines (Parakeet's versions and Whisper's sizes).
+    static let modelLabel = "Model"
+}
+
+/// Radio mark, name, vendor, "Recommended" and summary of an engine.
+private struct EngineChoiceRow: View {
     let engine: TranscriptionModelType
     let isSelected: Bool
     let select: () -> Void
-    @ViewBuilder let details: Details
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // A button, so the engine can be chosen with the keyboard (focus, Space) too.
-            Button(action: select) {
-                HStack(alignment: .top, spacing: 10) {
+        // A button, so the engine can be chosen with the keyboard (focus, Space) too.
+        Button(action: select) {
+            HStack(alignment: .top, spacing: 10) {
                 RadioMark(isOn: isSelected)
                     .padding(.top, 1)
                 VStack(alignment: .leading, spacing: 2) {
@@ -314,17 +298,12 @@ private struct EngineChoiceRow<Details: View>: View {
                     SettingsCaption(engine.summary)
                 }
                 Spacer(minLength: 0)
-                }
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(isSelected ? .isSelected : [])
-
-            details
-                .padding(.leading, 26)
+            .contentShape(Rectangle())
         }
-        .padding(.vertical, 2)
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
