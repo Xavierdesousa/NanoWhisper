@@ -110,6 +110,9 @@ final class HistoryWindow: NSWindow {
         isRestorable = false
         collectionBehavior = [.moveToActiveSpace]
         toolbarController.window = self
+        model.confirmDelete = { [weak self] done in
+            HistoryAlerts.present(HistoryAlerts.deleteOneAlert(), on: self, completion: done)
+        }
         model.confirmClearAll = { [weak self] count, done in
             HistoryAlerts.present(HistoryAlerts.clearAllAlert(count: count), on: self, completion: done)
         }
