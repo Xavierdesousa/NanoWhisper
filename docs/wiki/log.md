@@ -5,6 +5,9 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-21
 
+- **Welcome demo: faster text, later Replay** (`fix/welcome-demo-text-pace`): the waveform keeps 2.6 words/s
+  but the live text writes at 7.2 words/s (`WelcomeDictation.textWordsPerSecond`) so the former 29-word
+  sentence is written in the 4 s; the Pasted card stays 1.85 s before the veil (Replay 1.5 s later).
 - **The welcome's recorder plays a whole dictation; History's place** (`feat/welcome-demo-flow`):
   the demo records 4.3 s (0:00 → 0:04) at 2.6 words/s with a waveform that follows the words
   ("So the plan for this week is the payment flow."), then the real Transcribing (0.8 s) and
