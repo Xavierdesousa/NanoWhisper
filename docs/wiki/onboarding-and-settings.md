@@ -1,6 +1,6 @@
 # Onboarding and Settings
 
-Last verified against the code: 2026-11-21 (window colors, the onboarding window's container and the blank-window fix in `fix/welcome-faster`, in the debug app; `feat/settings-and-menu-redesign`; End of onboarding against `feat/menu-bar-handoff`; the Settings window, colors and sizing again in `feat/redesign-feedback`; onboarding rewritten in `feat/onboarding-icon`; welcome sequence, cards, toolbar icons and the Engine comparison in `fix/onboarding-settings-polish`, also run in the debug app), with unit tests, offscreen renders and window captures; the Settings redesign was not run in the app (see Known limits). Source: PR #15, the model migration PR, the Settings and menu redesign PR, the handoff PR #31, the onboarding "Icon" PR and the code.
+Last verified against the code: 2026-11-21 (the opening scene, the Appearance setting and the debug-only Open Onboarding in `feat/opening-scene-light-overlay`, with unit tests, offscreen renders and real-window tests in a test process, not in the app; window colors, the onboarding window's container and the blank-window fix in `fix/welcome-faster`, in the debug app; `feat/settings-and-menu-redesign`; End of onboarding against `feat/menu-bar-handoff`; the Settings window, colors and sizing again in `feat/redesign-feedback`; onboarding rewritten in `feat/onboarding-icon`; welcome sequence, cards, toolbar icons and the Engine comparison in `fix/onboarding-settings-polish`, also run in the debug app), with unit tests, offscreen renders and window captures; the Settings redesign was not run in the app (see Known limits). Source: PR #15, the model migration PR, the Settings and menu redesign PR, the handoff PR #31, the onboarding "Icon" PR and the code.
 
 ## What it is
 
@@ -18,7 +18,8 @@ views (below).
 | Live transcription (beta, debug builds only) | Recorder (`RecorderPane`, `SettingsRecorderPane.swift`) | — (Try it says the words show in the recorder when it is on) |
 | Recorder position (`RecorderPositionPicker` from the Voice note overlay, PR #24; `AppState.recorderPosition` through `SettingsContext.recorderPosition`) | Recorder | — (Try it names where the recorder appears) |
 | Microphone, Accessibility with live status | Permissions (`PermissionsPane`, `SettingsPermissionsSection.swift`) | Setup page, "Getting ready" (`PermissionChecklistRow`) |
-| Updates, "Show debug info in history", "Show Onboarding Again…" | Advanced (`AdvancedPane`, `UpdateStatus`, `SettingsAdvancedPane.swift`) | — |
+| Updates, "Show debug info in history", "Open Onboarding" (debug build only) | Advanced (`AdvancedPane`, `UpdateStatus`, `SettingsAdvancedPane.swift`) | — |
+| Appearance: System, Light, Dark (`AppearanceRow`, `AppAppearance.swift`) | General | — (Settings only) |
 
 **History switch (2026-11-21):** turning "Keep a history of what you dictate" off, in Settings
 or onboarding, with dictations kept first asks "Turn off history and delete it?" (Turn Off and
@@ -36,8 +37,9 @@ transcription time and speed of each dictation, in the History window." (it said
 entry", and the board's "Engine, timings and audio details" named no model; the model is now
 stored, see [architecture.md](architecture.md#history-storage)).
 
-The Advanced "Debug" group exists in both builds; it is unrelated to the debug **build
-flavor** ([build-and-release.md](build-and-release.md)).
+The Advanced "Debug" group exists in both builds ("Show debug info in history"); its "Open
+Onboarding" row exists only in the debug **build flavor**
+([build-and-release.md](build-and-release.md), [Replay](#replay)).
 
 `AppState.settingsContext(permissions:)` builds the live context; render tests build fixed ones
 (`Fixtures`, `SettingsFixture`), so each pane can be drawn without a running app
@@ -272,32 +274,34 @@ becomes a check, the fade-up, `InlineShortcutText`).
   down for the top positions, up for Bottom Center. On 1440 × 900 (menu bar 24 pt) the window
   goes 16 pt below centre; on a 13-inch Air (1470 × 956) it stays centred (21 pt clear). Clamped
   to the visible frame on smaller screens (the overlap is then unavoidable).
-- **Welcome:** icon, "Speak where you’d type.", the catch phrase, the recorder, the four facts
-  (SF Symbols `laptopcomputer`, `lock`, `bolt`; the text cursor is drawn from the design's glyph,
-  no plain I-beam symbol exists), Continue. Each element fades up 10 pt over 0.45 s at the
-  design's delays (`WelcomePage.Delay`). **The recorder is the real `RecordingOverlayView`** with
-  its own `RecordingOverlayViewModel`, driven by `WelcomeRecorderDemo` (no microphone): the card
-  from the start (`RecordingOverlayViewModel.showsCardWhileEmpty`), levels sent every 20 ms
-  through `OverlayWaveform.start(levels:)` (the real envelope, normalizer and 50 ms slots), words
-  set as `LiveTranscript(stable:volatile:)` (the newest two dimmer), the timer from
-  `WelcomeDictation.elapsedSeconds`. **Sequence (maintainer's feedback, 2026-11-21;
-  `WelcomeRecorderDemo.Phase`):** idle while the page arrives (0:00, no text, flat still
-  waveform, `RecordingOverlayViewModel.isPaused`: the capsule still at the dim end of its
-  breath, the caret steady); at `recordingStarts` = the last element arrived (0.62 s) +
-  `idleWait` (**125 ms**; 1 s then 0.25 s were too long) it records for **3 s** (pulse, timer,
-  moving waveform; the 29-word spoken sentence over 2.7 s, faster than real speech on purpose,
-  "to show it is fast"); then it freezes, **paused**: three lines, "we'll see" dimmer, the caret
-  shown steady (a hidden caret read as a finished note; steady reads as stopped where the next
-  word would go), the capsule still, the waveform still (`OverlayWaveform.freeze(with:)`), 0:03.
-  The entrance is quick: 0.3 s fades (`FadeUp.duration`) at 0, 0.08, 0.16, 0.24 s (icon,
-  headline, catch phrase, recorder), then the four facts **together** with Continue at 0.32 s. A real-window test checks that the idle and the
+- **Welcome (since 2026-11-21: the opening scene, next section):** the scene, then icon,
+  "Speak where you’d type.", the catch phrase, the recorder, the four facts (SF Symbols
+  `laptopcomputer`, `lock`, `bolt`; the text cursor is drawn from the design's glyph, no plain
+  I-beam symbol exists), Continue. **The recorder is the real `RecordingOverlayView`** with its
+  own `RecordingOverlayViewModel`, driven by `WelcomeRecorderDemo` (no microphone), in the
+  window's appearance (the light recorder in light): the card from the start
+  (`RecordingOverlayViewModel.showsCardWhileEmpty`), levels sent every 20 ms through
+  `OverlayWaveform.start(levels:)` (the real envelope, normalizer and 50 ms slots), words set as
+  `LiveTranscript(stable:volatile:)` (the newest two dimmer), the timer from
+  `WelcomeDictation.elapsedSeconds`. **Dictation (`WelcomeDictation`, `WelcomeRecorderDemo.Phase`;
+  times from the press of Get Started since the opening scene):** the recorder fades up idle
+  from 0.25 s (0:00, no text, flat still waveform, `RecordingOverlayViewModel.isPaused`: the
+  capsule still at the dim end of its breath, the caret steady), has arrived at 0.7 s, and
+  `idleWait` (**125 ms**; 1 s then 0.25 s were too long) later, at 0.825 s, records for **3 s**
+  (pulse, timer, moving waveform; the 29-word spoken sentence over 2.7 s, faster than real
+  speech on purpose, "to show it is fast"); then it freezes, **paused**: three lines, "we'll
+  see" dimmer, the caret shown steady (a hidden caret read as a finished note; steady reads as
+  stopped where the next word would go), the capsule still, the waveform still
+  (`OverlayWaveform.freeze(with:)`), 0:03. The levels keep the sine phase of the shape approved
+  before the scene (`WelcomeDictation.levelPhase`, the recording then started 0.745 s after the
+  window opened), as the prototype does. A real-window test checks that the idle and the
   frozen recorder draw identical pixels over time. Two traps: a `repeatForever` pulse is not
   stopped by later non-animated changes, so the indicator gets a new identity when it pauses or
   resumes (`.id(isPaused)`); and `OverlayWaveform` is not observable, so the view takes its
   `revision` (bumped on start and freeze) as an input, or it kept its first body (no bars at
   all while recording). Not interactive (`allowsHitTesting(false)`, so no Stop under the
   pointer). Reduce Motion: the frozen frame at once (`WelcomeDictation.frozenHistory()`
-  computes the bars the same way), no fades.
+  computes the bars the same way).
 - **Setup page:** header (icon 36 pt, "Set up NanoWhisper", subtitle), then four grouped sections:
   - *Getting ready* (`PermissionChecklistDisplay`): Microphone (Required) and "Pasting into other
     apps" (Recommended), each with a circle that becomes a check. Microphone not asked: "Allow…"
@@ -385,6 +389,73 @@ becomes a check, the fade-up, `InlineShortcutText`).
   - Live transcription is no longer offered in onboarding (the design has four switches); it
     stays in Settings › Recorder. The history size stays in Settings.
 
+### Opening scene (welcome)
+
+Design: Claude Design canvas "NanoWhisper Redesign", page "Onboarding — opening scene"
+(prototype `onb4-proto`, component `onb4-win`, key frames `onb4-frames`, notes `onb4-notes`;
+approved 2026-11-21). Implemented in `feat/opening-scene-light-overlay`. Files:
+`OpeningScene.swift` (every value, the maths, the clock), `OnboardingWelcomePage.swift` (views).
+
+- **Source of the values: the prototype's saved Tweaks** (its `data-props`), read 2026-11-21.
+  The maintainer retouched the button's pop after the designer's notes board was published;
+  the board (and the prototype's `DEF` fallback and the key-frames board, which ignore the
+  saved values) still say button at 2 s, 0.45 s, 88 %, bounce 0.15. **Saved, used:** button at
+  1.2 s after the sunrise starts, spring 1.1 s, from 90 %, bounce 0.17. Everything else equals
+  the notes. All values are in `OpeningScene.Tweak`, named after the Tweaks:
+
+  | Group | Values |
+  |---|---|
+  | Sunrise | empty window 0.3 s; rise 1.7 s, cubic-bezier(0.6, 0, 0.3, 1) to 104 % over 80 %, then ease-in-out back to 100 %; breathing 1.2 %, 5 s period (2.5 s each way) |
+  | Aura | ellipse 1.3 wide, centre at 50 % across and 60 pt below the bottom edge, reach 1 (radii 1364 × 1050 pt), start 0, softness 0.3, opacity 1, ripple rim 0.3; stops 0, 0.16, 0.42, 0.70, 1; dark `#F4DAFF` `#A24BFF` `#3B1B70` `#1A1424`, light `#B35CFF` `#C892FF` `#E4D0FF` `#F8F3FF` |
+  | Title moment (after the sunrise starts) | icon 118 pt from 0.8 s over 0.9 s (88 → 100 %, blur 6 → 0); "NanoWhisper" 40 pt and the headline 16 pt (82 %) from 1.2 s over 1.2 s, rising 8 pt; Get Started from 1.2 s, spring 1.1 s bounce 0.17, from 90 %; group moved −10 pt; button white, 44 pt, ≥ 100 pt wide, 34 pt below the headline |
+  | Press and travel | travel after 0.05 s, `.smooth` 0.75 s; title fades 0.25 s, button 0.2 s (dips to 97 → 94 %) |
+  | After the press | aura "shrinks into the icon", settle 0.7 s (`.smooth`), ends a 330 pt halo at 35 % |
+  | Welcome arrives (after the press) | recorder 0.25 s, catch phrase 0.45 s, facts together 0.55 s, Continue 0.6 s; fade-ups 0.45 s, 10 pt, cubic-bezier(0.2, 0.7, 0.2, 1); recording 0.125 s after the recorder has arrived, sentence over 2.7 s, 3 s recording |
+
+  Moments: the title moment is complete at **2.7 s** (then it breathes and waits); Return
+  presses Get Started from 1.83 s (`buttonPressable`, the prototype's rule); after the press the
+  recorder records at 0.825 s and freezes at 3.825 s; the scene's own motion ends at 1.4 s.
+- **How:** every frame is a pure function, `OpeningScene.frame(t:pt:dark:reduceMotion:)`, a
+  port of the prototype's `renderVals` (same springs: ω = 2π / duration, damping 1 − bounce; same
+  cubic-béziers), so the renders at any moment match the prototype (compared with the prototype
+  rendered in headless Chrome at the same moments, light and dark: positions, sizes, colours
+  and halo match; Core Graphics and Chrome differ slightly in gradient tones).
+  `OpeningSceneClock` holds the welcome's start, the press and the resting states; renders build
+  a fixed one (`init(fixedAt:pressedFor:)`). Get Started pops from the back (scale and opacity,
+  no vertical travel), Return presses it (`.keyboardShortcut(.defaultAction)` while it takes a
+  press), then Continue from `continueAt`. The aura is one `EllipticalGradient` ellipse (plus
+  the rim ring, screen-blended in dark) in a `drawingGroup`; "shrinks into the icon" moves its
+  centre to the icon, thins its outer stops and turns its core to the second colour.
+  The icon and the headline sit in the welcome's layout and are offset and scaled from the
+  title moment's places to theirs (the headline is the 28 pt text scaled, so it stays sharp);
+  the catch phrase rides with the headline.
+- **Reduce Motion:** no sunrise and no breathing: the title moment at once; the press
+  cross-fades (0.3 s) to the welcome at rest, the icon and the headline faded out and in at
+  their places, a halo of the second colour behind the icon (the prototype's "glow" fallback),
+  the recorder on its frozen frame.
+- **Light:** a lavender dawn with dark text (`#1C1C1E`), the light recorder.
+- **When it plays:** each time the welcome appears: first launch, `--onboarding`, "Finish
+  Setup…", and the debug build's "Open Onboarding" (which restarts it, [Replay](#replay)).
+- **CPU (measured 2026-11-21, release build, test process, 120 Hz built-in display, light):**
+  about one core during the entrance (2.7 s, 108 %) and during the travel and arrival (1.4 s,
+  92–101 %), 10–23 % while the title moment breathes, 0 % at rest; for comparison the recorder's
+  dictation as built costs 36–42 % in the same harness. Frames delivered: ~117 per second of
+  120. Investigated with `sample`: most of each display refresh is SwiftUI's fixed cost for an
+  animating hosting view in this window (graph update and dirty propagation, AppKit layout and
+  constraint passes, dynamic colour resolution, commit), about 8 ms per refresh **whatever
+  animates**: one layer alone (even only the aura) costs as much as all four, the plain
+  fade-ups of the welcome alone cost 93 %, and capping the timeline at 60 Hz halved the frames
+  but not the CPU. Kept because measured: the aura in Metal (`drawingGroup`; without it, Core
+  Graphics redrew the gradient on the main thread at each frame and the breathing cost 113 %
+  instead of 10–23 %), small timeline layers (`SceneLayer`) instead of one timeline around the
+  page, the recorder and Get Started equatable. Measured neutral, not kept: Metal for the
+  icon's blur and the button's shadow. **Not done** (a larger change, if the CPU matters): the
+  scene in Core Animation layers (render-server animations, no main-thread work per frame).
+
+**Earlier entrance (2026-11-21, replaced by the scene):** each element faded up 10 pt over
+0.3 s at 0, 0.08, 0.16, 0.24 s (icon, headline, catch phrase, recorder), the facts with
+Continue at 0.32 s, and the recorder recorded at 0.745 s.
+
 ## End of onboarding: the menu bar takes over
 
 Design: "After setup: the menu bar takes over" board and the prototype's last step (approved
@@ -433,15 +504,27 @@ e.g. "⌥ Space"; the position from Settings › Recorder):
 
 | How | Effect |
 |---|---|
-| Settings › Advanced › "Show Onboarding Again…" | Opens onboarding; settings kept. |
-| The menu's "Finish Setup…" (onboarding never finished, window closed) | Opens onboarding at the welcome page. |
-| `--onboarding` launch argument (`make onboarding` for the debug app) | Shows onboarding at launch even if completed; settings kept. |
+| Settings › Advanced › "Open Onboarding" (**debug build only**, since 2026-11-21) | Opens onboarding **without closing Settings** (closing onboarding leaves Settings open behind). Clicked again, open or not, it **restarts from the opening scene**: an open window keeps its place and gets new content (`OnboardingPresentation.restart`, `OnboardingWindowController.setContent`; a model sheet still open is ended first). Settings kept. |
+| The menu's "Finish Setup…" (onboarding never finished, window closed) | Closes Settings, opens onboarding at the opening scene. |
+| `--onboarding` launch argument (`make onboarding` for the debug app; both builds) | Shows onboarding at launch even if completed; settings kept. |
 | `--reset-onboarding` | Clears only the `onboardingComplete` flag (before `AppState` reads it). |
 | `--show-handoff` (debug builds only; `make handoff`) | Shows the end-of-onboarding popover about a second after launch; nothing else changes. Parsed by `MenuBarHandoff.isRequestedAtLaunch`, not `LaunchOptions`. |
 | `--history-sample` (debug builds only) | Not a replay: opens only the History window with invented dictations, nothing else starts ([architecture.md](architecture.md#history-window)). Parsed by `HistorySample.isRequestedAtLaunch`. |
 
-The first three are parsed by `LaunchOptions` (`OnboardingFlow.swift`); unknown arguments are ignored. A replay never
-re-downloads anything unless the user applies another model.
+`--onboarding` and `--reset-onboarding` are parsed by `LaunchOptions` (`OnboardingFlow.swift`);
+unknown arguments are ignored. "Show Onboarding Again…" (Advanced, both builds) was removed on
+2026-11-21 (maintainer: a tool for working on onboarding, not for users; `BuildFlavor
+.offersOnboardingReplay`, `AdvancedPane.openOnboardingAction(flavor:_:)`).
+
+**What a replay touches** (checked 2026-11-21 against `AppState.onboardingPageDidAppear`,
+`NewInstallDefaults`, `OnboardingCompletion`): nothing is reset when onboarding opens. The setup
+page's switches, shortcut and Change… act on the real settings at once, as Settings does (that
+is what onboarding does on any run). Showing the setup page loads the selected model only if
+nothing is loaded, loading or failed (`loadSelectedModelIfIdle`), and turns on "Open at login"
+only once per new install (`launchAtLoginDefaultPending`, consumed at the first showing; never
+set on an existing install). Try it makes a recording a test only while its page shows. Finish
+Setup sets `onboardingComplete` (already set on a replay), loads the model if idle and shows the
+handoff popover. A replay never re-downloads anything unless the user applies another model.
 
 ## Why it is this way
 
@@ -461,6 +544,26 @@ re-downloads anything unless the user applies another model.
   indicator, `ModelSettingsSection`, `ModelStatusRow`, `GeneralSettingsSection`,
   `ShortcutSettingsSection`, `PermissionsSettingsSection`, `PermissionRow`) and their renders
   were removed; Settings did not use them.
+
+## Appearance (theme)
+
+Settings › General › Appearance › Theme (2026-11-21): System, Light or Dark, a segmented
+control (`AppearanceRow`), in the last section of General. Settings only, not in onboarding.
+
+- `AppAppearance` (`AppAppearance.swift`), stored under `appearance` (`AppAppearance.defaultsKey`,
+  as `recorderPosition` is), System when nothing or an unknown value is stored.
+  `AppState.appearance` applies it at launch (top of `AppState.init`, before any window) and at
+  each change: `NSApp.appearance` = nil (follows macOS) / `.aqua` / `.darkAqua`.
+- **Every window follows live** because none sets an appearance of its own: Settings,
+  onboarding, History, the recording overlay and its shadow window (tested:
+  `AppAppearanceTests`, a window's and the shadow panel's effective appearance after each
+  change). Exception: the end-of-onboarding popover takes `NSApp.appearance` when it is made
+  (left nil, an `NSPopover` takes the appearance of the status item it points to, i.e. the menu
+  bar's); it is short-lived, so a change while it shows is not followed.
+- The welcome's recorder follows the onboarding window; Try it uses the real overlay.
+- **Not verified:** the status item's `NSMenu` (it should follow `NSApp.appearance`; not
+  checked on screen), a change of theme while a recording shows (the panel follows in tests
+  of the effective appearance, not seen on screen).
 
 ## Window colors
 
@@ -509,6 +612,19 @@ following the same logic.
   conditions.
 
 ## Known limits / not verified
+
+- Opening scene, Appearance, Open Onboarding (2026-11-21, `feat/opening-scene-light-overlay`),
+  verified: unit tests (`OpeningSceneTests`: the saved values, the moments, frames at the start,
+  the title moment, the pop, the rest, the order of arrival, Reduce Motion, the clock;
+  `AppAppearanceTests`, `OpenOnboardingTests`); offscreen renders of the scene at eight moments
+  light and dark and with Reduce Motion (`ViewRender/openingScene`, `scene-*.png`), compared with
+  the prototype rendered in headless Chrome at the same moments; the real window in a test
+  process (`OnboardingWindowTests`: the title moment waits, Return presses Get Started, the
+  recorder idle then recording then frozen, CPU; the restart of an open window from the scene).
+  **Not verified:** the scene in the app (its first launch or `make onboarding`), on a 60 Hz
+  external display, VoiceOver order before and after the press, a theme change while a window is
+  open (only the effective appearance was tested), the Settings window staying open behind
+  onboarding in the app (activation policy changes on open and close).
 
 - Onboarding ("Icon", 2026-11-21), verified: unit tests (`OnboardingFlowTests`); offscreen renders
   of every page and state in the real window, light and dark (`ViewRender`, `onboarding-*.png`);

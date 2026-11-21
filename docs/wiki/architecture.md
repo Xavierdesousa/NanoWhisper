@@ -260,12 +260,47 @@ environment values forced in a test host).
   `WaveformMetrics`, `OverlayWaveform`, `OverlayWaveformView`), `RecorderPosition.swift`,
   `RecorderPositionPicker.swift`.
 - **Shape:** compact capsule 184 × 36 pt (radius 18); with live text a card 380 × 106 pt (36
-  header + 57 text for three lines + 13), same radius, so the header never moves. Always dark:
-  black at 90 % with no blur; Reduce Transparency: an opaque `#1C1C1E`. A soft violet inner
-  shadow at the edge (`#A947FF` at 32 %, radius 6, a SwiftUI `.shadow(.inner)` fill), fading to
-  black toward the middle. No window shadow (`hasShadow = false`): on this borderless rounded
-  panel macOS drew it as a dark 1 pt outline. The record capsule and caret keep the icon's
-  violet.
+  header + 57 text for three lines + 13), same radius, so the header never moves. **Dark or
+  light since 2026-11-21** (below): dark is black at 90 % with no blur (Reduce Transparency: an
+  opaque `#1C1C1E`). A soft violet inner shadow at the edge (`#A947FF` at 32 %, radius 6, a
+  SwiftUI `.shadow(.inner)` fill), fading toward the middle. No window shadow
+  (`hasShadow = false`): on this borderless rounded panel macOS drew it as a dark 1 pt outline.
+  The record capsule and caret keep the icon's violet.
+- **Light appearance (2026-11-21, design canvas page "Recording overlay", row "Light
+  appearance", notes `ovl-light-notes`):** `OverlayColors` (`RecordingOverlayView.swift`) holds
+  every colour in two palettes of the same shape, `.dark` (as built) and `.light`; the views pick
+  one from their effective appearance (`colorScheme`), so the forced
+  `.environment(\.colorScheme, .dark)` is gone. The overlay follows the app's theme (Settings ›
+  General › Appearance, [onboarding-and-settings.md](onboarding-and-settings.md#appearance-theme)):
+  the panel sets no appearance and inherits `NSApp.appearance`, live, also during a recording.
+  Light: surface white 94 % (Reduce Transparency: opaque white), ink `#1A1325` (settled text
+  92 %, tail 64 %, timer 68 %, stopped timer 64 %, result label 90 %), inner glow `#A947FF`
+  30 %, a 0.5 pt rim `#1A1325` 14 % inside the edge, "Transcribing…" `#7A1FD6`, sweep `#8A1FF0`
+  over dots in ink 25 %, a smaller capsule glow (`#BE78FF` 75 % r 4, `#AA3CFF` 45 % r 8), the
+  transcribing capsule `#DDB8FF` → `#B477FF` (edge `#9924FF` 45 %), the caret `#B86BFF` →
+  `#8A1FF0` with a `#9628FF` 50 % glow (`Caret.image` caches one image per appearance), Stop,
+  success and warning in the light system colours (`#FF3B30`, `#34C759`, `#FF9500`). The
+  waveform's bars are drawn in the palette's ink (`OverlayWaveformView(colors:)`), and the
+  sweep's dim dots take the palette's opacity (`WaveformMetrics.transcribingBars(dimOpacity:)`).
+- **Drop shadows (2026-11-21):** the design draws two (dark: black 22 % r 13 y 10 and black 16 %
+  r 1.5 y 1; light: `#281050` 16 % r 13 y 10 and `#1A1325` 10 % r 1.5 y 1), which the live
+  panel never had (only the welcome's recorder did). They are drawn by `OverlayShadowPanel`, a
+  second borderless panel behind the overlay, a **child window** of it (it follows drags),
+  `ignoresMouseEvents = true`, kept on the panel's frame through its move/resize notifications,
+  faded with it. Its view (`OverlayDropShadowView`) knocks the card out (`.destinationOut`), so
+  nothing darkens under the translucent surface (a CSS box-shadow), and scales in with the
+  card. **Rejected:** drawing them inside the panel with a transparent margin: the panel sets
+  `ignoresMouseEvents = false`, which makes its whole frame take clicks, so a 40 pt band around
+  the recorder would have swallowed clicks; and the window server's shadow (the 1 pt outline).
+  **Not verified on screen:** the child window in a real recording (captures by `cacheDisplay`
+  only see each window's own drawing; the renders compose the two as on screen).
+- **Contrast (`OverlayContrastTests`, 2026-11-21):** WCAG 2, the text at its opacity over the
+  surface over each wallpaper, no blur counted (lower bounds), eleven wallpapers: white,
+  `#E5E5EA`, `#FFE45C`, `#9FD3FF`, black and six saturated ones (`#0A2A6B`, `#C2185B`,
+  `#1B5E20`, `#4A1A8C`, `#E53935`, `#FF7A00`); every text ≥ 4.5:1 in both appearances, also
+  with Reduce Transparency. Worst cases (light on black, where 6 % of it shows through / dark on
+  white): settled text 12.99 / 15.52, tail 5.16 / 8.58, timer 5.89 / 9.49, stopped timer
+  5.16 / 8.58, Transcribing… 6.14 / 11.49 (the notes' figures, reproduced by the test).
   - **Tuned with the maintainer on 2026-11-20, in the debug app:** surface from black 75 % to
     90 % ("plus foncé"); the 0.5 pt rim replaced by the inner shadow ("not a border, a violet
     shadow from the outside in, very sober"), then made more discreet; window shadow removed
@@ -329,10 +364,13 @@ environment values forced in a test host).
   Bottom corners and the screen middle are not offered (design decision). The design's notes
   call it `OverlayPosition`/`overlayPosition`; the maintainer's brief named it `RecorderPosition`.
 - **Picker** (`RecorderPositionPicker(selection:)`): a 300 × 186 pt dark mini screen with the
-  still recorder (`RecordingOverlayPreview`, no material) at 0.555 and clickable spots for the
+  still recorder (`RecordingOverlayPreview`, no material; since the light appearance it is drawn
+  in the window's appearance, so in light the white recorder sits on the dark mini screen) at
+  0.555 and clickable spots for the
   other positions, beside a `.radioGroup` picker and the caption. Not placed in Settings yet:
   the Settings redesign (separate PR) puts it in its Recorder pane.
-- **Onboarding's welcome** shows the real `RecordingOverlayView` in its window, fed by
+- **Onboarding's welcome** shows the real `RecordingOverlayView` in its window (in the window's
+  appearance, with the palette's drop shadows), fed by
   `WelcomeRecorderDemo` (no microphone). Two hooks exist for it: `RecordingOverlayViewModel
   .showsCardWhileEmpty` (the card before any word; the live overlay stays compact until there is
   text) and `OverlayWaveform.freeze(with:)` (still bars, no per-frame timeline), plus

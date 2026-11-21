@@ -15,6 +15,9 @@ enum OnboardingText {
 
     // MARK: Welcome
 
+    /// The opening scene's title (the product, in both builds) and its button.
+    static let sceneTitle = "NanoWhisper"
+    static let getStarted = "Get Started"
     static let headline = "Speak where you’d type."
     static let catchPhrase = "NanoWhisper turns your voice into text on this Mac and puts it where your cursor is."
 

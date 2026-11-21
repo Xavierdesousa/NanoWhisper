@@ -3,7 +3,7 @@ import SwiftUI
 
 // MARK: - Palette
 
-/// Colors of the "Voice note" overlay. The overlay is always dark, in both system appearances.
+/// What the "Voice note" overlay draws the same way in both appearances.
 enum OverlayPalette {
     static func rgb(_ hex: UInt32, _ opacity: Double = 1) -> Color {
         Color(.sRGB,
@@ -13,55 +13,164 @@ enum OverlayPalette {
               opacity: opacity)
     }
 
-    /// The surface: near-opaque black (90 %, no blur), barely showing the desktop. 2026-11-20:
-    /// the maintainer preferred a neutral black to the icon's violet, then asked for it darker.
-    /// Text contrast is checked on the worst wallpaper: `OverlayContrastTests`.
-    static let surfaceColor: UInt32 = 0x000000
-    static let surfaceOpacity = 0.9
-    static let surface = rgb(surfaceColor, surfaceOpacity)
-    /// Surface with Reduce Transparency: an opaque near-black.
-    static let solidSurface = rgb(0x1C1C1E)
-    /// A soft violet glow inside the edge, fading to the black surface toward the middle
-    /// (2026-11-20: "not a border, a violet shadow from the outside in, very sober").
-    static let innerGlow = rgb(0xA947FF)
-    static let innerGlowOpacity = 0.32
-    static let innerGlowRadius: CGFloat = 6
-    /// nwOverlayText: stable text.
-    static let textOpacity = 0.94
-    static let text = Color.white.opacity(textOpacity)
-    /// Result label ("Pasted").
-    static let label = Color.white.opacity(0.92)
-    static let timerOpacity = 0.72
-    static let timer = Color.white.opacity(timerOpacity)
-    static let timerStoppedOpacity = 0.68
-    static let timerStopped = Color.white.opacity(timerStoppedOpacity)
-    /// The tail of the live text that may still change: dimmer than the stable text, still
-    /// at least 4.5:1.
-    static let tailOpacity = 0.68
-    static let tailOpacityTranscribing = 0.68
-    static let transcribingLabelColor: UInt32 = 0xE9C4FE
-    static let transcribingLabel = rgb(transcribingLabelColor)
-    /// nwStop (systemRed, dark).
-    static let stop = rgb(0xFF453A)
-    static let success = rgb(0x30D158)
-    static let warning = rgb(0xFF9F0A)
+    static func nsColor(_ hex: UInt32, _ alpha: CGFloat = 1) -> NSColor {
+        NSColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
+                blue: CGFloat(hex & 0xFF) / 255, alpha: alpha)
+    }
 
-    /// The record capsule (Foundations "Capsule").
+    /// A soft violet glow inside the edge, fading toward the middle (2026-11-20: "not a border,
+    /// a violet shadow from the outside in, very sober").
+    static let innerGlowColor: UInt32 = 0xA947FF
+    static let innerGlowRadius: CGFloat = 6
+
+    /// The record capsule (Foundations "Capsule"), the icon's violet in both appearances.
     static let capsule = LinearGradient(
         stops: [.init(color: rgb(0xC27DFF), location: 0),
                 .init(color: rgb(0x9924FF), location: 0.6),
                 .init(color: rgb(0x8A1FF0), location: 1)],
         startPoint: .top, endPoint: .bottom)
     static let capsuleEdge = rgb(0xFFEBFF, 0.55)
-    static let capsuleGlow = rgb(0xAA3CFF)
-    /// The bright inner halo of the pulse.
-    static let capsulePulse = rgb(0xD9A6FF)
+}
+
+/// The overlay's colours in one appearance: `.dark` (as built, 2026-11-20) and `.light`
+/// (Claude Design canvas, page "Recording overlay", row "Light appearance", notes
+/// `ovl-light-notes`, 2026-11-21). The overlay follows the app's appearance (Settings ›
+/// General › Appearance), so the panel and the welcome's recorder pick one from their
+/// effective appearance (`colorScheme`). Text contrast is checked over the worst wallpapers:
+/// `OverlayContrastTests`.
+struct OverlayColors: Equatable, Sendable {
+    /// A colour from the design's table: hex and opacity.
+    struct Tone: Equatable, Sendable {
+        var hex: UInt32
+        var opacity: Double = 1
+        var color: Color { OverlayPalette.rgb(hex, opacity) }
+        var nsColor: NSColor { OverlayPalette.nsColor(hex, CGFloat(opacity)) }
+    }
+
+    /// A drop shadow below the overlay (SwiftUI radius: half the design's CSS blur).
+    struct DropShadow: Equatable, Sendable {
+        var tone: Tone
+        var radius: CGFloat
+        var y: CGFloat
+    }
+
+    /// A glow of the record capsule: its colour at the breath's peak, and its radius there and
+    /// at rest (the dim end, or paused).
+    struct Glow: Equatable, Sendable {
+        var tone: Tone
+        var radius: CGFloat
+        var dimOpacity: Double
+        var dimRadius: CGFloat
+    }
+
+    /// The surface (no blur): black 90 % in dark (2026-11-20: the maintainer preferred a neutral
+    /// black to the icon's violet, then asked for it darker), white 94 % in light.
+    var surface: Tone
+    /// The surface with Reduce Transparency: opaque.
+    var solidSurface: Tone
+    var innerGlowOpacity: Double
+    /// A hairline inside the edge (light only), 0.5 pt.
+    var rim: Tone?
+    /// The drop shadows: a soft one below, and a tight one at the edge.
+    var farShadow: DropShadow
+    var nearShadow: DropShadow
+    /// Text and bars: white in dark, a violet-tinted near-black in light.
+    var ink: UInt32
+    /// Settled text.
+    var textOpacity: Double
+    /// The tail of the live text that may still change: dimmer, still at least 4.5:1.
+    var tailOpacity: Double
+    var timerOpacity: Double
+    var timerStoppedOpacity: Double
+    /// The result's label ("Pasted").
+    var labelOpacity: Double
+    var transcribingLabel: UInt32
+    /// The transcribing sweep: its lit bars, and the dim dots under it (ink).
+    var sweepLit: UInt32
+    var sweepDimOpacity: Double
+    var capsulePulse: Glow
+    var capsuleGlow: Glow
     /// The capsule while transcribing: lighter, no glow.
-    static let capsuleTranscribing = LinearGradient(
-        colors: [rgb(0xEBD2FE), rgb(0xDB98FE)], startPoint: .top, endPoint: .bottom)
-    static let capsuleTranscribingEdge = rgb(0xDB98FE, 0.6)
-    static let caretTop = NSColor(srgbRed: 0xDB / 255, green: 0x98 / 255, blue: 0xFE / 255, alpha: 1)
-    static let caretBottom = NSColor(srgbRed: 0x99 / 255, green: 0x24 / 255, blue: 0xFF / 255, alpha: 1)
+    var capsuleTranscribingTop: UInt32
+    var capsuleTranscribingBottom: UInt32
+    var capsuleTranscribingEdge: Tone
+    var caretTop: UInt32
+    var caretBottom: UInt32
+    var caretGlow: Tone
+    /// nwStop, success and warning: the system colours of the appearance.
+    var stop: UInt32
+    var success: UInt32
+    var warning: UInt32
+
+    static let dark = OverlayColors(
+        surface: Tone(hex: 0x000000, opacity: 0.9),
+        solidSurface: Tone(hex: 0x1C1C1E),
+        innerGlowOpacity: 0.32,
+        rim: nil,
+        farShadow: DropShadow(tone: Tone(hex: 0x000000, opacity: 0.22), radius: 13, y: 10),
+        nearShadow: DropShadow(tone: Tone(hex: 0x000000, opacity: 0.16), radius: 1.5, y: 1),
+        ink: 0xFFFFFF,
+        textOpacity: 0.94, tailOpacity: 0.68, timerOpacity: 0.72, timerStoppedOpacity: 0.68, labelOpacity: 0.92,
+        transcribingLabel: 0xE9C4FE,
+        sweepLit: 0xE9C4FE, sweepDimOpacity: 0.32,
+        capsulePulse: Glow(tone: Tone(hex: 0xD9A6FF), radius: 7, dimOpacity: 0.25, dimRadius: 1),
+        capsuleGlow: Glow(tone: Tone(hex: 0xAA3CFF, opacity: 0.9), radius: 14, dimOpacity: 0, dimRadius: 2),
+        capsuleTranscribingTop: 0xEBD2FE, capsuleTranscribingBottom: 0xDB98FE,
+        capsuleTranscribingEdge: Tone(hex: 0xDB98FE, opacity: 0.6),
+        caretTop: 0xDB98FE, caretBottom: 0x9924FF, caretGlow: Tone(hex: 0xAA3CFF, opacity: 0.9),
+        stop: 0xFF453A, success: 0x30D158, warning: 0xFF9F0A
+    )
+
+    static let light = OverlayColors(
+        surface: Tone(hex: 0xFFFFFF, opacity: 0.94),
+        solidSurface: Tone(hex: 0xFFFFFF),
+        innerGlowOpacity: 0.30,
+        rim: Tone(hex: 0x1A1325, opacity: 0.14),
+        farShadow: DropShadow(tone: Tone(hex: 0x281050, opacity: 0.16), radius: 13, y: 10),
+        nearShadow: DropShadow(tone: Tone(hex: 0x1A1325, opacity: 0.10), radius: 1.5, y: 1),
+        ink: 0x1A1325,
+        textOpacity: 0.92, tailOpacity: 0.64, timerOpacity: 0.68, timerStoppedOpacity: 0.64, labelOpacity: 0.90,
+        transcribingLabel: 0x7A1FD6,
+        sweepLit: 0x8A1FF0, sweepDimOpacity: 0.25,
+        // On white the capsule's glow is smaller and softer.
+        capsulePulse: Glow(tone: Tone(hex: 0xBE78FF, opacity: 0.75), radius: 4, dimOpacity: 0.3, dimRadius: 1),
+        capsuleGlow: Glow(tone: Tone(hex: 0xAA3CFF, opacity: 0.45), radius: 8, dimOpacity: 0, dimRadius: 2),
+        capsuleTranscribingTop: 0xDDB8FF, capsuleTranscribingBottom: 0xB477FF,
+        capsuleTranscribingEdge: Tone(hex: 0x9924FF, opacity: 0.45),
+        caretTop: 0xB86BFF, caretBottom: 0x8A1FF0, caretGlow: Tone(hex: 0x9628FF, opacity: 0.5),
+        stop: 0xFF3B30, success: 0x34C759, warning: 0xFF9500
+    )
+
+    static func forScheme(_ scheme: ColorScheme) -> OverlayColors {
+        scheme == .dark ? .dark : .light
+    }
+
+    /// The palette of an AppKit appearance (dark, high-contrast dark: `.dark`; else `.light`).
+    static func forAppearance(_ appearance: NSAppearance) -> OverlayColors {
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .dark : .light
+    }
+
+    var isDark: Bool { self == .dark }
+
+    func ink(_ opacity: Double) -> Color { OverlayPalette.rgb(ink, opacity) }
+    var text: Color { ink(textOpacity) }
+    var label: Color { ink(labelOpacity) }
+    var timer: Color { ink(timerOpacity) }
+    var timerStopped: Color { ink(timerStoppedOpacity) }
+
+    var capsuleTranscribing: LinearGradient {
+        LinearGradient(colors: [OverlayPalette.rgb(capsuleTranscribingTop), OverlayPalette.rgb(capsuleTranscribingBottom)],
+                       startPoint: .top, endPoint: .bottom)
+    }
+}
+
+extension View {
+    /// The overlay's drop shadows in `colors` (the welcome's recorder; the live panel draws them
+    /// in a separate click-through window, `OverlayShadowPanel`).
+    func overlayDropShadows(_ colors: OverlayColors) -> some View {
+        shadow(color: colors.farShadow.tone.color, radius: colors.farShadow.radius, y: colors.farShadow.y)
+            .shadow(color: colors.nearShadow.tone.color, radius: colors.nearShadow.radius, y: colors.nearShadow.y)
+    }
 }
 
 // MARK: - Metrics
@@ -83,13 +192,17 @@ enum OverlayMetrics {
 
 // MARK: - SwiftUI View
 
-/// "Voice note": a dark capsule with the record indicator, a scrolling waveform and the timer;
-/// with live text, the same capsule grows into a card below its own header.
+/// "Voice note": a capsule with the record indicator, a scrolling waveform and the timer; with
+/// live text, the same capsule grows into a card below its own header. Dark or light with the
+/// effective appearance (`OverlayColors`).
 struct RecordingOverlayView: View {
     @ObservedObject var viewModel: RecordingOverlayViewModel
     var onStop: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var colors: OverlayColors { .forScheme(colorScheme) }
 
     var body: some View {
         let transcript = viewModel.visibleTranscript
@@ -99,8 +212,7 @@ struct RecordingOverlayView: View {
                 LiveTranscriptText(
                     stableText: transcript.stableText,
                     volatileText: transcript.volatileText,
-                    tailOpacity: viewModel.state == .loading
-                        ? OverlayPalette.tailOpacityTranscribing : OverlayPalette.tailOpacity,
+                    colors: colors,
                     showsCaret: viewModel.state == .recording,
                     caretBlinks: !viewModel.isPaused,
                     isFinal: transcript.isFinal,
@@ -113,10 +225,8 @@ struct RecordingOverlayView: View {
         }
         .frame(width: transcript != nil ? OverlayMetrics.cardWidth : nil)
         .frame(minWidth: OverlayMetrics.compactWidth)
-        .background(OverlayBackground(cornerRadius: OverlayMetrics.cornerRadius))
+        .background(OverlayBackground(cornerRadius: OverlayMetrics.cornerRadius, colors: colors))
         .clipShape(RoundedRectangle(cornerRadius: OverlayMetrics.cornerRadius, style: .circular))
-
-        .environment(\.colorScheme, .dark)
         // Appear: scale 0.96 → 1 from the pinned edge (the window fades in meanwhile).
         .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.85)) { content in
             content.scaleEffect(viewModel.isPresented || reduceMotion ? 1 : 0.96,
@@ -137,14 +247,14 @@ struct RecordingOverlayView: View {
             // The trailing item takes the remaining width (no `Spacer`: the stack's spacing
             // would apply on both of its sides and widen the compact capsule).
             case .finished(let result):
-                ResultBadge(result: result)
+                ResultBadge(result: result, colors: colors)
                 trailing {
                     if result.isSuccess {
-                        timerText(color: OverlayPalette.timerStopped)
+                        timerText(color: colors.timerStopped)
                     }
                 }
             case .idle, .recording, .loading:
-                RecordIndicator(isTranscribing: isTranscribing, isPaused: viewModel.isPaused)
+                RecordIndicator(isTranscribing: isTranscribing, isPaused: viewModel.isPaused, colors: colors)
                     // A new indicator when it pauses or resumes: a repeating animation already
                     // running is not stopped by later non-animated changes (the capsule kept
                     // pulsing on the welcome's frozen card), and a resumed one starts again.
@@ -152,13 +262,13 @@ struct RecordingOverlayView: View {
                 // In the card the waveform takes the header's whole width (2026-11-20
                 // feedback); in the capsule it keeps its 26 bars.
                 OverlayWaveformView(waveform: viewModel.waveform, isTranscribing: isTranscribing, fillsWidth: hasText,
-                                    revision: viewModel.waveform.revision)
+                                    revision: viewModel.waveform.revision, colors: colors)
                 trailing(flexible: !hasText) {
                     if isTranscribing && (hasText || reduceMotion) {
                         Text("Transcribing…")
                             .font(.system(size: 11, weight: .medium))
                             .tracking(0.1)
-                            .foregroundStyle(OverlayPalette.transcribingLabel)
+                            .foregroundStyle(OverlayPalette.rgb(colors.transcribingLabel))
                             .lineLimit(1)
                             .fixedSize()
                     } else {
@@ -194,7 +304,7 @@ struct RecordingOverlayView: View {
     private var timerOrStopButton: some View {
         let showsStop = viewModel.isPointerOver && viewModel.state == .recording
         return ZStack(alignment: .trailing) {
-            timerText(color: viewModel.state == .recording ? OverlayPalette.timer : OverlayPalette.timerStopped)
+            timerText(color: viewModel.state == .recording ? colors.timer : colors.timerStopped)
                 .opacity(showsStop ? 0 : 1)
 
             Button(action: onStop) {
@@ -202,7 +312,7 @@ struct RecordingOverlayView: View {
                 // with an overlaid 7 pt square rendered off by a pixel on half-point origins).
                 Image(systemName: "stop.circle.fill")
                     .symbolRenderingMode(.palette)
-                    .foregroundStyle(Color.white, OverlayPalette.stop)
+                    .foregroundStyle(Color.white, OverlayPalette.rgb(colors.stop))
                     .font(.system(size: 20))
                     .frame(width: 20, height: 20)
                     .contentShape(Circle())
@@ -221,18 +331,24 @@ struct RecordingOverlayView: View {
 
 // MARK: - Background
 
-/// The translucent black surface, or an opaque one with Reduce Transparency, with a hairline
-/// rim (the production overlay's look).
+/// The translucent surface, or an opaque one with Reduce Transparency, with the violet inner
+/// shadow and, in light, a hairline rim inside the edge.
 private struct OverlayBackground: View {
     let cornerRadius: CGFloat
+    let colors: OverlayColors
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .circular)
-        // An inner shadow: violet at the edge, fading to the black surface within ~10 pt.
-        shape.fill((reduceTransparency ? OverlayPalette.solidSurface : OverlayPalette.surface)
-            .shadow(.inner(color: OverlayPalette.innerGlow.opacity(OverlayPalette.innerGlowOpacity),
+        // An inner shadow: violet at the edge, fading to the surface within ~10 pt.
+        shape.fill((reduceTransparency ? colors.solidSurface.color : colors.surface.color)
+            .shadow(.inner(color: OverlayPalette.rgb(OverlayPalette.innerGlowColor, colors.innerGlowOpacity),
                            radius: OverlayPalette.innerGlowRadius)))
+            .overlay {
+                if let rim = colors.rim {
+                    shape.strokeBorder(rim.color, lineWidth: 0.5)
+                }
+            }
     }
 }
 
@@ -244,6 +360,7 @@ private struct OverlayBackground: View {
 struct RecordIndicator: View {
     let isTranscribing: Bool
     var isPaused = false
+    var colors: OverlayColors = .dark
     @State private var breathing = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -255,8 +372,8 @@ struct RecordIndicator: View {
         let glow = !isPaused && (breathing || !breathes)
         Group {
             if isTranscribing {
-                shape.fill(OverlayPalette.capsuleTranscribing)
-                    .overlay(shape.strokeBorder(OverlayPalette.capsuleTranscribingEdge, lineWidth: 0.5))
+                shape.fill(colors.capsuleTranscribing)
+                    .overlay(shape.strokeBorder(colors.capsuleTranscribingEdge.color, lineWidth: 0.5))
             } else {
                 shape.fill(OverlayPalette.capsule)
                     .overlay(shape.strokeBorder(OverlayPalette.capsuleEdge, lineWidth: 1))
@@ -271,13 +388,18 @@ struct RecordIndicator: View {
             content
                 .brightness(glow && breathes ? 0.18 : 0)
                 .scaleEffect(glow && breathes ? 1.18 : 1)
-                .shadow(color: OverlayPalette.capsulePulse.opacity(isTranscribing ? 0 : (glow ? 1 : 0.25)),
-                        radius: glow ? 7 : 1)
-                .shadow(color: OverlayPalette.capsuleGlow.opacity(isTranscribing ? 0 : (glow ? 0.9 : 0)),
-                        radius: glow ? 14 : 2)
+                .shadow(color: Self.tone(colors.capsulePulse, glow: glow, hidden: isTranscribing),
+                        radius: glow ? colors.capsulePulse.radius : colors.capsulePulse.dimRadius)
+                .shadow(color: Self.tone(colors.capsuleGlow, glow: glow, hidden: isTranscribing),
+                        radius: glow ? colors.capsuleGlow.radius : colors.capsuleGlow.dimRadius)
         }
         .onAppear { breathing = true }
         .accessibilityHidden(true)
+    }
+
+    /// A glow's colour at the breath's peak (`glow`) or at rest; none while transcribing.
+    private static func tone(_ glow: OverlayColors.Glow, glow isOn: Bool, hidden: Bool) -> Color {
+        OverlayPalette.rgb(glow.tone.hex, hidden ? 0 : (isOn ? glow.tone.opacity : glow.dimOpacity))
     }
 }
 
@@ -286,13 +408,14 @@ struct RecordIndicator: View {
 /// Check and "Pasted", or a warning sign and what went wrong. The badge scales in (0.2 s).
 private struct ResultBadge: View {
     let result: OverlayResult
+    let colors: OverlayColors
     @State private var shown = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 7) {
             ZStack {
-                Circle().fill(result.isSuccess ? OverlayPalette.success : OverlayPalette.warning)
+                Circle().fill(OverlayPalette.rgb(result.isSuccess ? colors.success : colors.warning))
                 if result.isSuccess {
                     CheckMark()
                         .stroke(Color.white, style: StrokeStyle(lineWidth: 1.7, lineCap: .round, lineJoin: .round))
@@ -306,7 +429,7 @@ private struct ResultBadge: View {
             }
             Text(result.title)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(OverlayPalette.label)
+                .foregroundStyle(colors.label)
                 .lineLimit(1)
                 .fixedSize()
         }
@@ -355,14 +478,14 @@ private struct FadeIn: ViewModifier {
 
 // MARK: - Live transcript
 
-/// The last lines of the live transcript: settled words in white, the tail that may still
+/// The last lines of the live transcript: settled words in the ink, the tail that may still
 /// change dimmed (never another hue), and the glowing caret where the next words will land.
 /// Fixed height (`lineCount` lines), so updates never resize the overlay; the newest line sits
 /// at the bottom and older lines fade out at the top edge.
 struct LiveTranscriptText: View {
     let stableText: String
     let volatileText: String
-    var tailOpacity: Double = OverlayPalette.tailOpacity
+    var colors: OverlayColors = .dark
     /// The caret blinks after the last word while recording.
     var showsCaret = false
     /// False: the caret stays on, still (a paused recording: onboarding's welcome at rest).
@@ -426,10 +549,10 @@ struct LiveTranscriptText: View {
     }
 
     private func text(caret: Caret.Phase?) -> Text {
-        var text = Text(stableText).foregroundStyle(OverlayPalette.text)
-            + Text(volatileText).foregroundStyle(Color.white.opacity(tailOpacity))
+        var text = Text(stableText).foregroundStyle(colors.text)
+            + Text(volatileText).foregroundStyle(colors.ink(colors.tailOpacity))
         if let caret {
-            text = text + Text(Image(nsImage: Caret.image(caret))).baselineOffset(Caret.baselineOffset)
+            text = text + Text(Image(nsImage: Caret.image(caret, colors: colors))).baselineOffset(Caret.baselineOffset)
         }
         return text
     }
@@ -448,10 +571,20 @@ enum Caret {
     /// The caret's bottom sits 2 pt below the baseline.
     static let baselineOffset: CGFloat = -2
 
-    @MainActor private static var cache: [Phase: NSImage] = [:]
+    private struct Key: Hashable {
+        var phase: Phase
+        var isDark: Bool
+    }
 
-    @MainActor static func image(_ phase: Phase) -> NSImage {
-        if let image = cache[phase] { return image }
+    @MainActor private static var cache: [Key: NSImage] = [:]
+
+    /// The caret in `colors` (its gradient and glow differ in light).
+    @MainActor static func image(_ phase: Phase, colors: OverlayColors = .dark) -> NSImage {
+        let key = Key(phase: phase, isDark: colors.isDark)
+        if let image = cache[key] { return image }
+        let top = OverlayPalette.nsColor(colors.caretTop), bottom = OverlayPalette.nsColor(colors.caretBottom)
+        let glowColor = OverlayPalette.nsColor(colors.caretGlow.hex)
+        let glowOpacity = CGFloat(colors.caretGlow.opacity)
         let image = NSImage(
             size: NSSize(width: leadingGap + size.width + glowPadding, height: size.height),
             flipped: false
@@ -461,19 +594,18 @@ enum Caret {
             let alpha: CGFloat = phase == .on ? 1 : 0.25
             NSGraphicsContext.saveGraphicsState()
             let glow = NSShadow()
-            glow.shadowColor = NSColor(srgbRed: 0xAA / 255, green: 0x3C / 255, blue: 1, alpha: 0.9 * alpha)
+            glow.shadowColor = glowColor.withAlphaComponent(glowOpacity * alpha)
             glow.shadowBlurRadius = 3
             glow.shadowOffset = .zero
             glow.set()
-            OverlayPalette.caretBottom.withAlphaComponent(alpha).setFill()
+            bottom.withAlphaComponent(alpha).setFill()
             path.fill()
             NSGraphicsContext.restoreGraphicsState()
-            NSGradient(starting: OverlayPalette.caretTop.withAlphaComponent(alpha),
-                       ending: OverlayPalette.caretBottom.withAlphaComponent(alpha))?
+            NSGradient(starting: top.withAlphaComponent(alpha), ending: bottom.withAlphaComponent(alpha))?
                 .draw(in: path, angle: -90)
             return true
         }
-        cache[phase] = image
+        cache[key] = image
         return image
     }
 }

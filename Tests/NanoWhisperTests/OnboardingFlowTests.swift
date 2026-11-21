@@ -346,15 +346,17 @@ struct OnboardingWindowPlacementTests {
 @Suite("Welcome recorder")
 @MainActor
 struct WelcomeRecorderTests {
-    @Test("Idle at 0:00 once the page has arrived, recording 125 ms later for 3 s, then stopped at 0:03")
+    @Test("From the press: idle at 0:00 once the recorder has arrived, recording 125 ms later for 3 s, then stopped at 0:03")
     func timeline() {
-        // The page's last element (Continue) has arrived when the idle wait starts.
-        #expect(abs(WelcomeDictation.entranceEnds - (WelcomePage.Delay.button + FadeUp.duration)) < 0.001)
-        #expect(WelcomePage.Delay.factStep == 0, "the four facts arrive together")
-        #expect(WelcomeDictation.recorderAppears < WelcomeDictation.entranceEnds)
+        // The opening scene's values: the recorder fades up from 0.25 s after the press, over
+        // 0.45 s, and records 0.125 s after it has arrived (the prototype's saved Tweaks).
+        #expect(WelcomeDictation.recorderAppears == 0.25)
+        #expect(abs(WelcomeDictation.entranceEnds - 0.7) < 0.001)
+        #expect(OpeningScene.Tweak.factsStagger == 0, "the four facts arrive together")
         let start = WelcomeDictation.recordingStarts
+        #expect(abs(start - 0.825) < 0.001)
         #expect(abs(start - WelcomeDictation.entranceEnds - WelcomeDictation.idleWait) < 0.001)
-        #expect(WelcomeDictation.idleWait == 0.125, "the maintainer's pause after the page has arrived")
+        #expect(WelcomeDictation.idleWait == 0.125, "the maintainer's pause after the recorder has arrived")
         let duration = WelcomeDictation.freezeTime - start
         #expect(abs(duration - 3) < 0.001, "the dictation lasts 3 s, quick on purpose")
 
@@ -408,10 +410,18 @@ struct WelcomeRecorderTests {
         #expect(lines == LiveTranscriptText.defaultLineCount, "three lines: \(lines)")
     }
 
-    @Test("Levels: room noise before the first word, speech after")
+    @Test("Levels: room noise before the first word, speech after, in the shape approved before the scene")
     func levels() {
         let first = WelcomeDictation.firstWord
         #expect(WelcomeDictation.level(at: first - 0.2) < WaveformMetrics.silenceFloor)
+        // The same levels as when the recording started 0.745 s after the window opened.
+        for since in stride(from: 0.2, to: 2.9, by: 0.13) {
+            let then = since + 0.745
+            let pause = sin(then * 3.7 + 0.5) > 0.85 ? 0.0 : 1.0
+            let syllable = abs(sin(then * 12.3 + 0.3)) * (0.45 + 0.55 * abs(sin(then * 2.6 + 1.2)))
+            let expected = Float(max(0.04, pause * min(1, 0.25 + 0.75 * syllable)))
+            #expect(abs(WelcomeDictation.level(at: WelcomeDictation.recordingStarts + since) - expected) < 1e-5)
+        }
         let speech = stride(from: first + 0.1, to: WelcomeDictation.freezeTime, by: 0.02).map { WelcomeDictation.level(at: $0) }
         #expect(speech.filter { $0 > 0.5 }.count > speech.count / 3)
         let history = WelcomeDictation.frozenHistory()

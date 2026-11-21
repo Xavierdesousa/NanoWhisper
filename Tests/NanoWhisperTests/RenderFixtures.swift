@@ -1,5 +1,6 @@
 import AppKit
 import Carbon
+import Combine
 import SwiftUI
 @testable import NanoWhisper
 
@@ -15,6 +16,9 @@ struct SettingsFixture {
     var shortcut: Shortcut = Fixtures.productionShortcut
     var historyEnabled = true
     var recorderPosition: RecorderPosition = .defaultPosition
+    var appearance: AppAppearance = .system
+    /// The build drawn: debug shows Advanced's "Open Onboarding", production does not.
+    var flavor: BuildFlavor = .debug
     var updates = Fixtures.updates(.upToDate(lastChecked: Fixtures.checkDate))
 
     init(applied: EngineConfiguration = Fixtures.parakeetUltra) {
@@ -22,11 +26,13 @@ struct SettingsFixture {
     }
 
     var context: SettingsContext {
-        Fixtures.context(
+        var context = Fixtures.context(
             applied: applied, state: state, microphone: microphone, accessibility: accessibility,
             offersLiveTranscription: offersLiveTranscription, shortcut: shortcut,
             historyEnabled: historyEnabled, recorderPosition: recorderPosition
         )
+        context.appearance = .constant(appearance)
+        return context
     }
 
     func view(for pane: SettingsPane) -> AnyView {
@@ -43,7 +49,8 @@ struct SettingsFixture {
         case .advanced:
             return AnyView(AdvancedPane(
                 updates: updates, actions: UpdateActions(check: {}, install: {}),
-                debugMode: .constant(false), showOnboarding: {}
+                debugMode: .constant(false),
+                openOnboarding: AdvancedPane.openOnboardingAction(flavor: flavor) {}
             ))
         }
     }
@@ -212,6 +219,129 @@ struct MenuPreview: View {
                 .frame(height: MenuMetrics.rowHeight)
             }
         }
+    }
+}
+
+// MARK: - Recording overlay
+
+/// Every state of the recording overlay in the sheet's appearance, over a wallpaper, each drawn
+/// as on screen: the overlay view with its drop shadows behind it (`OverlayDropShadowView`, the
+/// shadow window's content, card knocked out).
+struct OverlaySheet: View {
+    enum Wallpaper: String { case pale, saturated }
+
+    let wallpaper: Wallpaper
+    let reduceTransparency: Bool
+    private let compact: [(String, RecordingOverlayViewModel)]
+    private let cards: [(String, RecordingOverlayViewModel)]
+
+    @MainActor
+    init(wallpaper: Wallpaper, reduceTransparency: Bool) {
+        self.wallpaper = wallpaper
+        self.reduceTransparency = reduceTransparency
+        let sentence = "So the plan for this week is the payment flow, then the mobile release. Let’s split it in two: "
+            + "first the API, then the checkout screens, and we’ll see how far we get by Thursday"
+        let words = sentence.split(separator: " ").map(String.init)
+        let long = LiveTranscript(stable: words.prefix(34).joined(separator: " "), volatile: " " + words.dropFirst(34).joined(separator: " "))
+        let first = LiveTranscript(stable: words.prefix(7).joined(separator: " "), volatile: " " + words[7...8].joined(separator: " "))
+        var final = LiveTranscript()
+        final.finalize("So the plan for this week is the payment flow, then the mobile release.")
+        compact = [
+            ("Recording", OverlayFixtures.model(.recording, elapsed: 7)),
+            ("Pointer over it: Stop", OverlayFixtures.model(.recording, elapsed: 12, pointerOver: true)),
+            ("Transcribing", OverlayFixtures.model(.loading, elapsed: 12)),
+            ("Pasted", OverlayFixtures.model(.finished(.pasted), elapsed: 12)),
+            ("No speech detected", OverlayFixtures.model(.finished(.noSpeech), elapsed: 4)),
+        ]
+        cards = [
+            ("Live text, first line", OverlayFixtures.model(.recording, elapsed: 2, transcript: first)),
+            ("Live text, long", OverlayFixtures.model(.recording, elapsed: 9, transcript: long)),
+            ("Pointer over the card: Stop", OverlayFixtures.model(.recording, elapsed: 9, transcript: long, pointerOver: true)),
+            ("Transcribing with text", OverlayFixtures.model(.loading, elapsed: 9, transcript: long)),
+            ("Pasted: the final text", OverlayFixtures.model(.finished(.pasted), elapsed: 9, transcript: final)),
+        ]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            row(compact)
+            row(Array(cards.prefix(2)))
+            row(Array(cards.dropFirst(2)))
+        }
+        .padding(20)
+        .background(background)
+        .environment(\._accessibilityReduceTransparency, reduceTransparency)
+    }
+
+    private func row(_ items: [(String, RecordingOverlayViewModel)]) -> some View {
+        HStack(alignment: .top, spacing: 0) {
+            ForEach(items.indices, id: \.self) { index in
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(items[index].0)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(wallpaper == .pale ? Color(white: 0.2) : .white)
+                        .padding(.leading, OverlayShadowPanel.margin.left)
+                    OverlayOnScreen(model: items[index].1)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var background: some View {
+        switch wallpaper {
+        case .pale:
+            ZStack {
+                OverlayPalette.rgb(0xF3F0F7)
+                RadialGradient(colors: [OverlayPalette.rgb(0xFAD3E6), .clear], center: UnitPoint(x: 0.12, y: 0.2), startRadius: 0, endRadius: 600)
+                RadialGradient(colors: [OverlayPalette.rgb(0xCFE2FF), .clear], center: UnitPoint(x: 0.85, y: 0.15), startRadius: 0, endRadius: 700)
+                RadialGradient(colors: [OverlayPalette.rgb(0xFFF0C2), .clear], center: UnitPoint(x: 0.6, y: 1), startRadius: 0, endRadius: 600)
+            }
+        case .saturated:
+            // Five of the contrast test's saturated wallpapers, side by side.
+            LinearGradient(stops: [
+                .init(color: OverlayPalette.rgb(0x0A2A6B), location: 0), .init(color: OverlayPalette.rgb(0xC2185B), location: 0.25),
+                .init(color: OverlayPalette.rgb(0x1B5E20), location: 0.5), .init(color: OverlayPalette.rgb(0xFF7A00), location: 0.75),
+                .init(color: OverlayPalette.rgb(0x4A1A8C), location: 1),
+            ], startPoint: .leading, endPoint: .trailing)
+        }
+    }
+}
+
+/// The overlay as the panel and its shadow window draw it: the view, with the drop shadows
+/// behind it in the shadow window's margins.
+struct OverlayOnScreen: View {
+    let model: RecordingOverlayViewModel
+
+    var body: some View {
+        let margin = OverlayShadowPanel.margin
+        RecordingOverlayView(viewModel: model, onStop: {})
+            .fixedSize()
+            .padding(EdgeInsets(top: margin.top, leading: margin.left, bottom: margin.bottom, trailing: margin.right))
+            .background(OverlayDropShadowView(viewModel: model))
+    }
+}
+
+@MainActor
+enum OverlayFixtures {
+    /// A view model in `state`: a still waveform of speech (the transcribing sweep mid-row).
+    static func model(
+        _ state: OverlayState, elapsed: Int, transcript: LiveTranscript? = nil, pointerOver: Bool = false
+    ) -> RecordingOverlayViewModel {
+        let waveform: OverlayWaveform
+        if state == .loading {
+            waveform = OverlayWaveform()
+            waveform.start(levels: PassthroughSubject<Float, Never>())
+            waveform.markStopped(at: Date().addingTimeInterval(-(WaveformMetrics.sinkDuration + 0.6)))
+        } else {
+            waveform = OverlayWaveform(staticHistory: WelcomeDictation.frozenHistory())
+        }
+        let model = RecordingOverlayViewModel(waveform: waveform)
+        model.state = state
+        model.elapsedSeconds = elapsed
+        model.transcript = transcript
+        model.isPointerOver = pointerOver
+        return model
     }
 }
 

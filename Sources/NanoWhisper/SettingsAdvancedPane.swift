@@ -91,7 +91,17 @@ struct AdvancedPane: View {
     let updates: UpdateStatus
     let actions: UpdateActions
     @Binding var debugMode: Bool
-    let showOnboarding: () -> Void
+    /// "Open Onboarding", debug builds only (`openOnboardingAction(flavor:_:)`); nil: no row.
+    let openOnboarding: (() -> Void)?
+
+    static let openOnboardingTitle = "Open Onboarding"
+    static let openOnboardingCaption = "Debug build only. Plays onboarding from the opening scene; Settings stays open. "
+        + "Your settings are kept; nothing downloads unless you apply another model."
+
+    /// The "Open Onboarding" action for `flavor`: none in production.
+    static func openOnboardingAction(flavor: BuildFlavor, _ action: @escaping () -> Void) -> (() -> Void)? {
+        flavor.offersOnboardingReplay ? action : nil
+    }
 
     var body: some View {
         SettingsPaneForm {
@@ -116,11 +126,13 @@ struct AdvancedPane: View {
                     isOn: $debugMode
                 )
                 .settingsRow()
-                GroupedRowDivider()
-                SettingsRow(title: "Onboarding", caption: "Your settings are kept; nothing downloads unless you apply another model.") {
-                    Button("Show Onboarding Again…", action: showOnboarding)
+                if let openOnboarding {
+                    GroupedRowDivider()
+                    SettingsRow(title: "Onboarding", caption: Self.openOnboardingCaption) {
+                        Button(Self.openOnboardingTitle, action: openOnboarding)
+                    }
+                    .settingsRow()
                 }
-                .settingsRow()
             }
         }
     }
