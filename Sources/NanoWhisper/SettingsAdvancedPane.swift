@@ -96,7 +96,7 @@ struct AdvancedPane: View {
 
     static let openOnboardingTitle = "Open Onboarding"
     static let openOnboardingCaption = "Debug build only. Plays onboarding from the opening scene; Settings stays open. "
-        + "Your settings are kept; nothing downloads unless you apply another model."
+        + "Your settings are kept. The setup page downloads the selected model only if it is not on this Mac yet."
 
     /// The "Open Onboarding" action for `flavor`: none in production.
     static func openOnboardingAction(flavor: BuildFlavor, _ action: @escaping () -> Void) -> (() -> Void)? {

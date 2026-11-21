@@ -524,7 +524,9 @@ nothing is loaded, loading or failed (`loadSelectedModelIfIdle`), and turns on "
 only once per new install (`launchAtLoginDefaultPending`, consumed at the first showing; never
 set on an existing install). Try it makes a recording a test only while its page shows. Finish
 Setup sets `onboardingComplete` (already set on a replay), loads the model if idle and shows the
-handoff popover. A replay never re-downloads anything unless the user applies another model.
+handoff popover. A replay downloads nothing unless the user applies another model, or the
+selected model is not on this Mac yet (the setup page then starts its download, as on a first
+run); the button's caption says so.
 
 ## Why it is this way
 

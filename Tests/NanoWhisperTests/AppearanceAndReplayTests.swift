@@ -44,16 +44,14 @@ struct AppAppearanceTests {
         let shadow = OverlayShadowPanel(viewModel: RecordingOverlayViewModel())
         #expect(window.appearance == nil && shadow.appearance == nil, "no appearance of their own")
 
-        // Windows learn of the change from the app (KVO); let the run loop deliver it.
-        func settle() { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+        // Synchronous from here to the restore (no run loop, no await): no other test can see
+        // or change `NSApp.appearance` meanwhile (window tests set it too).
         AppAppearance.dark.apply(to: app)
-        settle()
         #expect(app.appearance?.name == .darkAqua)
         #expect(OverlayColors.forAppearance(window.effectiveAppearance) == .dark)
         #expect(OverlayColors.forAppearance(shadow.effectiveAppearance) == .dark)
 
         AppAppearance.light.apply(to: app)
-        settle()
         #expect(app.appearance?.name == .aqua)
         #expect(OverlayColors.forAppearance(window.effectiveAppearance) == .light)
         #expect(OverlayColors.forAppearance(shadow.effectiveAppearance) == .light)
