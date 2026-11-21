@@ -1,7 +1,8 @@
 # Build flavors, signing and release
 
-Last verified against the code: 2026-11-19 (`main` at 29e84c9). Source: PR #14, PR #11, the
-maintainer, `Makefile`, `.github/workflows/release.yml`.
+Last verified against the code: 2026-11-19 (`main` at 29e84c9); the SDK version section on
+2026-11-21 (`fix/welcome-faster`). Source: PR #14, PR #11, the maintainer, `Makefile`,
+`.github/workflows/release.yml`.
 
 ## Distribution decisions
 
@@ -18,6 +19,33 @@ maintainer, `Makefile`, `.github/workflows/release.yml`.
   `mediaremote-adapter` in [media-pause.md](media-pause.md).
 - Built with the macOS 27 SDK / Swift 6.4 (Xcode 27.1); deployment target macOS 14
   (`Package.swift` `.macOS(.v14)`, `LSMinimumSystemVersion` 14.0). Apple Silicon only.
+
+## The SDK version in the binary (macOS 26+ design)
+
+**Trap (found 2026-11-21):** SwiftPM's default build system in Swift 6.4 (`swiftbuild`, "Swift
+Build") links the executable with the **deployment target as the SDK version**:
+`otool -l .build/release/NanoWhisper | grep -A4 LC_BUILD_VERSION` showed `minos 14.0, sdk 14.0`
+although it compiles against `MacOSX27.0.sdk` (`--build-system native` records `sdk 27.0`; same
+result in an empty package, so not this project's settings). AppKit decides from that linked
+SDK version whether an app gets the macOS 26+ design, so every app build up to then (production
+and debug) ran in the **pre-26 compatibility design**: other window, title bar and toolbar
+colors (dark: window `#323232`, toolbar `#373837` tinted by the wallpaper), pre-26 controls,
+menus and popovers. Finder, and every test process (the Xcode test runner is linked against the
+27 SDK), use the new design: offscreen renders and window tests did not show what the app showed.
+
+- **Fix:** `make build` passes the real SDK version to the linker
+  (`-Xlinker -platform_version -Xlinker macos -Xlinker 14.0 -Xlinker $(xcrun --show-sdk-version)`)
+  and fails if the executable does not record it. `make app`, `ci`, `release` all go through it.
+  Plain `swift build` / `swift test` are unchanged (tests run in the runner's design anyway).
+- **Consequences of the switch** (checked in the debug app on macOS 27.2, dark): the Settings
+  and onboarding windows get Finder's colors from the system
+  ([onboarding-and-settings.md](onboarding-and-settings.md#window-colors)); the menu's native
+  titles start 16 pt from the edge, not 14 (`MenuMetrics.textInset` moved); the onboarding
+  window's `NSHostingView` resized the window to 672 pt even with `sizingOptions = []` (now
+  hosted in a plain container view). The History window, the overlay during a real recording
+  and the light appearance in the app were not checked.
+- `vtool -set-build-version macos 14.0 27.0 -replace` on a built binary does the same (used to
+  confirm the cause on a test harness), but would need re-signing; the linker flag avoids that.
 
 ## Two flavors from one executable
 

@@ -1,6 +1,6 @@
 # Onboarding and Settings
 
-Last verified against the code: 2026-11-21 (`feat/settings-and-menu-redesign`; End of onboarding against `feat/menu-bar-handoff`; the Settings window, colors and sizing again in `feat/redesign-feedback`; onboarding rewritten in `feat/onboarding-icon`; welcome sequence, cards, toolbar icons and the Engine comparison in `fix/onboarding-settings-polish`, also run in the debug app), with unit tests, offscreen renders and window captures; the Settings redesign was not run in the app (see Known limits). Source: PR #15, the model migration PR, the Settings and menu redesign PR, the handoff PR #31, the onboarding "Icon" PR and the code.
+Last verified against the code: 2026-11-21 (window colors, the onboarding window's container and the blank-window fix in `fix/welcome-faster`, in the debug app; `feat/settings-and-menu-redesign`; End of onboarding against `feat/menu-bar-handoff`; the Settings window, colors and sizing again in `feat/redesign-feedback`; onboarding rewritten in `feat/onboarding-icon`; welcome sequence, cards, toolbar icons and the Engine comparison in `fix/onboarding-settings-polish`, also run in the debug app), with unit tests, offscreen renders and window captures; the Settings redesign was not run in the app (see Known limits). Source: PR #15, the model migration PR, the Settings and menu redesign PR, the handoff PR #31, the onboarding "Icon" PR and the code.
 
 ## What it is
 
@@ -43,7 +43,10 @@ Design: Claude Design canvas "NanoWhisper Redesign", Settings page, proposal 1 "
     opening or to stop the permission polling when the window closes (a closed window keeps its
     view; `onDisappear` does not run). The window controller already did all of that. The app
     keeps an empty `Settings` scene only as its Scene; its "Settings…" command (app menu,
-    visible while onboarding shows the Dock icon) opens the real window.
+    visible while onboarding shows the Dock icon) opens the real window. A never-inserted
+    `MenuBarExtra` (`isInserted: .constant(false)`) comes before it: with `Settings` as the only
+    scene, SwiftUI opened that scene's empty window at every launch (a blank "NanoWhisper Debug
+    Settings" window, seen 2026-11-21). Checked on launch of the debug app: no window.
   - **Sizing:** each pane is a `VStack` of `SettingsSection`s with
     `.fixedSize(horizontal: false, vertical: true)` (`SettingsPaneForm`), so its fitting size is
     its content. `SettingsTabViewController` alone sizes the window, keeping the top edge: on a
@@ -58,10 +61,9 @@ Design: Claude Design canvas "NanoWhisper Redesign", Settings page, proposal 1 "
     `Form`, tried in a harness), while onboarding drew its own 10 pt cards with a 0.5 pt stroke.
     Now one style for both (`GroupedStyle`, `groupedCard()`, `GroupedRowDivider` in
     `SettingsStyle.swift`): no border, radius 12 pt continuous (what the native grouped form
-    drew, measured on its render), the onboarding colors (window #F2F2F4 / #1E1E20, card white /
-    #2A2A2D; maintainer's choice), the Settings window's background set to the same window
-    color. Rows get `.settingsRow()` padding and explicit dividers. Measured in the debug app
-    (dark, 1x screen): Settings background and card pixels now equal onboarding's.
+    drew, measured on its render), the card #2A2A2D in dark (maintainer's choice), black at 3 %
+    in light; the background is the window's own, the same in both windows (see
+    [Window colors](#window-colors)). Rows get `.settingsRow()` padding and explicit dividers.
     - The grey switches in the maintainer's onboarding screenshot were only the inactive-window
       look (confirmed by the maintainer).
   - **Toolbar icons (since 2026-11-21): `ToolbarSymbol`.** "Horizontally stretched" icons: on
@@ -239,9 +241,13 @@ states, `TryItStage`, `NewInstallDefaults`, `OnboardingWindowPlacement`, `Welcom
 becomes a check, the fade-up, `InlineShortcutText`).
 
 - **Window:** 580 × 640 pt for every page, title bar included (`.fullSizeContentView`,
-  transparent title bar, no visible title: traffic lights over the content); the design's
-  background (#F2F2F4 / #1E1E20). The `NSHostingView` has `sizingOptions = []`: left to size the
-  window it added the title bar's safe area (672 pt). Opens with a 0.25 s fade (none with Reduce
+  transparent title bar, no visible title: traffic lights over the content); the window's own
+  background, as the Settings window's content ([Window colors](#window-colors)). The
+  `NSHostingView` has `sizingOptions = []` and is **not** the window's content view but sits in a
+  plain container: left to size the window it added the title bar's safe area (672 pt), and in
+  the macOS 26+ design it still did so with `sizingOptions = []` while it was the content view
+  (`NSHostingView.windowDidLayout` → `updateAnimatedWindowSize`, during the welcome's entrance;
+  seen 2026-11-21 in the debug app, not in tests). Opens with a 0.25 s fade (none with Reduce
   Motion); a page change fades the new page in over 0.3 s.
 - **Position** (`OnboardingWindowPlacement.frame(in:recorder:)`): on the screen with the pointer
   (where the recorder appears; `centerOnCurrentScreen` used the same screen), centred, then moved
@@ -438,6 +444,52 @@ re-downloads anything unless the user applies another model.
   indicator, `ModelSettingsSection`, `ModelStatusRow`, `GeneralSettingsSection`,
   `ShortcutSettingsSection`, `PermissionsSettingsSection`, `PermissionRow`) and their renders
   were removed; Settings did not use them.
+
+## Window colors
+
+Maintainer, 2026-11-21: the Settings window's header (title bar and toolbar) and background in
+Finder's Settings colors (Finder › Settings…), the same background for onboarding, light mode
+following the same logic.
+
+- **How:** neither window sets `backgroundColor` and no SwiftUI view paints behind the pages or
+  panes (`SettingsPaneForm`, `OnboardingContent`). With its default background, an `NSWindow`'s
+  frame view holds a system `NSVisualEffectView` (content background material) and the toolbar
+  header is the title bar's scroll pocket over it (a 5 % white fill, blur), exactly what Finder
+  gets. A custom `backgroundColor` removes that view and fills flat, and the header then shows
+  `windowBackgroundColor` plus the pocket instead. `GroupedStyle.windowNSColor` is
+  `NSColor.windowBackgroundColor`, painted only where a view must be opaque (the model choice
+  sheet). Nothing is hard-coded, so light mode, Increase Contrast and future macOS releases follow
+  the system as Finder does.
+- **Why it looked lighter than Finder before:** two separate things.
+  1. *The app ran in the pre-macOS 26 design*: its binary recorded SDK 14.0 (see
+     [build-and-release.md](build-and-release.md#the-sdk-version-in-the-binary-macos-26-design)).
+     In that design the dark window background is `#323232` and the toolbar header a
+     wallpaper-tinted material (`#373837` measured), whatever color the window sets. No color
+     setting could give Finder's header; linking with the real SDK does.
+  2. *The measuring tool lightened dark greys*: `NSBitmapImageRep.colorAt(x:y:)` on a
+     `screencapture` PNG returns the values in generic gamma-1.8 RGB, ignoring the PNG's Display P3
+     profile, and `.usingColorSpace(.sRGB)` then lifts dark greys: a window painting sRGB #292929
+     stores 41,41,41 but read as #363636; Finder's 31,31,31 read as #292929. Read raw pixel
+     values (`getPixel`) instead; for greys they are the sRGB values painted (checked with a ladder
+     of painted greys 0…255). Nothing in our window lightened what it painted.
+- **Measured** on macOS 27.2, dark, built-in Retina display, window-only captures
+  (`screencapture -o -l <id>`), raw values, 2026-11-21 (Finder's window active or not: same):
+
+  | | Header | Content |
+  |---|---|---|
+  | Finder Settings | #262727 | #1F1F1F |
+  | Ours before (SDK 14 design, window #292929) | #373837 | #292929 |
+  | Ours after, Settings (all five panes, active and inactive) | #262726 – #272727 | #1F1F1F |
+  | Ours after, onboarding (no header) | | #202020 |
+
+  The 1-unit differences come from the system's material (the onboarding window measured
+  #1F1F1F in a test process). In a test process (same design), light: header and content
+  #FFFFFF for both windows. **Finder in light was not measured** (the system appearance was not
+  changed); it is the same system view, so it should match.
+- **Cards:** dark #2A2A2D kept (on #1F1F1F it reads better than on #292929, where it nearly
+  vanished). Light: white vanished on the white macOS 26+ light background, so the card is black
+  at 3 % (#F7F7F7 on white), the native grouped `Form`'s card color measured in the same
+  conditions.
 
 ## Known limits / not verified
 

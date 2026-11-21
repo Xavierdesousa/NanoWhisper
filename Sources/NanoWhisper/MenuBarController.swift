@@ -364,8 +364,10 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSPopoverDelegate {
 /// Horizontal metrics of view-based menu items, matched to native items in a menu without
 /// a state column (`showsStateColumn = false`).
 enum MenuMetrics {
-    /// From the menu's edge to the title text.
-    static let textInset: CGFloat = 14
+    /// From the menu's edge to the title text: 16 pt, where native titles start in the macOS 26+
+    /// menu (measured on macOS 27.2, 2026-11-21; 14 pt matched the pre-26 design the app ran in
+    /// while its build recorded SDK 14, see docs/wiki/build-and-release.md).
+    static let textInset: CGFloat = 16
     /// From the menu's edge to the selection background.
     static let selectionInset: CGFloat = 5
     static let rowHeight: CGFloat = 22

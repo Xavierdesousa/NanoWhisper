@@ -58,9 +58,16 @@ define bundle_and_sign
 		--sign "$$IDENTITY" "$(1)"
 endef
 
-# Build the Swift executable (release mode)
+# Build the Swift executable (release mode). The SDK version is passed to the linker: SwiftPM's
+# default build system (Swift Build, Swift 6.4) records the deployment target (14.0) as the SDK
+# version, and AppKit then runs the app in its pre-macOS 26 compatibility design (other window
+# and toolbar colors, controls and menus than Finder's). See docs/wiki/build-and-release.md.
+MIN_MACOS = 14.0
+SDK_VERSION := $(shell xcrun --sdk macosx --show-sdk-version)
 build:
-	swift build -c release
+	swift build -c release -Xlinker -platform_version -Xlinker macos -Xlinker $(MIN_MACOS) -Xlinker $(SDK_VERSION)
+	@otool -l "$(BUILD_DIR)/$(PRODUCT)" | grep -A4 LC_BUILD_VERSION | grep -q "sdk $(SDK_VERSION)" \
+		|| { echo "error: $(BUILD_DIR)/$(PRODUCT) does not record SDK $(SDK_VERSION)"; exit 1; }
 
 # Production bundle (NanoWhisper.app). Never launches or kills anything.
 prod-bundle: build

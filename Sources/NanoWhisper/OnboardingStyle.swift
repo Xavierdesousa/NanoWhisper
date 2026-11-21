@@ -20,8 +20,8 @@ enum OnboardingPalette {
                 blue: CGFloat(value & 0xFF) / 255, alpha: alpha)
     }
 
-    /// The window: #F2F2F4 / #1E1E20, shared with Settings (`GroupedStyle`).
-    static let windowNSColor = GroupedStyle.windowNSColor
+    /// The window's background, shared with Settings (`GroupedStyle`): the system's, drawn by
+    /// the window itself; views paint it only where they must be opaque.
     static let window = GroupedStyle.window
     /// Lines between rows and above the footer.
     static let separator = GroupedStyle.separator

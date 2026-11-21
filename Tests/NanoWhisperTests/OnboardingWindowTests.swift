@@ -16,7 +16,7 @@ import Testing
 @MainActor
 struct OnboardingWindowTests {
 
-    @Test("Welcome: the page arrives with the recorder idle, it records 0.25 s later, then stops paused at 0:05")
+    @Test("Welcome: the page arrives with the recorder idle, it records 125 ms later, then stops paused at 0:03")
     func welcomeEntrance() async throws {
         let session = try ActiveApp()
         defer { session.end() }
@@ -29,18 +29,22 @@ struct OnboardingWindowTests {
         let end = WelcomeDictation.freezeTime
         var captured: [(Double, NSBitmapImageRep)] = []
         let start = Date()
-        for time in [0.12, 0.55, 1.0, recording - 0.15, recording + 0.5, recording + 2.0, recording + 3.5,
-                     recording + 5.0, end + 0.3, end + 1.0] {
+        // The recorder has faded in (`recorderAppears` + `FadeUp.duration`) and waits idle until
+        // `recording`: two frames in that short span, the second just before it.
+        let idleStart = WelcomeDictation.recorderAppears + FadeUp.duration + 0.03
+        let idleEnd = recording - 0.05
+        for time in [0.12, idleStart, idleEnd, recording + 0.5, recording + 1.5, recording + 2.5,
+                     end + 0.3, end + 1.0] {
             let wait = time - Date().timeIntervalSince(start)
             if wait > 0 { try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }
             captured.append((time, try Self.capture(window)))
-            if time == recording - 0.15 {
+            if time == idleEnd {
                 #expect(demo.phase == .idle, "idle until the recording starts")
                 #expect(demo.viewModel.isPaused)
                 #expect(demo.viewModel.elapsedFormatted == "0:00")
                 #expect(demo.viewModel.visibleTranscript?.isEmpty == true)
             }
-            if time == recording + 2.0 {
+            if time == recording + 1.5 {
                 #expect(demo.phase == .recording)
                 #expect(!demo.viewModel.isPaused)
                 #expect(demo.viewModel.visibleTranscript?.isEmpty == false, "words are arriving")
@@ -48,14 +52,14 @@ struct OnboardingWindowTests {
         }
         #expect(demo.isFrozen)
         #expect(demo.viewModel.isPaused)
-        #expect(demo.viewModel.elapsedFormatted == "0:05")
-        #expect(demo.viewModel.visibleTranscript?.volatileText == " next week")
+        #expect(demo.viewModel.elapsedFormatted == "0:03")
+        #expect(demo.viewModel.visibleTranscript?.volatileText == " we’ll see")
         #expect(demo.viewModel.waveform.isStatic)
 
         // Paused means still: the idle card and the frozen card draw the same pixels over time
         // (no capsule pulse, no caret blink, no waveform glide).
-        let idleA = try #require(captured.first { $0.0 == 1.0 }?.1)
-        let idleB = try #require(captured.first { $0.0 == recording - 0.15 }?.1)
+        let idleA = try #require(captured.first { $0.0 == idleStart }?.1)
+        let idleB = try #require(captured.first { $0.0 == idleEnd }?.1)
         let restA = try #require(captured.first { $0.0 == end + 0.3 }?.1)
         let restB = try #require(captured.first { $0.0 == end + 1.0 }?.1)
         let recorder = Self.recorderRect(in: window)

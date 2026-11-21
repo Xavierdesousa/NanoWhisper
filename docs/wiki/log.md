@@ -5,8 +5,22 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-21
 
+- **Finder's colors, the app in the macOS 26+ design** (`fix/welcome-faster`): the app's binary
+  recorded SDK 14.0 (SwiftPM's default build system writes the deployment target), so AppKit ran
+  it in the pre-26 design: lighter window and a wallpaper-tinted toolbar, unlike Finder.
+  `make build` now links with the real SDK version and checks it. Settings and onboarding no
+  longer paint a background: the system draws it and the toolbar header as for Finder (dark,
+  raw pixels: header #262726 vs Finder #262727, content #1F1F1F vs #1F1F1F). Light cards black
+  3 % (white vanished on the white light background). Side effects fixed: menu text inset
+  14 → 16 pt; the onboarding window grew to 672 pt (hosting view now in a container). The
+  earlier "#292929 renders #363636" was the sampler's gamma-1.8 conversion, not the window.
+  [build-and-release.md](build-and-release.md#the-sdk-version-in-the-binary-macos-26-design),
+  [onboarding-and-settings.md](onboarding-and-settings.md#window-colors).
+- **No blank Settings window at launch** (`fix/welcome-faster`): a never-inserted
+  `MenuBarExtra` before the empty `Settings` scene.
 - **Welcome faster** (`fix/welcome-faster`): 0.3 s fades, facts together, 125 ms idle, a 3 s
   dictation of the whole sentence, frozen at 0:03 (maintainer: "too slow, a bit jerky").
+  `OnboardingWindowTests` follows the new timeline.
 - **Onboarding and Settings polish after the maintainer's test** (`fix/onboarding-settings-polish`):
   the welcome's recorder now waits idle at 0:00 until 0.25 s after the page has arrived
   (`WelcomeDictation.idleWait`; 1 s was "far too long"), records 5.6 s (a three-line
