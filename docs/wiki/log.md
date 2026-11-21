@@ -5,6 +5,8 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-21
 
+- **Live transcription offered in production, as a beta off by default** (`feat/live-transcription-beta-in-production`):
+  `BuildFlavor.supportsLiveTranscription` is true for both builds. Updated [live-transcription](live-transcription.md).
 - **Welcome demo: faster text, later Replay** (`fix/welcome-demo-text-pace`): the waveform keeps 2.6 words/s
   but the live text writes at 7.2 words/s (`WelcomeDictation.textWordsPerSecond`) so the former 29-word
   sentence is written in the 4 s; the Pasted card stays 1.85 s before the veil (Replay 1.5 s later).

@@ -1,15 +1,29 @@
 # Live transcription (beta)
 
-Last verified: 2026-11-20, against `feat/voice-note-overlay` (feature from PR #16, debug-only
-since PR #18, overlay redesigned in that branch).
+Last verified: 2026-11-21, against `feat/live-transcription-beta-in-production` (availability
+and toggle checked against the code and unit tests; feature from PR #16, debug-only from PR #18
+until this change). The production bundle with a real voice is not verified.
 
-## Debug build only
+## In production as a beta, off by default (since 0.1.0)
+
+**Decision (maintainer, 2026-11-21):** the next release (0.1.0) offers live transcription in
+production too, as a beta that stays **off by default**: the toggle in Settings › Recorder is
+there for whoever wants it ("In beta: off by default. Words can change while you speak.").
+`BuildFlavor.supportsLiveTranscription` is now true for both builds and kept as the single
+switch to withdraw it again. Nothing is migrated: the stored `liveTranscriptionEnabled` is
+false unless the user turns it on (the maintainer's production defaults read 0 on
+2026-11-21; no release ever exposed the toggle). Not verified in a production bundle with a
+real voice. Watch CPU: the recorder's waveform costs about 80–100 % of a core in a debug test
+harness when the text rarely changes (measured with the welcome demo, PR #40; release build not
+measured).
+
+### History: debug build only (2026-11-20 → 0.1.0)
 
 **Decision (maintainer, 2026-11-20):** after trying it, the overlay has design problems, so
 production releases do not expose the feature. It stays in "NanoWhisper Debug" (and unbundled
 `make run`) so it can keep being worked on. No live code was removed.
 
-- One source of truth: `BuildFlavor.supportsLiveTranscription` (true for debug only).
+- One source of truth: `BuildFlavor.supportsLiveTranscription` (true for debug only until 0.1.0, true for both since).
 - **Toggle:** `SettingsContext.offersLiveTranscription` is set from it, and
   the toggle and its caption show only when it is true: Settings › Recorder (`RecorderPane`,
   "Show words in the recorder as you speak", since the Settings redesign), the only place since
@@ -28,7 +42,7 @@ production releases do not expose the feature. It stays in "NanoWhisper Debug" (
 ## What it is
 
 An opt-in setting, "Live transcription (beta)" (`UserDefaults` key `liveTranscriptionEnabled`,
-off by default), in Settings › Recorder (debug build only, see above). While the user speaks, the recording overlay shows the text
+off by default), in Settings › Recorder (both builds since 0.1.0, see above). While the user speaks, the recording overlay shows the text
 recognized so far. Nothing is typed during the recording.
 
 **The maintainer's rule: the overlay text and the delivered text must be identical.** At stop,

@@ -2,23 +2,28 @@ import SwiftUI
 import Testing
 @testable import NanoWhisper
 
-/// Live transcription (beta) is offered only in the debug build.
+/// Live transcription (beta) is offered in both builds, off by default.
 @Suite("Live transcription by build flavor")
 struct LiveTranscriptionFlavorTests {
     private static let parakeet = EngineConfiguration(
         modelType: .parakeet, parakeetVariant: .ultra, whisperSettings: WhisperSettings()
     )
 
-    @Test("Only the debug build supports it")
+    @Test("Both builds offer it (beta since 0.1.0)")
     func flag() {
         #expect(BuildFlavor.debug.supportsLiveTranscription)
-        #expect(!BuildFlavor.production.supportsLiveTranscription)
+        #expect(BuildFlavor.production.supportsLiveTranscription)
     }
 
-    @Test("Stored on + production: no live session")
-    func productionForcesOff() {
-        #expect(!LiveTranscriptionSupport.startsSession(
+    @Test("Production: the stored setting decides, and it is off by default")
+    @MainActor
+    func productionFollowsTheSetting() {
+        #expect(LiveTranscriptionSupport.startsSession(
             enabled: true, flavor: .production, configuration: Self.parakeet))
+        #expect(!LiveTranscriptionSupport.startsSession(
+            enabled: false, flavor: .production, configuration: Self.parakeet))
+        let defaults = UserDefaults(suiteName: "nanowhisper.tests.live.\(UUID().uuidString)")!
+        #expect(!defaults.bool(forKey: AppState.liveTranscriptionKey), "nothing stored: off")
     }
 
     @Test("Debug: the stored setting and the engine decide, as before")
@@ -31,7 +36,7 @@ struct LiveTranscriptionFlavorTests {
         #expect(!LiveTranscriptionSupport.startsSession(enabled: true, flavor: .debug, configuration: turbo))
     }
 
-    @Test("Stored on + production: the Recorder pane has no live toggle", arguments: [false, true])
+    @Test("The Recorder pane shows the live toggle only when the build offers it", arguments: [false, true])
     @MainActor
     func toggleVisibility(offered: Bool) {
         var stored = true

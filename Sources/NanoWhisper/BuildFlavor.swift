@@ -87,10 +87,9 @@ enum BuildFlavor: String, CaseIterable, Sendable {
     /// turn a debug build into the production app, so it only runs in production.
     var autoUpdatesEnabled: Bool { self == .production }
 
-    /// Live transcription (beta) still has open design problems, so production does not offer
-    /// it: the toggle is hidden and no live session starts, even when the stored setting is on
-    /// (the stored value is kept). The debug build keeps it so it can be worked on.
-    var supportsLiveTranscription: Bool { self == .debug }
+    /// Live transcription is offered in both builds since 0.1.0, as a beta that is off by
+    /// default (maintainer, 2026-11-21). Kept as a switch so a build can withdraw it again.
+    var supportsLiveTranscription: Bool { true }
 
     /// Settings › Advanced › "Open Onboarding" (replays onboarding from its opening scene, with
     /// Settings left open) is a tool for working on onboarding: production has no such control
