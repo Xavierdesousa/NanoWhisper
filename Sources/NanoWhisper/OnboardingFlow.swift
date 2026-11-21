@@ -397,9 +397,9 @@ enum WelcomeDictation {
     /// words and the waveform's syllables both follow it.
     static let wordsPerSecond: Double = 2.6
     /// The live text writes faster than the voice (maintainer, 2026-11-21: the waveform's pace is
-    /// right, but more text must show in the 4 s): the whole sentence is written by the end of the
-    /// recording. The waveform keeps `wordsPerSecond`.
-    static let textWordsPerSecond: Double = 7.2
+    /// right, but more text must show in the 4 s; 7.2 was a touch too fast, 6 asked): the whole
+    /// 24-word sentence is written by the end of the recording. The waveform keeps `wordsPerSecond`.
+    static let textWordsPerSecond: Double = 6.0
     /// The first word starts a moment after the recording, as when someone starts speaking.
     static let speechLeadIn: TimeInterval = 0.2
     static var speechStarts: TimeInterval { recordingStarts + speechLeadIn }

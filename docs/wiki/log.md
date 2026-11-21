@@ -5,6 +5,8 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-21
 
+- **Welcome demo text at 6 words/s** (`fix/welcome-demo-six-words`): 7.2 was a touch too fast; a 24-word
+  sentence ending in the 4 s ("…Let’s split it in two: API first, then the UI.").
 - **Live transcription offered in production, as a beta off by default** (`feat/live-transcription-beta-in-production`):
   `BuildFlavor.supportsLiveTranscription` is true for both builds. Updated [live-transcription](live-transcription.md).
 - **Welcome demo: faster text, later Replay** (`fix/welcome-demo-text-pace`): the waveform keeps 2.6 words/s

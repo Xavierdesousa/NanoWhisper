@@ -348,11 +348,11 @@ struct OnboardingWindowPlacementTests {
 struct WelcomeRecorderTests {
     typealias Dictation = WelcomeDictation
 
-    @Test("The paces: the waveform at 2.6 words a second (natural), the text at 7.2 (the whole sentence in the 4 s)")
+    @Test("The paces: the waveform at 2.6 words a second (natural), the text at 6 (the whole sentence in the 4 s)")
     func pace() {
         #expect(Dictation.wordsPerSecond == 2.6)
         #expect(Dictation.wordsPerSecond <= 1.25 * 2.2, "the voice stays believable")
-        #expect(Dictation.textWordsPerSecond == 7.2)
+        #expect(Dictation.textWordsPerSecond == 6.0)
         // Words show one text slot apart, and the whole sentence is written before the end.
         for index in 1..<Dictation.words.count {
             #expect(abs(Dictation.wordShows(index) - Dictation.wordShows(index - 1) - 1 / Dictation.textWordsPerSecond) < 1e-9)
@@ -400,7 +400,7 @@ struct WelcomeRecorderTests {
     func words() {
         let start = Dictation.recordingStarts
         #expect(OnboardingText.welcomeSentence.hasPrefix("So the plan for this week is the payment flow, then"))
-        #expect(Dictation.words.count == 29)
+        #expect(Dictation.words.count == 24)
         for time in [0, Dictation.entranceEnds, start, Dictation.speechStarts, Dictation.wordShows(0) - 0.001] {
             #expect(Dictation.wordCount(at: time) == 0)
             #expect(Dictation.text(at: time) == ("", ""))
@@ -411,13 +411,13 @@ struct WelcomeRecorderTests {
         #expect(third.stable == "So" && third.volatile == " the plan")
         let counts = stride(from: start, to: Dictation.recordingEnds + 1, by: 0.02).map { Dictation.wordCount(at: $0) }
         #expect(counts == counts.sorted(), "words only ever arrive")
-        #expect(Dictation.wordCount(at: Dictation.recordingEnds) == 29, "the whole sentence before the end")
+        #expect(Dictation.wordCount(at: Dictation.recordingEnds) == 24, "the whole sentence before the end")
 
         let end = Dictation.text(at: Dictation.recordingEnds)
-        #expect(end.stable.hasSuffix("the checkout screens, and"))
-        #expect(end.volatile == " we’ll see", "the last two words stay dimmer until the final text")
+        #expect(end.stable.hasSuffix("API first, then"))
+        #expect(end.volatile == " the UI.", "the last two words stay dimmer until the final text")
         #expect(Dictation.text(at: Dictation.recordingEnds + 5) == end, "nothing changes after the end")
-        #expect(Dictation.finalText() == "So the plan for this week is the payment flow, then the mobile release. Let’s split it in two: first the API, then the checkout screens, and we’ll see.")
+        #expect(Dictation.finalText() == "So the plan for this week is the payment flow, then the mobile release. Let’s split it in two: API first, then the UI.")
     }
 
     @Test("Stop ends the recording at any moment: the words and the timer stop, then Transcribing, Pasted, the veil")
@@ -426,9 +426,9 @@ struct WelcomeRecorderTests {
         let cases: [(stop: Double, final: String, seconds: Int)] = [
             (0.75, "", 0),                     // the recorder has arrived, not recording yet
             (start + 0.1, "", 0),              // before the first word
-            (start + 1.5, "So the plan for this week is the payment.", 1),  // cut mid-phrase: a full stop
-            (start + 3.0, "So the plan for this week is the payment flow, then the mobile release. Let’s split it in two: first.", 3),
-            (start + 4.2, "So the plan for this week is the payment flow, then the mobile release. Let’s split it in two: first the API, then the checkout screens, and we’ll see.", 4),
+            (start + 1.5, "So the plan for this week is the.", 1),  // cut mid-phrase: a full stop
+            (start + 3.0, "So the plan for this week is the payment flow, then the mobile release. Let’s split it.", 3),
+            (start + 4.2, "So the plan for this week is the payment flow, then the mobile release. Let’s split it in two: API first, then the UI.", 4),
         ]
         for (stop, final, seconds) in cases {
             #expect(Dictation.recordingEnd(stoppedAt: stop) == stop)
@@ -518,13 +518,13 @@ struct WelcomeRecorderTests {
         #expect(demo.phase == .transcribing)
         #expect(model.state == .loading)
         #expect(!model.waveform.isStatic && model.waveform.stoppedAt != nil)
-        #expect(model.visibleTranscript?.volatileText == " we’ll see")
+        #expect(model.visibleTranscript?.volatileText == " the UI.")
 
         // Pasted: the check, the final text, 0:04.
         demo.advance(to: Dictation.recordingEnds + 0.85)
         #expect(demo.phase == .pasted)
         #expect(model.state == .finished(.pasted))
-        #expect(model.visibleTranscript?.finalText == "So the plan for this week is the payment flow, then the mobile release. Let’s split it in two: first the API, then the checkout screens, and we’ll see.")
+        #expect(model.visibleTranscript?.finalText == "So the plan for this week is the payment flow, then the mobile release. Let’s split it in two: API first, then the UI.")
         #expect(model.elapsedFormatted == "0:04")
         #expect(!demo.showsReplay)
 
@@ -554,7 +554,7 @@ struct WelcomeRecorderTests {
         #expect(demo.stoppedAt == Dictation.recordingStarts + 1.5)
         demo.advance(to: Dictation.recordingStarts + 1.5 + 0.8)
         #expect(demo.phase == .pasted)
-        #expect(demo.viewModel.visibleTranscript?.finalText == "So the plan for this week is the payment.")
+        #expect(demo.viewModel.visibleTranscript?.finalText == "So the plan for this week is the.")
         #expect(demo.viewModel.elapsedFormatted == "0:01")
         demo.advance(to: Dictation.recordingStarts + 1.5 + 2.7)
         #expect(demo.phase == .ended)
@@ -595,7 +595,7 @@ struct WelcomeRecorderTests {
             // The page goes away mid-flow: it rests on the end, its clock stopped.
             demo.stop()
             #expect(demo.phase == .ended && !demo.isPlaying)
-            #expect(demo.viewModel.visibleTranscript?.finalText == "So the plan for this week is the payment flow, then the mobile release. Let’s split it in two: first the API, then the checkout screens, and we’ll see.")
+            #expect(demo.viewModel.visibleTranscript?.finalText == "So the plan for this week is the payment flow, then the mobile release. Let’s split it in two: API first, then the UI.")
         }
     }
 
@@ -607,7 +607,7 @@ struct WelcomeRecorderTests {
         #expect(!demo.isPlaying)
         #expect(demo.viewModel.state == .finished(.pasted))
         #expect(demo.viewModel.elapsedFormatted == "0:04")
-        #expect(demo.viewModel.visibleTranscript?.finalText == "So the plan for this week is the payment flow, then the mobile release. Let’s split it in two: first the API, then the checkout screens, and we’ll see.")
+        #expect(demo.viewModel.visibleTranscript?.finalText == "So the plan for this week is the payment flow, then the mobile release. Let’s split it in two: API first, then the UI.")
         demo.start(reduceMotion: true)
         #expect(demo.phase == .ended, "starts once")
         demo.replay()

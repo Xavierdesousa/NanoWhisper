@@ -292,7 +292,7 @@ becomes a check, the fade-up, `InlineShortcutText`).
   | Step (`WelcomeDictation.Phase`) | From | What shows |
   |---|---|---|
   | `idle` | 0.25 s (fades up), arrived 0.7 s | 0:00, no text, flat still waveform, `isPaused` (capsule still at the dim end of its breath) |
-  | `recording` | 0.825 s (`idleWait` **125 ms** after it arrived) | pulse, timer 0:00 → 0:04, waveform at **2.6 words/s** (`wordsPerSecond`), text at **7.2 words/s** (`textWordsPerSecond`), the first 0.2 s in |
+  | `recording` | 0.825 s (`idleWait` **125 ms** after it arrived) | pulse, timer 0:00 → 0:04, waveform at **2.6 words/s** (`wordsPerSecond`), text at **6 words/s** (`textWordsPerSecond`), the first 0.2 s in |
   | `transcribing` | the end: 4.3 s later (`recordingDuration`), or at Stop | the real state (`.loading`): light capsule, "Transcribing…", bars sinking then the sweep, **0.8 s** |
   | `pasted` | + 0.8 s | `.finished(.pasted)`: green check, "Pasted", the final text all settled, 0:04, **1.85 s** (0.35 s + 1.5 s, maintainer: Replay came too soon) |
   | `ended` | + 1.85 s (7.775 s without Stop) | a grey veil over the card fades in (0.3 s) with **Replay** (`arrow.counterclockwise`, a standard push button) centred under the pasted line; the clock stops |
@@ -300,10 +300,10 @@ becomes a check, the fade-up, `InlineShortcutText`).
   - **Pace:** the maintainer's real dictations run about 1.7–2.2 words/s; at most 1.25 times
     that was asked for the voice, so the waveform runs at 2.6 (`wordsPerSecond`). After testing
     (2026-11-21) the maintainer kept that waveform but wanted more text in the 4 s: the text
-    writes at 7.2 words/s (`textWordsPerSecond`) and the sentence is the former 29-word one
-    ("So the plan for this week is the payment flow, then the mobile release. Let’s split it in
-    two: first the API, then the checkout screens, and we’ll see", three lines), its last word
-    at about 4.2 s. A 10-word sentence at the voice's pace was tried and rejected as too little
+    writes at 6 words/s (`textWordsPerSecond`; 7.2 with the former 29-word sentence was a touch
+    too fast) and the sentence has 24 words so it ends within the 4 s ("So the plan for this
+    week is the payment flow, then the mobile release. Let’s split it in two: API first, then
+    the UI.", three lines), its last word at about 4.17 s. A 10-word sentence at the voice's pace was tried and rejected as too little
     text. The voice is still speaking when the recording ends.
   - **Waveform rhythm:** the levels follow the words (`WelcomeDictation.level(at:)`): room noise
     between words (a gap of 22 % of the slot, 45 % after punctuation), one bump per syllable
