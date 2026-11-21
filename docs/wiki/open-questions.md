@@ -13,7 +13,7 @@ it, with the date, machine and macOS version.
 | Media pause, other players | Spotify, Apple Music, Safari, real YouTube (Chrome and Safari). Pause and resume, already paused, nothing playing, two sources. | Only Chrome and VLC on macOS 27.2 were tested ([media-pause.md](media-pause.md)). Spotify was not installed. |
 | Media pause, other macOS | macOS 14, 15 (before and after 15.4), 26. Expected: works, or fails closed (does nothing). It must never start playback. | MediaRemote entry points differ before 15.4; `MRNowPlayingRequest` may be missing. |
 | Live transcription (debug build only) | In a locally built production bundle (`make ci SIGN_IDENTITY=`; it shares the installed release's defaults and ⌥Space, so quit the release first), with `liveTranscriptionEnabled` stored as true: no toggle in Settings › General or onboarding, and no live text in the overlay. In the debug app: real voice, real microphone, short and long (> 2 min) dictations, French and English; Parakeet v3 and Ultra, Whisper Base; overlay on several screens; hover-to-stop with text; onboarding's Try-it with live on. Check overlay text == delivered text. | Production hiding is unit-tested only, never checked in a running production bundle. The feature itself was measured on `say` audio in a harness only (Parakeet Ultra, Whisper Base and Large v3 Turbo) ([live-transcription.md](live-transcription.md)). |
-| Onboarding | First launch with no model; Grant prompts turning to Granted; the Try it recording with the button and the hotkey; replay while menu-bar-only. | Agents could not grant microphone/Accessibility to the debug app ([onboarding-and-settings.md](onboarding-and-settings.md)). |
+| Onboarding ("Icon", 2026-11-21) | A new install (or `--reset-onboarding` on a fresh user): the welcome's entrance and recorder (the capsule's pulse, the caret, the frozen frame), with Reduce Motion on too; the setup page: the download starting when it opens and the ring filling, "Open at login" registered (the macOS login item notification), Allow… for the microphone and for Pasting turning the circles into checks, Don't Allow then Open System Settings, Change… under the pointer and with Tab (Full Keyboard Access), the model sheet (switch version, Download & Apply, Done), the shortcut Change…; Try it: Start Recording and the shortcut, the real recorder at the top centre clear of the window on a 1440 × 900 screen, the result, Try Again, Back during a test, Finish Setup → the popover; light and dark; VoiceOver on the circles and Change…. | Unit tests, offscreen renders, real-window captures in a test process (inactive look: a test process cannot activate itself) and window captures of the debug app; no microphone and no permission prompt by agents ([onboarding-and-settings.md](onboarding-and-settings.md#onboarding)). |
 | Models | Clean first download of Parakeet Ultra and Whisper Large v3 Turbo through the app. | Identifiers were checked against Hugging Face only. |
 | Transcription failure | Make an engine fail during a real dictation (hard to provoke; e.g. delete the loaded model's files while the app runs). Expect: overlay dismissed, menu error line "Transcription failed. Try again.", no-result sound, nothing pasted or saved. | Unit-tested only (`TranscriptionFailureTests`), with an unloaded `AsrManager`. |
 | Debug flavor visuals | The orange band on the menu bar icon in light and dark menu bars, in its three states (normal, mic.slash, download). | Pixel tests and contact-sheet renders only; no screen capture. |
@@ -44,9 +44,14 @@ it, with the date, machine and macOS version.
   engine's* model (plus 0.0.4's legacy v3 copy and a pending migration's fallback). Should
   "Remove Unused Models…" also keep the other flavor's non-selected engine model?
 
-- Transcription failure in onboarding's Try-it box: the failure goes to the menu error line and
-  the box returns to its idle state (any earlier test result is cleared). The box itself shows
-  no failure message; adding one would need a field in `TryItState`.
+- Transcription failure on onboarding's Try it page: the failure goes to the menu error line and
+  the page returns to ready (any earlier test result is cleared). The page shows no failure
+  message (the design has none); adding one would need a failure in `TryItStage`.
+- The onboarding design's own open questions (canvas note, 2026-11-20), as built: the welcome's
+  frozen frame keeps the capsule's pulse and the caret's blink; on 1440 × 900 the window moves
+  down so the recorder clears it (the maintainer's brief); "Getting ready" kept as the title;
+  Continue on the setup page always available; macOS 27.3's split Accessibility pane ("macOS
+  calls this Accessibility" and the System Settings link) not checked.
 - Transcription failure sound: it reuses the no-result sound. A distinct error sound was not
   added.
 

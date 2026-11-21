@@ -14,7 +14,9 @@ Swift Testing (`@Suite`, `@Test`) in `Tests/NanoWhisperTests/`. CI runs `swift t
 | `TranscriberConcurrencyTests.swift` | FIFO queue, configuration captured at submission, stale initializations |
 | `MediaControllerTests.swift` | Media session state machine against a fake controller, `pauseMediaEnabled` |
 | `NowPlayingTests.swift` | JXA output parsing (real macOS 27.2 outputs), resume rule, `NowPlayingPlaybackController`, `Subprocess` |
-| `OnboardingSettingsTests.swift` | Onboarding flow, launch options, permission status, Model section logic, dictation destination |
+| `OnboardingSettingsTests.swift` | Launch options, permission status, Model section logic, dictation destination |
+| `OnboardingFlowTests.swift` | Onboarding: page order and Back, the page events the app receives, Finish Setup refused while a test listens or transcribes, completion order (flag, window closed, model loaded, then the menu bar handoff), the setup rows' circles and captions per permission and model state, the footer line, every Try it stage and its precedence, new-install defaults (pause media, open at login once), window placement on 1440 × 900 and a 13-inch Air, the welcome's dictation timeline and its frozen frame, the demo driving the real overlay view model |
+| `OnboardingWindowTests.swift` | Opt-in (`NANOWHISPER_WINDOW_TESTS`): the real onboarding window shown with fixture content. The welcome's entrance and dictation over 4 s (words arriving, then frozen at 0:03, waveform still); Try it with the real recorder panel at Top Center, never overlapping the window, light and dark. With `NANOWHISPER_CAPTURE_DIR`: frames of the welcome from 0.12 to 4.2 s, and Try it composited on the real screen and on a 1440 × 900 screen (listening, transcribing, result) |
 | `BuildFlavorTests.swift` | Flavor resolution, paths, prefixes, shortcuts, `BuildInfo`, debug menu bar band pixels (light and dark) |
 | `OverlayWindowTests.swift` | Opt-in (`NANOWHISPER_WINDOW_TESTS`): the real overlay panel grows with live text from its pinned edges at each position; the record capsule stays in place when started from a SwiftUI button; the header does not move across states. With `NANOWHISPER_CAPTURE_DIR` too: PNGs of every state over light and dark wallpapers, each position on a whole screen, Reduce Motion/Transparency variants and the position picker |
 | `RecorderPositionTests.swift`, `OverlayWaveformTests.swift` | Position persistence and default, placement and growth maths, picker geometry; level ring buffer, bar mapping, transcribing sweep, `OverlayResult` |
@@ -38,13 +40,15 @@ Seams used by tests: `Transcriber.transcriptionHandler`, `Transcriber.installPar
 
 ## Techniques that work without a screen
 
-Agents have **no screen capture**. These worked on 2026-11-19:
+Agents had **no screen capture** until 2026-11-21. These worked on 2026-11-19:
 
 1. **Offscreen PNG renders of SwiftUI views.**
-   `NANOWHISPER_RENDER_DIR=<dir> swift test --filter ViewRender` writes every onboarding step,
-   every Settings pane and Engine state (light and dark), the Remove Unused Models sheet and
-   every menu state to `<dir>`; read the PNGs to check layout. The Settings renders are the
-   **real window** (`SettingsWindowController.makeWindow`, never shown): its frame view
+   `NANOWHISPER_RENDER_DIR=<dir> swift test --filter ViewRender` writes every onboarding page
+   and state, every Settings pane and Engine state (light and dark), the Remove Unused Models
+   sheet and every menu state to `<dir>`; read the PNGs to check layout. The Settings and
+   onboarding renders are the **real windows** (`SettingsWindowController.makeWindow`,
+   `OnboardingWindowController.makeWindow`, never shown; onboarding with Reduce Motion set in the
+   environment so every entrance shows its end and the welcome's recorder its frozen frame): the frame view
    (`contentView.superview`) is cached with the toolbar and title. A window that is never key
    draws controls in their inactive look (grey switches and bars). The menu renders are
    `MenuPreview`, an approximation drawn from `MenuContent` lines (an `NSMenu` cannot be drawn
@@ -122,6 +126,22 @@ Agents have **no screen capture**. These worked on 2026-11-19:
 8. **Makefile dry runs**: `make -n <target>`; guards of `make publish` were run by hand from the
    `make -n` output, never calling `gh` (PR #14). Workflow steps were run against a fake `gh`/`make`
    on `PATH`.
+9. **Window captures of the debug app** (since 2026-11-21: the maintainer granted Screen
+   Recording to the terminal). Capture **only the debug app's own windows**, by window id:
+   `screencapture -x -o -l <id> out.png`, the id from `CGWindowListCopyWindowInfo` filtered by
+   the debug process's pid (`pgrep -x NanoWhisperDebug`; the windows' owner *name* is
+   "NanoWhisper Debug", with a space). Never a full-screen capture: the maintainer's other
+   windows are private. `feat/onboarding-icon` captured the welcome frame by frame this way.
+   - **Gotchas (2026-11-21):** `open … --args --onboarding` activates the debug app and its window
+     takes the keyboard (Return is Continue, Space presses the focused button). On 2026-11-21,
+     after a System Events `click` on the welcome's Continue, the setup page showed the shortcut
+     field recording; the app's log then showed real mouse clicks and key input from someone
+     using the Mac, going through Try it (a 5 s test recording: the microphone was on) to Finish
+     Setup. Launch the debug app with onboarding only when nobody is using it, press buttons only
+     with `perform action "AXPress"` on an element read after the last page change, and never
+     on Try it (Start Recording opens the microphone). A test process cannot activate itself
+     (cooperative activation), so test windows draw controls in their inactive look; the debug
+     app's captures show the active look.
 
 ## What agents cannot verify
 

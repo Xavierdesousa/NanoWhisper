@@ -326,6 +326,12 @@ environment values forced in a test host).
   still recorder (`RecordingOverlayPreview`, no material) at 0.555 and clickable spots for the
   other positions, beside a `.radioGroup` picker and the caption. Not placed in Settings yet:
   the Settings redesign (separate PR) puts it in its Recorder pane.
+- **Onboarding's welcome** shows the real `RecordingOverlayView` in its window, fed by
+  `WelcomeRecorderDemo` (no microphone). Two hooks exist for it: `RecordingOverlayViewModel
+  .showsCardWhileEmpty` (the card before any word; the live overlay stays compact until there is
+  text) and `OverlayWaveform.freeze(with:)` (still bars, no per-frame timeline), plus
+  `LiveTranscript(stable:volatile:)` for a fixed text. Try it uses the real panel at its real
+  place ([onboarding-and-settings.md](onboarding-and-settings.md#onboarding)).
 
 ## History storage
 

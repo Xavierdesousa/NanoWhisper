@@ -128,9 +128,10 @@ tested with fakes), driven by `SetupManager.runSetup(...previousModel:)`:
   large-v3-turbo, compressed to 626 MB. WhisperKit's model-support config lists it for every
   Apple Silicon Mac (and makes it the M1 default). It is the only multilingual model in that
   list between Small and Large v3 (distil-large-v3 is English-only).
-- **First launch** does not download anything before the user has seen the choice:
-  `ModelAvailability.shouldDeferSetupAtLaunch(isFirstLaunch:modelType:parakeetOnDisk:)`.
-  See [onboarding-and-settings.md](onboarding-and-settings.md).
+- **First launch** does not download anything at launch:
+  `ModelAvailability.shouldDeferSetupAtLaunch(isFirstLaunch:modelType:parakeetOnDisk:)`. Since
+  the onboarding redesign (2026-11-21) the download starts when onboarding's setup page opens,
+  where the model is shown with Change…. See [onboarding-and-settings.md](onboarding-and-settings.md#onboarding).
 
 ## Cache layout
 

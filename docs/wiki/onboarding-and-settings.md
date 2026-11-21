@@ -388,8 +388,20 @@ re-downloads anything unless the user applies another model.
 
 ## Known limits / not verified
 
-- Not checked in the app: the Try it recording (button and hotkey), and Grant changing to
-  Granted — both need microphone and Accessibility granted to the debug app.
+- Onboarding ("Icon", 2026-11-21), verified: unit tests (`OnboardingFlowTests`); offscreen renders
+  of every page and state in the real window, light and dark (`ViewRender`, `onboarding-*.png`);
+  the real window on screen in a test process (`OnboardingWindowTests`: the welcome's entrance
+  and dictation over 4 s, Try it with the real recorder panel at Top Center not overlapping the
+  window, on the real screen and composited on 1440 × 900); in the debug app (`make onboarding`,
+  dark appearance), window captures of the welcome from launch to rest (the entrance, the words,
+  the frozen card at 0:03) and of the setup page with both permissions allowed and the model
+  checked. Compared with the design boards rendered in headless Chrome.
+- **Not verified:** a new install's first run (download starting on the setup page, the login
+  item registered, Allow… prompts turning into checks), Change… revealed with the keyboard
+  (Full Keyboard Access), the model sheet in the app, the Try it recording in the app (no
+  microphone by agents), the window's position on a real 1440 × 900 screen, VoiceOver, macOS 14.
+  Captures from a test process show controls in their inactive look (a test process cannot
+  activate itself).
 - `PermissionMonitor` polls every second while onboarding is open, and in Settings while the
   Permissions pane is showing.
 - Settings redesign (2026-11-20): verified with offscreen renders of the real window (toolbar,

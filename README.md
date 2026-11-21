@@ -33,7 +33,7 @@
 | **Auto-updater** | Checks GitHub releases hourly, one-click install from the menubar |
 | **Menubar app** | Lives in your menubar, no dock icon, stays out of your way |
 | **Sound feedback** | Audio cues on record start, stop, and empty transcription |
-| **Onboarding** | Guided first-launch setup: model download, permissions, preferences |
+| **Onboarding** | One window at first launch: a welcome, a setup page (permissions, the speech model downloading, the shortcut, four settings) and a test dictation |
 | **Launch at login** | Start with macOS, ready when you are |
 
 ## Install
@@ -48,7 +48,7 @@ Releases are signed with a self-signed certificate and are **not notarized** by 
 
 Alternatively, in Terminal: `xattr -dr com.apple.quarantine /Applications/NanoWhisper.app`. Both only allow this app; there is no need to change Gatekeeper's global settings.
 
-On first launch, an onboarding window walks you through model download, permissions, and preferences.
+On first launch, an onboarding window asks for the microphone and pasting permissions, downloads the speech model (Parakeet Ultra, about 630 MB) while you check the shortcut and settings, and lets you try one dictation; nothing from that test is pasted or saved.
 
 ## Usage
 
