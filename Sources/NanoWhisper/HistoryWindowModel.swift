@@ -210,7 +210,16 @@ struct HistoryDaySection: Identifiable, Equatable {
 final class HistoryWindowModel: ObservableObject {
     @Published private(set) var entries: [HistoryEntry]
     @Published private(set) var isUnavailable: Bool
-    @Published var settings: HistorySettingsSnapshot
+    @Published var settings: HistorySettingsSnapshot {
+        didSet {
+            // Turning history off deletes it: nothing deleted before may come back by undo or
+            // redo, even once it is on again.
+            if oldValue.isEnabled, !settings.isEnabled {
+                undoManager.removeAllActions()
+                hideUndoToast()
+            }
+        }
+    }
     @Published var selection: UUID?
     @Published private(set) var query = ""
     /// "Copied" on the toolbar button, for `copiedDuration` after a copy.
@@ -401,7 +410,8 @@ final class HistoryWindowModel: ObservableObject {
 
     /// Put a deleted dictation back at its place (by date) and select it. Redoable.
     private func restore(_ entry: HistoryEntry) {
-        guard !store.isUnavailable, !store.entries.contains(where: { $0.id == entry.id }) else { return }
+        guard settings.isEnabled, !store.isUnavailable,
+              !store.entries.contains(where: { $0.id == entry.id }) else { return }
         store.insert(entry, keepingAtMost: max(settings.keptCount, store.entries.count + 1))
         selection = entry.id
         hideUndoToast()

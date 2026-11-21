@@ -388,8 +388,11 @@ stopped adding entries and kept the file. Now:
 - **One-time cleanup** (`HistorySettings.runOffCleanupOnce`, in `AppState.init` right after the
   settings are read): at the first launch after the update, an install with history off whose
   file is still there gets it deleted, silently (the board's "History is off, these were kept
-  before" banner was rejected). The flag `historyOffCleanupDone` is set whatever it finds, so it
-  never runs again; later, turning history off goes through the alert. The file is deleted even if
+  before" banner was rejected). The flag `historyOffCleanupDone` is set once the file is gone
+  (or when history is on, or there is no file), so it never runs again; a deletion that fails is
+  tried at the next launch, and so is a file that turning history off could not delete
+  (`HistorySettings.retryOffCleanup`). Later, turning history off goes through the alert.
+  Turning history off also drops the History window's undo and redo of deletes. The file is deleted even if
   it cannot be read (history is off; nothing in it would ever be shown). A notice is logged
   (category `AppState`) when it deletes.
 

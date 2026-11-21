@@ -9,7 +9,7 @@ enum HistoryTurnOff {
     ///   - confirm: asks "Turn off history and delete it?" for `count` dictations and calls
     ///     back with `true` for Turn Off and Delete.
     static func setEnabled(
-        _ isOn: Bool, current: Bool, store: HistoryStore,
+        _ isOn: Bool, current: Bool, store: HistoryStore, defaults: UserDefaults = .standard,
         apply: @escaping (Bool) -> Void,
         confirm: (_ count: Int, _ done: @escaping (Bool) -> Void) -> Void
     ) {
@@ -20,13 +20,15 @@ enum HistoryTurnOff {
         let count = store.entries.count
         guard count > 0 else {
             // Nothing kept: no alert. An empty file left on disk goes too.
-            store.deleteAll()
+            if !store.deleteAll() { HistorySettings.retryOffCleanup(defaults: defaults) }
             apply(false)
             return
         }
         confirm(count) { [weak store] confirmed in
             guard confirmed, let store else { return }
-            store.deleteAll()
+            // Off either way (the user asked); a file that could not be deleted is deleted at
+            // the next launch.
+            if !store.deleteAll() { HistorySettings.retryOffCleanup(defaults: defaults) }
             apply(false)
         }
     }

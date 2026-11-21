@@ -130,15 +130,18 @@ final class HistoryStore: ObservableObject {
     /// Also removes a file that could not be read: once it is gone there is nothing left to
     /// protect, so the history is available again (a missing key makes the next save fail
     /// and mark it unavailable again).
-    func deleteAll() {
+    /// - Returns: whether the file is gone (also when there was none).
+    @discardableResult
+    func deleteAll() -> Bool {
         entries = []
-        guard hasFile else { return }
+        guard hasFile else { return true }
         TemporaryRecordings.securelyDelete(at: fileURL)
-        if hasFile {
+        guard !hasFile else {
             Self.logger.error("History file could not be deleted")
-        } else {
-            isUnavailable = false
+            return false
         }
+        isUnavailable = false
+        return true
     }
 
     private func load() {
@@ -178,7 +181,7 @@ final class HistoryStore: ObservableObject {
 enum HistorySettings {
     static let enabledKey = "historyEnabled"
     static let maxCountKey = "maxHistoryCount"
-    /// Set once the cleanup below has run (whatever it found).
+    /// Set once the cleanup below has nothing left to do (the file gone, or history on).
     static let offCleanupDoneKey = "historyOffCleanupDone"
 
     /// What History keeps when the user never chose (the maintainer's decision, 2026-11-21;
@@ -198,7 +201,7 @@ enum HistorySettings {
 
     /// Before this version, turning history off kept the file. Now it deletes it (after an
     /// alert in Settings), so at the first launch after the update an install with history off
-    /// gets its old file deleted, silently. Runs once: the flag is set whatever it found, so
+    /// gets its old file deleted, silently. Runs once: the flag is set once nothing is left to delete, so
     /// a later launch never deletes anything here (turning history off later goes through the
     /// alert). Deletes the file even if it cannot be read: history is off, nothing in it is
     /// shown or kept.
@@ -207,10 +210,19 @@ enum HistorySettings {
     @discardableResult
     static func runOffCleanupOnce(defaults: UserDefaults, store: HistoryStore) -> Bool {
         guard !defaults.bool(forKey: offCleanupDoneKey) else { return false }
-        defaults.set(true, forKey: offCleanupDoneKey)
-        guard !isEnabled(in: defaults), store.hasFile else { return false }
-        store.deleteAll()
-        return true
+        guard !isEnabled(in: defaults), store.hasFile else {
+            defaults.set(true, forKey: offCleanupDoneKey)
+            return false
+        }
+        // Done only once the file is gone: a failed deletion is tried again at the next launch.
+        let deleted = store.deleteAll()
+        if deleted { defaults.set(true, forKey: offCleanupDoneKey) }
+        return deleted
+    }
+
+    /// History was turned off but its file could not be deleted: the launch cleanup tries again.
+    static func retryOffCleanup(defaults: UserDefaults) {
+        defaults.removeObject(forKey: offCleanupDoneKey)
     }
 }
 

@@ -139,6 +139,21 @@ struct HistoryWindowTests {
         RunLoop.current.run(until: Date().addingTimeInterval(0.01))
     }
 
+    @Test("Turning history off drops the undo of a delete, even once it is on again")
+    func offDropsUndo() {
+        let store = HistoryFixtures.store()
+        let model = HistoryFixtures.model(store: store)
+        model.deleteSelection()
+        #expect(model.canUndo)
+        store.deleteAll()
+        model.settings.isEnabled = false
+        #expect(!model.canUndo)
+        #expect(!model.showsUndoToast)
+        model.settings.isEnabled = true
+        model.undo()
+        #expect(store.entries.isEmpty)
+    }
+
     @Test("Clear All asks first; confirmed, everything is deleted and there is nothing to undo")
     func clearAll() {
         let store = HistoryFixtures.store()

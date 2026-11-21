@@ -375,6 +375,12 @@ struct HistoryMessageView: View {
             .padding(.horizontal, 48)
             .padding(.bottom, 16)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // The last dictation deleted: the list is gone, the Undo capsule stays.
+            .overlay(alignment: .bottom) {
+                if model.showsUndoToast && model.state == .empty {
+                    HistoryUndoToast(undo: model.undo).padding(.bottom, 16)
+                }
+            }
             if model.state == .empty {
                 Rectangle().fill(GroupedStyle.separator).frame(height: 1)
                 HStack(spacing: 6) {
