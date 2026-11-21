@@ -19,8 +19,8 @@ struct OnboardingContent: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        // On the window's own background (not painted, see `GroupedStyle.windowNSColor`).
         ZStack {
-            OnboardingPalette.window
             page
                 .id(model.page)
                 .transition(.asymmetric(insertion: .opacity, removal: .identity))
@@ -156,12 +156,20 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         w.title = BuildFlavor.current.displayName
         w.titleVisibility = .hidden
         w.titlebarAppearsTransparent = true
-        w.backgroundColor = OnboardingPalette.windowNSColor
-        let hosting = NSHostingView(rootView: content)
+        // No `backgroundColor`: the system draws the window's background, the same as the
+        // Settings window's content and Finder's settings (`GroupedStyle.windowNSColor`).
         // The whole window is 580 × 640, title bar included: the content runs under it. Left to
-        // size the window, the hosting view would add the title bar's safe area (672 pt).
+        // size the window, the hosting view would add the title bar's safe area (672 pt). With
+        // the macOS 26+ design it still did, even with `sizingOptions = []`: as the window's
+        // content view it resizes the window after a layout (`NSHostingView.windowDidLayout`,
+        // during the welcome's entrance, 2026-11-21). In a plain container it cannot.
+        let hosting = NSHostingView(rootView: content)
         hosting.sizingOptions = []
-        w.contentView = hosting
+        let container = NSView(frame: NSRect(origin: .zero, size: OnboardingWindowPlacement.size))
+        hosting.frame = container.bounds
+        hosting.autoresizingMask = [.width, .height]
+        container.addSubview(hosting)
+        w.contentView = container
         w.setFrame(NSRect(origin: .zero, size: OnboardingWindowPlacement.size), display: false)
         w.isReleasedWhenClosed = false
         w.isRestorable = false

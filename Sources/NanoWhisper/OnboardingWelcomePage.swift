@@ -13,16 +13,17 @@ struct WelcomePage: View {
     @State private var entered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Design delays (s): icon, headline, catch phrase, recorder, first fact (then 70 ms
-    /// apart), Continue.
+    /// Entrance delays (s), quick and in reading order: icon, headline, catch phrase,
+    /// recorder, then the four facts together with Continue (maintainer, 2026-11-21: "it was
+    /// too slow and staged; the four facts arrive at the same time").
     enum Delay {
-        static let icon = 0.05
-        static let headline = 0.2
-        static let catchPhrase = 0.35
+        static let icon = 0.0
+        static let headline = 0.08
+        static let catchPhrase = 0.16
         static let recorder = WelcomeDictation.recorderAppears
-        static let firstFact = 0.65
-        static let factStep = 0.07
-        static let button = 1.0
+        static let firstFact = 0.32
+        static let factStep = 0.0
+        static let button = 0.32
     }
 
     var body: some View {

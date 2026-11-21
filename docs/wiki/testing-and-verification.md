@@ -40,6 +40,14 @@ Seams used by tests: `Transcriber.transcriptionHandler`, `Transcriber.installPar
 
 ## Techniques that work without a screen
 
+**Two traps when comparing colors or looks (2026-11-21):** the test runner is linked against the
+macOS 27 SDK and draws the macOS 26+ design, while app builds up to then recorded SDK 14 and ran
+in the pre-26 design (see [build-and-release.md](build-and-release.md#the-sdk-version-in-the-binary-macos-26-design));
+check `otool -l <binary> | grep -A4 LC_BUILD_VERSION` before comparing a render with the app.
+And to read a pixel of a `screencapture` PNG, use `NSBitmapImageRep.getPixel` (raw values), not
+`colorAt(x:y:)` + `usingColorSpace(.sRGB)`: that reads the values as gamma-1.8 RGB and lifts dark
+greys (painted #292929 read #363636).
+
 Agents had **no screen capture** until 2026-11-21. These worked on 2026-11-19:
 
 1. **Offscreen PNG renders of SwiftUI views.**

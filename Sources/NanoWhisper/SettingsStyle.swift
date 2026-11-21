@@ -8,7 +8,7 @@ import SwiftUI
 // MARK: - Grouped cards (Settings and onboarding)
 
 /// The grouped look Settings and onboarding share: rows on a card with no border, on the
-/// onboarding design's window color. One definition, so the two cannot drift apart again
+/// window's own background. One definition, so the two cannot drift apart again
 /// (maintainer's feedback of 2026-11-21: different radii and colors side by side, and a 1 px
 /// line around the native grouped form's cards, clipped at the corners on a 1x display).
 enum GroupedStyle {
@@ -29,11 +29,16 @@ enum GroupedStyle {
                 blue: CGFloat(value & 0xFF) / 255, alpha: 1)
     }
 
-    /// Behind the cards (the window): #F2F2F4 / #1E1E20.
-    static let windowNSColor = dynamic("nwGroupedWindow", light: hex(0xF2F2F4), dark: hex(0x1E1E20))
+    /// Behind the cards: the system window background, as in Finder's settings (maintainer,
+    /// 2026-11-21: "use Finder's colours"). The Settings and onboarding windows do not paint it:
+    /// they keep their default background, which the system draws (as it does Finder's), so
+    /// they match Finder in light and dark. Only a view that must be opaque paints this color
+    /// (the model choice sheet). See docs/wiki/onboarding-and-settings.md, "Window colors".
+    static let windowNSColor = NSColor.windowBackgroundColor
     static let window = Color(nsColor: windowNSColor)
-    /// A card: white / #2A2A2D.
-    static let card = Color(nsColor: dynamic("nwGroupedCard", light: .white, dark: hex(0x2A2A2D)))
+    /// A card: black at 3 % in light (#F7F7F7 on the white light window background, the native
+    /// grouped form's card on macOS 27; a white card vanished on it) / #2A2A2D in dark (on #1E1E1E).
+    static let card = Color(nsColor: dynamic("nwGroupedCard", light: NSColor(white: 0, alpha: 0.03), dark: hex(0x2A2A2D)))
     /// The line between two rows of a card.
     static let separator = Color(nsColor: dynamic(
         "nwGroupedSeparator", light: NSColor(white: 0, alpha: 0.09), dark: NSColor(white: 1, alpha: 0.09)))
@@ -210,8 +215,9 @@ struct SettingsBadge: View {
     }
 }
 
-/// A pane of the Settings window: its sections on the grouped window color, as tall as its
-/// content, so the window fits each pane (see `SettingsTabViewController`). Not a grouped
+/// A pane of the Settings window: its sections on the window's own background (not painted, see
+/// `GroupedStyle.windowNSColor`), as tall as its content, so the window fits each pane (see
+/// `SettingsTabViewController`). Not a grouped
 /// `Form`: its cards have a hairline border (clipped at the corners on a 1x display) and
 /// their color cannot be changed, so Settings and onboarding drew two different cards.
 struct SettingsPaneForm<Content: View>: View {
@@ -224,6 +230,5 @@ struct SettingsPaneForm<Content: View>: View {
             .padding(.bottom, 22)
             .frame(width: SettingsPane.width, alignment: .topLeading)
             .fixedSize(horizontal: false, vertical: true)
-            .background(GroupedStyle.window)
     }
 }

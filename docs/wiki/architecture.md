@@ -70,8 +70,10 @@ text button, so it cannot draw the download bar or the shortcut as key caps.
   something on the right), progress lines are `MenuProgressView`s; the rest are native
   `NSMenuItem`s. `MenuRowView` draws its own selection (`NSVisualEffectView`, `.selection`
   material) from `menu(_:willHighlight:)`, handles the click in `mouseUp` and closes the menu.
-  The menu has no state column (`showsStateColumn = false`) and the views' text starts 14 pt
-  from the menu edge (`MenuMetrics`), an estimate of where native titles start.
+  The menu has no state column (`showsStateColumn = false`) and the views' text starts 16 pt
+  from the menu edge (`MenuMetrics`), where native titles start in the macOS 26+ menu (measured
+  on macOS 27.2, 2026-11-21; 14 pt was an estimate made while the app ran in the pre-26 design,
+  see [build-and-release.md](build-and-release.md#the-sdk-version-in-the-binary-macos-26-design)).
 - **Icon:** unchanged (glyph; `arrow.down.circle` while setting up, `mic.slash` while not
   ready; debug band). The board's capsule glyph that fills while downloading is marked as a
   proposal on the board, so it is not implemented.

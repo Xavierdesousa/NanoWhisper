@@ -338,25 +338,25 @@ enum OnboardingWindowPlacement {
 /// The dictation the welcome's recorder plays (the maintainer's sequence, 2026-11-21): the page
 /// arrives with the recorder idle at 0:00 (still capsule, no text, flat waveform); `idleWait`
 /// after the page's last element has arrived the recording starts (the capsule pulses, the
-/// timer runs, the waveform moves, the words write themselves) and runs 5.6 s; then everything
-/// stops and stays, paused: up to three lines, the last two words dimmer, a steady caret, 0:05.
+/// timer runs, the waveform moves, the words write themselves) and runs 3 s; then everything
+/// stops and stays, paused: up to three lines, the last two words dimmer, a steady caret, 0:03.
 /// Times are seconds from the window opening.
 enum WelcomeDictation {
     /// When the recorder fades in, idle.
-    static let recorderAppears: TimeInterval = 0.5
-    /// When the page's last element (Continue: 1 s delay, 0.45 s fade) has arrived.
-    static let entranceEnds: TimeInterval = 1.45
-    /// The pause between the page at rest and the start of the recording (the maintainer
-    /// found 1 s far too long, 2026-11-21; 0.5 s may be tried later).
-    static let idleWait: TimeInterval = 0.25
+    static let recorderAppears: TimeInterval = 0.24
+    /// When the page's last element (the facts and Continue: 0.32 s delay, 0.3 s fade) has arrived.
+    static let entranceEnds: TimeInterval = 0.62
+    /// The pause between the page at rest and the start of the recording (maintainer: 1 s,
+    /// then 0.25 s were too long; 125 ms, 2026-11-21).
+    static let idleWait: TimeInterval = 0.125
     /// The recording starts: the capsule pulses, the timer and the waveform run.
     static var recordingStarts: TimeInterval { entranceEnds + idleWait }
     /// The first word, a moment after the start, as when someone starts speaking.
-    static var firstWord: TimeInterval { recordingStarts + 0.35 }
-    /// From the first word to the last.
-    static let span: TimeInterval = 4.9
+    static var firstWord: TimeInterval { recordingStarts + 0.15 }
+    /// From the first word to the last: the whole sentence in under 3 s, to show it is fast.
+    static let span: TimeInterval = 2.7
     /// How long the recording runs before it stops and stays.
-    static let recordingDuration: TimeInterval = 5.6
+    static let recordingDuration: TimeInterval = 3.0
     /// When it stops and stays.
     static var freezeTime: TimeInterval { recordingStarts + recordingDuration }
     /// The newest words are shown dimmer, as the live text's tail.
@@ -391,8 +391,9 @@ enum WelcomeDictation {
     /// first word, then syllables with short pauses.
     static func level(at time: TimeInterval) -> Float {
         guard time >= firstWord - 0.08 else { return 0.04 }
-        let pause = sin(time * 2.3 + 0.5) > 0.82 ? 0.0 : 1.0
-        let syllable = abs(sin(time * 7.7 + 0.3)) * (0.45 + 0.55 * abs(sin(time * 1.6 + 1.2)))
+        // Faster than real speech, matching the quick sentence (2026-11-21).
+        let pause = sin(time * 3.7 + 0.5) > 0.85 ? 0.0 : 1.0
+        let syllable = abs(sin(time * 12.3 + 0.3)) * (0.45 + 0.55 * abs(sin(time * 2.6 + 1.2)))
         return Float(max(0.04, pause * min(1, 0.25 + 0.75 * syllable)))
     }
 
