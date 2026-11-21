@@ -367,10 +367,10 @@ struct WelcomeRecorderTests {
 
         // Recording: the words arrive, the timer runs.
         let words = WelcomeDictation.words
-        #expect(words.count == 27)
+        #expect(words.count == 29)
         #expect(WelcomeDictation.wordCount(at: WelcomeDictation.firstWord) == 1)
         let one = WelcomeDictation.text(at: WelcomeDictation.firstWord)
-        #expect(one.stable == "" && one.volatile == "Thanks")
+        #expect(one.stable == "" && one.volatile == "So")
         #expect(WelcomeDictation.elapsedSeconds(at: start + 0.99) == 0)
         #expect(WelcomeDictation.elapsedSeconds(at: start + 1.0) == 1)
         #expect(WelcomeDictation.elapsedSeconds(at: start + 4.2) == 4)
@@ -384,8 +384,8 @@ struct WelcomeRecorderTests {
         // Stopped: the whole sentence, the last two words dimmer, the timer stays at 0:05.
         let end = WelcomeDictation.freezeTime
         let frozen = WelcomeDictation.text(at: end)
-        #expect(frozen.stable == "Thanks for the notes. I’ll send the revised plan on Friday morning, after the team review, so we can go over the budget together early")
-        #expect(frozen.volatile == " next week", "the last two words stay dimmer")
+        #expect(frozen.stable == "So the plan for this week is the payment flow, then the mobile release. Let’s split it in two: first the API, then the checkout screens, and")
+        #expect(frozen.volatile == " we’ll see", "the last two words stay dimmer")
         #expect(WelcomeDictation.elapsedSeconds(at: end) == 5)
         #expect(WelcomeDictation.elapsedSeconds(at: end + 30) == 5, "the timer stops at the freeze")
     }
@@ -455,7 +455,7 @@ struct WelcomeRecorderTests {
         #expect(model.isPaused)
         #expect(model.waveform.isStatic)
         #expect(model.elapsedFormatted == "0:05")
-        #expect(model.visibleTranscript?.volatileText == " next week")
+        #expect(model.visibleTranscript?.volatileText == " we’ll see")
         demo.advance(to: WelcomeDictation.freezeTime + 10)
         #expect(model.elapsedFormatted == "0:05", "nothing moves after the freeze")
         demo.stop()
@@ -468,7 +468,7 @@ struct WelcomeRecorderTests {
         #expect(demo.isFrozen)
         #expect(demo.viewModel.isPaused)
         #expect(demo.viewModel.elapsedFormatted == "0:05")
-        #expect(demo.viewModel.visibleTranscript?.volatileText == " next week")
+        #expect(demo.viewModel.visibleTranscript?.volatileText == " we’ll see")
         #expect(demo.viewModel.waveform.isStatic)
         let bars = WaveformMetrics.bars(for: demo.viewModel.waveform.history, count: 75)
         #expect(bars.filter { $0.height > WaveformMetrics.dotHeight }.count > 40, "the bars of the dictation, computed")
