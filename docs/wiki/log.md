@@ -5,6 +5,8 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-21
 
+- **Welcome faster** (`fix/welcome-faster`): 0.3 s fades, facts together, 125 ms idle, a 3 s
+  dictation of the whole sentence, frozen at 0:03 (maintainer: "too slow, a bit jerky").
 - **Onboarding and Settings polish after the maintainer's test** (`fix/onboarding-settings-polish`):
   the welcome's recorder now waits idle at 0:00 until 0.25 s after the page has arrived
   (`WelcomeDictation.idleWait`; 1 s was "far too long"), records 5.6 s (a three-line

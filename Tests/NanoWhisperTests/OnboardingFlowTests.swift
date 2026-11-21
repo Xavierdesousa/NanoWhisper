@@ -346,16 +346,17 @@ struct OnboardingWindowPlacementTests {
 @Suite("Welcome recorder")
 @MainActor
 struct WelcomeRecorderTests {
-    @Test("Idle at 0:00 once the page has arrived, recording 0.25 s later for 5.6 s, then stopped at 0:05")
+    @Test("Idle at 0:00 once the page has arrived, recording 125 ms later for 3 s, then stopped at 0:03")
     func timeline() {
         // The page's last element (Continue) has arrived when the idle wait starts.
-        #expect(abs(WelcomeDictation.entranceEnds - (WelcomePage.Delay.button + 0.45)) < 0.001)
+        #expect(abs(WelcomeDictation.entranceEnds - (WelcomePage.Delay.button + FadeUp.duration)) < 0.001)
+        #expect(WelcomePage.Delay.factStep == 0, "the four facts arrive together")
         #expect(WelcomeDictation.recorderAppears < WelcomeDictation.entranceEnds)
         let start = WelcomeDictation.recordingStarts
         #expect(abs(start - WelcomeDictation.entranceEnds - WelcomeDictation.idleWait) < 0.001)
-        #expect(WelcomeDictation.idleWait == 0.25, "the maintainer's pause after the page has arrived")
+        #expect(WelcomeDictation.idleWait == 0.125, "the maintainer's pause after the page has arrived")
         let duration = WelcomeDictation.freezeTime - start
-        #expect(duration >= 5 && duration <= 6, "the dictation lasts 5 to 6 s")
+        #expect(abs(duration - 3) < 0.001, "the dictation lasts 3 s, quick on purpose")
 
         // Idle: no text, 0:00.
         for time in [0.0, WelcomeDictation.recorderAppears, WelcomeDictation.entranceEnds, start - 0.01] {
@@ -373,7 +374,7 @@ struct WelcomeRecorderTests {
         #expect(one.stable == "" && one.volatile == "So")
         #expect(WelcomeDictation.elapsedSeconds(at: start + 0.99) == 0)
         #expect(WelcomeDictation.elapsedSeconds(at: start + 1.0) == 1)
-        #expect(WelcomeDictation.elapsedSeconds(at: start + 4.2) == 4)
+        #expect(WelcomeDictation.elapsedSeconds(at: start + 2.2) == 2)
         let counts = stride(from: WelcomeDictation.firstWord, to: WelcomeDictation.freezeTime, by: 0.05)
             .map(WelcomeDictation.wordCount(at:))
         #expect(counts == counts.sorted(), "words only ever arrive")
@@ -381,13 +382,13 @@ struct WelcomeRecorderTests {
                 "the last word arrives before the freeze")
         #expect(WelcomeDictation.firstWord + WelcomeDictation.span < WelcomeDictation.freezeTime)
 
-        // Stopped: the whole sentence, the last two words dimmer, the timer stays at 0:05.
+        // Stopped: the whole sentence, the last two words dimmer, the timer stays at 0:03.
         let end = WelcomeDictation.freezeTime
         let frozen = WelcomeDictation.text(at: end)
         #expect(frozen.stable == "So the plan for this week is the payment flow, then the mobile release. Let’s split it in two: first the API, then the checkout screens, and")
         #expect(frozen.volatile == " we’ll see", "the last two words stay dimmer")
-        #expect(WelcomeDictation.elapsedSeconds(at: end) == 5)
-        #expect(WelcomeDictation.elapsedSeconds(at: end + 30) == 5, "the timer stops at the freeze")
+        #expect(WelcomeDictation.elapsedSeconds(at: end) == 3)
+        #expect(WelcomeDictation.elapsedSeconds(at: end + 30) == 3, "the timer stops at the freeze")
     }
 
     @Test("The sentence fills up to three lines of the card, not more")
@@ -418,7 +419,7 @@ struct WelcomeRecorderTests {
         #expect(bars.filter { $0.height > WaveformMetrics.dotHeight }.count > 40, "the frozen card shows speech bars")
     }
 
-    @Test("The demo: idle and paused at 0:00, then recording, then frozen and paused at 0:05")
+    @Test("The demo: idle and paused at 0:00, then recording, then frozen and paused at 0:03")
     func demoPhases() {
         let demo = WelcomeRecorderDemo()
         let model = demo.viewModel
@@ -427,7 +428,7 @@ struct WelcomeRecorderTests {
 
         // Idle until the recording starts: paused (still capsule, steady caret), no text,
         // 0:00, a still flat waveform.
-        for time in [0.0, 1.0, WelcomeDictation.recordingStarts - 0.02] {
+        for time in [0.0, WelcomeDictation.entranceEnds, WelcomeDictation.recordingStarts - 0.02] {
             demo.advance(to: time)
             #expect(demo.phase == .idle)
             #expect(model.isPaused)
@@ -454,10 +455,10 @@ struct WelcomeRecorderTests {
         #expect(demo.isFrozen)
         #expect(model.isPaused)
         #expect(model.waveform.isStatic)
-        #expect(model.elapsedFormatted == "0:05")
+        #expect(model.elapsedFormatted == "0:03")
         #expect(model.visibleTranscript?.volatileText == " we’ll see")
         demo.advance(to: WelcomeDictation.freezeTime + 10)
-        #expect(model.elapsedFormatted == "0:05", "nothing moves after the freeze")
+        #expect(model.elapsedFormatted == "0:03", "nothing moves after the freeze")
         demo.stop()
     }
 
@@ -467,7 +468,7 @@ struct WelcomeRecorderTests {
         demo.start(reduceMotion: true)
         #expect(demo.isFrozen)
         #expect(demo.viewModel.isPaused)
-        #expect(demo.viewModel.elapsedFormatted == "0:05")
+        #expect(demo.viewModel.elapsedFormatted == "0:03")
         #expect(demo.viewModel.visibleTranscript?.volatileText == " we’ll see")
         #expect(demo.viewModel.waveform.isStatic)
         let bars = WaveformMetrics.bars(for: demo.viewModel.waveform.history, count: 75)

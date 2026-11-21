@@ -206,12 +206,14 @@ struct ExclamationGlyph: Shape {
 /// The welcome's entrance: each element fades up 10 pt over 0.45 s after its delay. Only the
 /// opacity and offset animate, never the layout.
 struct FadeUp: ViewModifier {
+    /// Quick, so the page feels fast rather than staged (maintainer, 2026-11-21).
+    static let duration: Double = 0.3
     let isShown: Bool
     let delay: Double
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
-        content.animation(reduceMotion ? nil : .timingCurve(0.2, 0.7, 0.2, 1, duration: 0.45).delay(delay)) {
+        content.animation(reduceMotion ? nil : .timingCurve(0.2, 0.7, 0.2, 1, duration: Self.duration).delay(delay)) {
             $0.opacity(isShown || reduceMotion ? 1 : 0).offset(y: isShown || reduceMotion ? 0 : 10)
         }
     }

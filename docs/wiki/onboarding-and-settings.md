@@ -261,12 +261,14 @@ becomes a check, the fade-up, `InlineShortcutText`).
   `WelcomeDictation.elapsedSeconds`. **Sequence (maintainer's feedback, 2026-11-21;
   `WelcomeRecorderDemo.Phase`):** idle while the page arrives (0:00, no text, flat still
   waveform, `RecordingOverlayViewModel.isPaused`: the capsule still at the dim end of its
-  breath, the caret steady); at `recordingStarts` = the last element arrived (1.45 s) +
-  `idleWait` (**0.25 s**; 1 s was "far too long", 0.5 s may be tried) it records for 5.6 s
-  (pulse, timer, moving waveform, 27 words over 4.9 s); then it freezes, **paused**: three lines,
-  "next week" dimmer, the caret shown steady (a hidden caret read as a finished note; steady
-  reads as stopped where the next word would go), the capsule still, the waveform still
-  (`OverlayWaveform.freeze(with:)`), 0:05. A real-window test checks that the idle and the
+  breath, the caret steady); at `recordingStarts` = the last element arrived (0.62 s) +
+  `idleWait` (**125 ms**; 1 s then 0.25 s were too long) it records for **3 s** (pulse, timer,
+  moving waveform; the 29-word spoken sentence over 2.7 s, faster than real speech on purpose,
+  "to show it is fast"); then it freezes, **paused**: three lines, "we'll see" dimmer, the caret
+  shown steady (a hidden caret read as a finished note; steady reads as stopped where the next
+  word would go), the capsule still, the waveform still (`OverlayWaveform.freeze(with:)`), 0:03.
+  The entrance is quick: 0.3 s fades (`FadeUp.duration`) at 0, 0.08, 0.16, 0.24 s (icon,
+  headline, catch phrase, recorder), then the four facts **together** with Continue at 0.32 s. A real-window test checks that the idle and the
   frozen recorder draw identical pixels over time. Two traps: a `repeatForever` pulse is not
   stopped by later non-animated changes, so the indicator gets a new identity when it pauses or
   resumes (`.id(isPaused)`); and `OverlayWaveform` is not observable, so the view takes its
