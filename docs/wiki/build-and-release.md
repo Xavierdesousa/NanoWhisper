@@ -63,7 +63,7 @@ Everything that could collide is derived from it.
 | History folder | `Application Support/NanoWhisper` | `Application Support/NanoWhisper Debug` |
 | Temp recordings | `nanowhisper_*.wav` | `nanowhisper-debug_*.wav` |
 | Auto-updater | on | off (`BuildFlavor.autoUpdatesEnabled`) |
-| Live transcription (beta) | not offered: toggle hidden, forced off | offered (`BuildFlavor.supportsLiveTranscription`, [live-transcription.md](live-transcription.md#debug-build-only)) |
+| Live transcription (beta) | offered since 0.1.0, off by default (before: hidden, forced off) | offered (`BuildFlavor.supportsLiveTranscription`, [live-transcription.md](live-transcription.md#in-production-as-a-beta-off-by-default-since-010)) |
 | Settings › Advanced › "Open Onboarding" | none (`--onboarding` still works) | offered: replays onboarding from its opening scene, Settings left open (`BuildFlavor.offersOnboardingReplay`, [onboarding-and-settings.md](onboarding-and-settings.md#replay)) |
 | Log subsystem | bundle id | bundle id |
 | Markers | none | "DEBUG" icon banner, orange band across the bottom of the menu bar glyph (`MenuBarIcon`, since 2026-11-20; was an orange dot), `v<version> · <commit>` in the menu (`BuildInfo`, Info.plist key `NWGitCommit`) |

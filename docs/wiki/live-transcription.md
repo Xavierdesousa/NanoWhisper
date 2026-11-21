@@ -1,7 +1,8 @@
 # Live transcription (beta)
 
-Last verified: 2026-11-20, against `feat/voice-note-overlay` (feature from PR #16, debug-only
-since PR #18, overlay redesigned in that branch).
+Last verified: 2026-11-21, against `feat/live-transcription-beta-in-production` (availability
+and toggle checked against the code and unit tests; feature from PR #16, debug-only from PR #18
+until this change). The production bundle with a real voice is not verified.
 
 ## In production as a beta, off by default (since 0.1.0)
 
