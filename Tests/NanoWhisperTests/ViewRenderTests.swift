@@ -310,7 +310,6 @@ struct ViewRenderTests {
         try renderSettings(.advanced, "settings-advanced-checking", checking)
 
         var production = SettingsFixture()
-        production.offersLiveTranscription = false
         try renderSettings(.recorder, "settings-recorder-release", production)
         production.recorderPosition = .topRight
         try renderSettings(.recorder, "settings-recorder-release-top-right-dark", production, dark: true)

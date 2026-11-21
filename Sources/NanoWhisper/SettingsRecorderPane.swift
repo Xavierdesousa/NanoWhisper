@@ -28,7 +28,7 @@ struct RecorderPane: View {
                     SettingsToggle(
                         title: Self.liveTranscriptionLabel,
                         caption: liveTranscriptionAvailable
-                            ? "Available in debug builds while it is in beta."
+                            ? "In beta: off by default. Words can change while you speak."
                             : LiveTranscriptionSupport.unavailableExplanation,
                         isOn: context.liveTranscriptionEnabled
                     )
