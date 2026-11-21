@@ -63,7 +63,7 @@ struct TranscriptionEngineTests {
     }
 
     @Test("Comparison values for each engine and model the Engine section offers")
-    func comparisonValuesPerModel() {
+    @MainActor func comparisonValuesPerModel() {
         func values(_ model: ModelComparison) -> (MetricTier, MetricTier, Int) {
             (model.speed, model.accuracy, model.bulletPoints.count)
         }
