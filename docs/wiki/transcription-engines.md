@@ -232,6 +232,36 @@ update, and a rename in the same parent folder is atomic.
   finishes after a newer one started is discarded (`installParakeet` returns `false`).
 - `Transcriber.transcriptionHandler` is a test seam that replaces inference.
 
+## Measured speed on real dictations (2026-11-21)
+
+Source: the maintainer's own dictations, read from the History debug info (audio length and
+the model's transcription time, `TranscriptionDebugInfo`), extracted at their request with a
+script that decrypted the history in memory and printed only numbers (never the text). These
+figures are the reference for the README and marketing material (also on the Claude Design
+canvas, page "Key numbers"); do not publish other numbers without re-measuring.
+
+Conditions: Parakeet Ultra, MacBook Pro M3 Pro 18 GB (Mac15,7), macOS 27.2, debug build of
+`main` (the code of 0.1.0), mostly French speech. "× real time" = audio length ÷ transcription
+time; it excludes the 0.3 s recording tail and the paste.
+
+| | Debug build, current code (n = 25, 23.7 min of audio) | Released 0.0.5/0.0.6 (n = 14) |
+|---|---|---|
+| Median speed | **126×** | 80× |
+| Mean / overall (Σ audio ÷ Σ time) | 140× / 174× | 88× / 97× |
+| 25th / 75th / 90th percentile | 106× / 148× / 250× | 44× / 132× / 137× |
+| Best | **327×** (269.7 s of speech in 0.82 s) | 182× |
+| Median transcription time | **0.19 s** (18 of 25 under 0.25 s) | 0.39 s |
+| Longest transcription time | 1.23 s (a 130.6 s dictation) | 0.83 s |
+
+By length (current code): under 15 s → median 103× (0.10 s); 15–60 s → 126× (0.19 s); over
+60 s → 236× (0.67 s). Short dictations are dominated by a fixed cost of about 0.1 s, so the
+ratio grows with length.
+
+Not verified: why the released build was slower on the same Mac (different model or code
+version at the time, warm-up; the entries of that build do not record the model); other Macs.
+Honest claims: "up to 327× faster than real time", "typically about 125×", "most dictations
+are text in under a quarter of a second".
+
 ## Known limits / not verified
 
 - PR #13 did not run the app, the Parakeet Ultra download or the Large v3 Turbo download; the

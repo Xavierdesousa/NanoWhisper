@@ -5,6 +5,8 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-21
 
+- **Measured speed on real dictations** (`docs/measured-speed`): median 126×, best 327× real time,
+  median 0.19 s (Parakeet Ultra, M3 Pro). In [transcription-engines](transcription-engines.md#measured-speed-on-real-dictations-2026-11-21).
 - **Opening scene, light recorder, theme, debug-only Open Onboarding**
   (`feat/opening-scene-light-overlay`, PR #38): the welcome opens on the approved opening scene (violet
   sunrise, title moment, Get Started, travel into the welcome; values from the prototype's saved
