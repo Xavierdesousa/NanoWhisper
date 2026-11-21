@@ -173,7 +173,7 @@ struct ViewRenderTests {
         let moments: [(name: String, time: Double, pointerOver: Bool)] = [
             ("1-recording", dictation.recordingStarts + 2.6, false),
             ("2-pointer-stop", dictation.recordingStarts + 2.6, true),
-            ("3-recording-0-04", dictation.recordingEnds - 0.05, false),
+            ("3-recording-0-05", dictation.recordingEnds - 0.05, false),
             ("4-transcribing", dictation.recordingEnds + 0.45, false),
             ("5-pasted", dictation.recordingEnds + 0.95, false),
             ("6-replay", dictation.endsAt(stoppedAt: nil), true),

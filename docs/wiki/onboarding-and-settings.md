@@ -465,7 +465,7 @@ approved 2026-11-21). Implemented in `feat/opening-scene-light-overlay`. Files:
 
   Moments: the title moment is complete at **2.7 s** (then it breathes and waits); Return
   presses Get Started from 1.83 s (`buttonPressable`, the prototype's rule); after the press the
-  recorder records at 0.825 s until 5.125 s (`Times.recordingEnds`), then transcribes, pastes
+  recorder records at 0.825 s until 6.125 s (`Times.recordingEnds`), then transcribes, pastes
   and rests under the veil from 8.775 s; the scene's own motion ends at 1.4 s.
 - **How:** every frame is a pure function, `OpeningScene.frame(t:pt:dark:reduceMotion:)`, a
   port of the prototype's `renderVals` (same springs: ω = 2π / duration, damping 1 − bounce; same
@@ -672,7 +672,7 @@ following the same logic.
   verified: unit tests (`WelcomeRecorderTests`: pace, timeline and timer, words and final
   text, Stop at any moment, the levels following the words, the demo's steps, Stop, Replay
   three times, Reduce Motion, still moments, wording); offscreen renders of the welcome
-  recording, with Stop under the pointer, at 0:04, transcribing, pasted and under the veil,
+  recording, with Stop under the pointer, at 0:05, transcribing, pasted and under the veil,
   light and dark (`ViewRender/welcomeDemo`), of the setup page and Settings › General with the
   new caption; the real window in a test process (`OnboardingWindowTests`: the whole flow to the
   veil, the recorder under the veil still for 1 s and 0 % CPU at rest; a synthesized click on
@@ -701,7 +701,7 @@ following the same logic.
 - Onboarding ("Icon", 2026-11-21), verified: unit tests (`OnboardingFlowTests`); offscreen renders
   of every page and state in the real window, light and dark (`ViewRender`, `onboarding-*.png`);
   the real window on screen in a test process (`OnboardingWindowTests`: the welcome's entrance
-  and dictation over 4 s, Try it with the real recorder panel at Top Center not overlapping the
+  and dictation over 5 s, Try it with the real recorder panel at Top Center not overlapping the
   window, on the real screen and composited on 1440 × 900); in the debug app (`make onboarding`,
   dark appearance), window captures of the welcome from launch to rest (the entrance, the words,
   the frozen card at 0:03) and of the setup page with both permissions allowed and the model

@@ -493,7 +493,8 @@ enum WelcomeDictation {
         return (stable, tail.isEmpty ? "" : (stable.isEmpty ? tail : " " + tail))
     }
 
-    /// What is "pasted": the words said before the end, as a transcription writes them (a
+    /// What is "pasted": the words shown before the end (whole groups; a group not yet shown at
+    /// Stop is dropped, as the live text had not settled it), as a transcription writes them (a
     /// sentence cut by Stop ends with a full stop, not a comma).
     static func finalText(stoppedAt: TimeInterval? = nil) -> String {
         var text = words.prefix(wordCount(at: recordingEnd(stoppedAt: stoppedAt))).joined(separator: " ")
