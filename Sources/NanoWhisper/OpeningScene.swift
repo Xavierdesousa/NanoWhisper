@@ -106,8 +106,9 @@ enum OpeningScene {
         static let fadeDuration: Double = 0.45
         static let fadeRise: Double = 10
         static let recordingStartsAfter: Double = 0.125
-        static let dictationSpan: Double = 2.7
-        static let recordingLength: Double = 3
+        /// The welcome's recording, 0:00 → 0:04 (maintainer, 2026-11-21; was 3 s, then frozen).
+        /// Its pace and the steps after it: `WelcomeDictation`.
+        static let recordingLength: Double = 4.3
         static let factsAt: Double = 0.55
         /// "Facts arrive: together" (one by one would be 0.07 s apart).
         static let factsStagger: Double = 0
@@ -172,7 +173,7 @@ enum OpeningScene {
         // After the press.
         static var recorderIn: Double { Tweak.recorderAt + Tweak.fadeDuration }
         static var recordingStarts: Double { recorderIn + Tweak.recordingStartsAfter }
-        static var freeze: Double { recordingStarts + Tweak.recordingLength }
+        static var recordingEnds: Double { recordingStarts + Tweak.recordingLength }
         static var factsEnd: Double { Tweak.factsAt + Tweak.fadeDuration + 3 * Tweak.factsStagger }
         /// The scene's own motion is over (the recorder's dictation runs on its own clock).
         static var sceneSettles: Double {

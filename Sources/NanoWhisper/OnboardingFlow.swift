@@ -354,13 +354,28 @@ enum OnboardingWindowPlacement {
 
 // MARK: - Welcome recorder (simulated dictation)
 
-/// The dictation the welcome's recorder plays (the maintainer's sequence, 2026-11-21): the
-/// recorder fades up idle at 0:00 (still capsule, no text, flat waveform); `idleWait` after it
-/// has arrived the recording starts (the capsule pulses, the timer runs, the waveform moves, the
-/// words write themselves) and runs 3 s; then everything stops and stays, paused: up to three
-/// lines, the last two words dimmer, a steady caret, 0:03.
+/// The dictation the welcome's recorder plays, step by step as the real recorder shows one
+/// (maintainer, 2026-11-21): the recorder fades up idle at 0:00 (still capsule, no text, flat
+/// waveform); `idleWait` after it has arrived it records for `recordingDuration` (0:00 → 0:04,
+/// the words at `wordsPerSecond`), then on its own: Transcribing (`transcribingDuration`),
+/// Pasted with the green check (`pastedDuration`), then a veil with Replay (`Phase.ended`),
+/// where it stays. Stop ends the recording at once, then the same steps. Replay plays it again
+/// from the start of the recording (0:00, no text). A simulation: nothing here opens the
+/// microphone or pastes anything.
 /// Times are seconds from the press of Get Started (the opening scene, `OpeningScene.Tweak`).
 enum WelcomeDictation {
+    enum Phase: Equatable, Sendable {
+        /// The page arrives; the recorder waits at 0:00, paused.
+        case idle
+        case recording
+        /// The real transcribing state: the capsule turns light, the bars sink, the sweep runs.
+        case transcribing
+        /// "Pasted" with the green check, and the final text.
+        case pasted
+        /// The pasted card under a veil with Replay. Nothing moves.
+        case ended
+    }
+
     /// When the recorder starts to fade in, idle.
     static let recorderAppears: TimeInterval = OpeningScene.Tweak.recorderAt
     /// When the recorder has faded in.
@@ -370,17 +385,34 @@ enum WelcomeDictation {
     static let idleWait: TimeInterval = OpeningScene.Tweak.recordingStartsAfter
     /// The recording starts: the capsule pulses, the timer and the waveform run.
     static var recordingStarts: TimeInterval { entranceEnds + idleWait }
-    /// The first word, a moment after the start, as when someone starts speaking.
-    static var firstWord: TimeInterval { recordingStarts + 0.15 }
-    /// From the first word to the last: the whole sentence in under 3 s, to show it is fast.
-    static let span: TimeInterval = OpeningScene.Tweak.dictationSpan
-    /// How long the recording runs before it stops and stays.
+    /// How long the recording runs when Stop is not pressed: long enough for the timer to show
+    /// 0:04, with a short silence after the sentence, as before someone presses Stop.
     static let recordingDuration: TimeInterval = OpeningScene.Tweak.recordingLength
-    /// The levels' sine phase: the waveform keeps the shape approved before the opening scene,
-    /// when the recording started 0.745 s after the window opened (the prototype does the same).
-    static let levelPhase: TimeInterval = 0.745
-    /// When it stops and stays.
-    static var freezeTime: TimeInterval { recordingStarts + recordingDuration }
+    /// The recording ends by itself.
+    static var recordingEnds: TimeInterval { recordingStarts + recordingDuration }
+
+    /// The pace of the speech, in words per second. The maintainer's real dictations run about
+    /// 1.7–2.2 words per second (2026-11-21); at most 1.25 times that stays lively but
+    /// believable (the former 29 words in 2.7 s, 10.7 words per second, read as sped up). The
+    /// words and the waveform's syllables both follow it.
+    static let wordsPerSecond: Double = 2.6
+    /// The first word starts a moment after the recording, as when someone starts speaking.
+    static let speechLeadIn: TimeInterval = 0.2
+    static var speechStarts: TimeInterval { recordingStarts + speechLeadIn }
+    /// Each word has a slot of 1 / `wordsPerSecond`: voiced for this share of it, then a short
+    /// gap before the next word; a longer one after a comma or a full stop.
+    static let voicedShare = 0.78
+    static let voicedShareBeforePause = 0.55
+    /// A word shows once it has been said (live text follows the voice): this far into its slot.
+    static let wordShowsAt = 0.8
+
+    /// Transcribing, then Pasted, as the real recorder shows them, short (maintainer: well under
+    /// a second, long enough to see the sweep; the check long enough to be seen).
+    static let transcribingDuration: TimeInterval = 0.8
+    static let pastedDuration: TimeInterval = 0.35
+    /// The veil fades in over this time (at once with Reduce Motion).
+    static let veilFade: TimeInterval = 0.3
+
     /// The newest words are shown dimmer, as the live text's tail.
     static let dimWordCount = 2
 
@@ -388,48 +420,115 @@ enum WelcomeDictation {
         OnboardingText.welcomeSentence.split(separator: " ").map(String.init)
     }
 
-    /// Words shown at `time`: the first at `firstWord`, the last `span` later.
-    static func wordCount(at time: TimeInterval) -> Int {
-        guard time >= firstWord else { return 0 }
-        let step = span / Double(max(1, words.count - 1))
-        return min(words.count, Int(((time - firstWord) / step).rounded(.down)) + 1)
+    // MARK: Steps
+
+    /// When the recording ends: by itself, or when Stop was pressed (`stoppedAt`).
+    static func recordingEnd(stoppedAt: TimeInterval?) -> TimeInterval {
+        min(stoppedAt ?? .infinity, recordingEnds)
     }
 
-    /// The text at `time`: the settled words, and the newest ones (dimmer) with their leading space.
-    static func text(at time: TimeInterval) -> (stable: String, volatile: String) {
-        let shown = Array(words.prefix(wordCount(at: time)))
+    /// When the veil shows.
+    static func endsAt(stoppedAt: TimeInterval?) -> TimeInterval {
+        recordingEnd(stoppedAt: stoppedAt) + transcribingDuration + pastedDuration
+    }
+
+    static func phase(at time: TimeInterval, stoppedAt: TimeInterval? = nil) -> Phase {
+        let end = recordingEnd(stoppedAt: stoppedAt)
+        if time >= end + transcribingDuration + pastedDuration { return .ended }
+        if time >= end + transcribingDuration { return .pasted }
+        if time >= end { return .transcribing }
+        return time >= recordingStarts ? .recording : .idle
+    }
+
+    // MARK: Words
+
+    /// Words shown at `time`: each once it has been said, at `wordsPerSecond`.
+    static func wordCount(at time: TimeInterval) -> Int {
+        guard time >= speechStarts else { return 0 }
+        let said = ((time - speechStarts) * wordsPerSecond - wordShowsAt + 1e-9).rounded(.down) + 1
+        return min(words.count, max(0, Int(said)))
+    }
+
+    /// When word `index` (from 0) shows.
+    static func wordShows(_ index: Int) -> TimeInterval {
+        speechStarts + (Double(index) + wordShowsAt) / wordsPerSecond
+    }
+
+    /// The live text at `time`: the settled words, and the newest ones (dimmer) with their
+    /// leading space. It stops changing when the recording ends.
+    static func text(at time: TimeInterval, stoppedAt: TimeInterval? = nil) -> (stable: String, volatile: String) {
+        let shown = Array(words.prefix(wordCount(at: min(time, recordingEnd(stoppedAt: stoppedAt)))))
         let settled = max(0, shown.count - dimWordCount)
         let stable = shown.prefix(settled).joined(separator: " ")
         let tail = shown.dropFirst(settled).joined(separator: " ")
         return (stable, tail.isEmpty ? "" : (stable.isEmpty ? tail : " " + tail))
     }
 
-    /// The timer: whole seconds since the recording started (0:00 while idle), stopped at the freeze.
-    static func elapsedSeconds(at time: TimeInterval) -> Int {
-        max(0, Int((min(time, freezeTime) - recordingStarts).rounded(.down)))
+    /// What is "pasted": the words said before the end, as a transcription writes them (a
+    /// sentence cut by Stop ends with a full stop, not a comma).
+    static func finalText(stoppedAt: TimeInterval? = nil) -> String {
+        var text = words.prefix(wordCount(at: recordingEnd(stoppedAt: stoppedAt))).joined(separator: " ")
+        while let last = text.last, ",;:".contains(last) { text.removeLast() }
+        if let last = text.last, !".!?".contains(last) { text.append(".") }
+        return text
     }
 
-    /// A speech-like level (the `AudioRecorder` scale, 0…1): room noise until just before the
-    /// first word, then syllables with short pauses.
+    /// The timer: whole seconds since the recording started (0:00 while idle), stopped when the
+    /// recording ends.
+    static func elapsedSeconds(at time: TimeInterval, stoppedAt: TimeInterval? = nil) -> Int {
+        let recorded = min(time, recordingEnd(stoppedAt: stoppedAt)) - recordingStarts
+        return max(0, Int((recorded + 1e-9).rounded(.down)))
+    }
+
+    // MARK: Levels
+
+    /// Room noise, below the waveform's silence floor.
+    static let roomNoise: Float = 0.04
+
+    /// A speech-like level (the `AudioRecorder` scale, 0…1) that follows the words: room noise
+    /// outside them; inside a word one bump per syllable, each word a little louder or softer
+    /// than the last; short gaps between words, longer after punctuation.
     static func level(at time: TimeInterval) -> Float {
-        guard time >= firstWord - 0.08 else { return 0.04 }
-        // Faster than real speech, matching the quick sentence (2026-11-21).
-        let phase = time - recordingStarts + levelPhase
-        let pause = sin(phase * 3.7 + 0.5) > 0.85 ? 0.0 : 1.0
-        let syllable = abs(sin(phase * 12.3 + 0.3)) * (0.45 + 0.55 * abs(sin(phase * 2.6 + 1.2)))
-        return Float(max(0.04, pause * min(1, 0.25 + 0.75 * syllable)))
+        let slot = (time - speechStarts) * wordsPerSecond
+        let words = self.words
+        guard slot >= 0, Int(slot) < words.count else { return roomNoise }
+        let index = Int(slot)
+        let word = words[index]
+        let voiced = endsWithPause(word) ? voicedShareBeforePause : voicedShare
+        let progress = (slot - Double(index)) / voiced
+        guard progress < 1 else { return roomNoise }
+        let bump = abs(sin(.pi * progress * Double(syllableCount(word))))
+        let loudness = 0.72 + 0.28 * abs(sin(Double(index) * 2.17 + 0.6))
+        return Float(max(Double(roomNoise), min(1, loudness * (0.4 + 0.6 * bump))))
+    }
+
+    /// Groups of vowels, from 1 to 3: "payment" 2, "flow" 1.
+    static func syllableCount(_ word: String) -> Int {
+        var groups = 0
+        var inVowel = false
+        for character in word.lowercased() {
+            let isVowel = "aeiouy".contains(character)
+            if isVowel && !inVowel { groups += 1 }
+            inVowel = isVowel
+        }
+        return min(3, max(1, groups))
+    }
+
+    static func endsWithPause(_ word: String) -> Bool {
+        guard let last = word.last else { return false }
+        return ",.;:!?".contains(last)
     }
 
     /// Interval between two levels, as `AudioRecorder` publishes them.
     static let levelInterval: TimeInterval = 0.02
 
-    /// The waveform at the freeze, computed the way `OverlayWaveform` builds it live from the
-    /// start of the recording (envelope, normalizer, 50 ms slots): what Reduce Motion shows at once.
-    static func frozenHistory() -> LevelHistory {
+    /// The waveform at `time`, computed the way `OverlayWaveform` builds it live from the start
+    /// of the recording (envelope, normalizer, 50 ms slots): the still frames of renders.
+    static func history(until time: TimeInterval) -> LevelHistory {
         var history = LevelHistory()
         var envelope = LevelEnvelope()
         var normalizer = LevelNormalizer()
-        let steps = Int(((freezeTime - recordingStarts) / levelInterval).rounded())
+        let steps = max(0, Int(((time - recordingStarts) / levelInterval).rounded()))
         let perSlot = Int((LevelHistory.slotDuration / levelInterval).rounded(.up))
         for step in 0..<steps {
             let time = recordingStarts + Double(step) * levelInterval

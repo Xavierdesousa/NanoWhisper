@@ -18,7 +18,8 @@ import SwiftUI
 /// equatable so the frames do not rebuild them. CPU, measured: wiki onboarding-and-settings,
 /// "Opening scene".
 struct WelcomePage: View {
-    @ObservedObject var demo: WelcomeRecorderDemo
+    /// Not observed: only the recorder follows its steps (`WelcomeRecorderContent`).
+    let demo: WelcomeRecorderDemo
     @ObservedObject var scene: OpeningSceneClock
     let appIcon: NSImage
     let onContinue: () -> Void
@@ -251,23 +252,72 @@ private struct Arrival: ViewModifier {
 }
 
 /// The welcome's recorder: the real overlay view, fed by the demo (no microphone), with the
-/// overlay's drop shadows in the window's appearance. Not interactive: the pointer over it
-/// would otherwise show its Stop button. Equatable on its demo, so the page's updates do not
-/// rebuild it.
+/// overlay's drop shadows in the window's appearance. As in the real one, the pointer anywhere
+/// over it shows Stop while it records (the view's own hover, over the whole card), and Stop
+/// ends the recording. Once the dictation has played, the veil with Replay covers it.
+/// Equatable on its demo, so the page's updates do not rebuild it; it follows the demo's
+/// steps itself.
 private struct WelcomeRecorder: View, Equatable {
     let demo: WelcomeRecorderDemo
-    @Environment(\.colorScheme) private var colorScheme
 
     nonisolated static func == (a: WelcomeRecorder, b: WelcomeRecorder) -> Bool { a.demo === b.demo }
 
     var body: some View {
-        RecordingOverlayView(viewModel: demo.viewModel, onStop: {})
+        WelcomeRecorderContent(demo: demo)
+    }
+}
+
+/// The recorder and its veil, following the demo's steps.
+private struct WelcomeRecorderContent: View {
+    @ObservedObject var demo: WelcomeRecorderDemo
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        RecordingOverlayView(viewModel: demo.viewModel, onStop: { demo.stopRecording() })
             .fixedSize()
             .overlayDropShadows(.forScheme(colorScheme))
-            .allowsHitTesting(false)
             .frame(width: OverlayMetrics.cardWidth, height: OnboardingWindowPlacement.recorderSize.height, alignment: .top)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(OnboardingText.welcomeRecorderLabel)
+            // Over the card, outside its shadows and its accessibility element.
+            .overlay(alignment: .top) {
+                ReplayVeil(isShown: demo.showsReplay, action: { demo.replay() })
+                    .frame(width: OverlayMetrics.cardWidth, height: OnboardingWindowPlacement.recorderSize.height)
+            }
+    }
+}
+
+/// A grey veil over the welcome's recorder once its dictation has played, with Replay (a
+/// standard push button) centred under the pasted line. Fades in; at once with Reduce Motion.
+/// Nothing is in place while it is hidden.
+private struct ReplayVeil: View {
+    static let buttonBottomInset: CGFloat = 16
+    let isShown: Bool
+    let action: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Light: a pale grey over the white card; dark: a dark grey over the black one. Strong
+    /// enough that the pasted text stays a hint behind Replay, which sits over it.
+    static func color(dark: Bool) -> Color {
+        dark ? Color(white: 0.3, opacity: 0.82) : Color(white: 0.92, opacity: 0.84)
+    }
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            if isShown {
+                RoundedRectangle(cornerRadius: OverlayMetrics.cornerRadius, style: .circular)
+                    .fill(Self.color(dark: colorScheme == .dark))
+                // Below the pasted line (the phrase takes one), not across it.
+                Button(action: action) {
+                    Label(OnboardingText.replay, systemImage: "arrow.counterclockwise")
+                }
+                .controlSize(.regular)
+                .padding(.bottom, Self.buttonBottomInset)
+            }
+        }
+        // Scoped to the veil: nothing else changes with it.
+        .animation(reduceMotion ? nil : .easeOut(duration: WelcomeDictation.veilFade), value: isShown)
     }
 }
 
@@ -438,108 +488,199 @@ private struct IBeamGlyph: Shape {
 // MARK: - The recorder's simulated dictation
 
 /// Plays `WelcomeDictation` in the real recorder's view model, levels and words fed
-/// programmatically (no microphone): idle at 0:00 (paused: still capsule, no text, flat
-/// waveform), then the recording (pulsing capsule, running timer, moving waveform, words
-/// arriving), then frozen mid-sentence and paused again: the capsule, caret, timer and
-/// waveform all stop.
+/// programmatically (no microphone, nothing pasted): idle at 0:00 (paused: still capsule, no
+/// text, flat waveform), the recording (pulsing capsule, running timer, moving waveform, words
+/// arriving), the real Transcribing and Pasted states, then the veil with Replay, where its
+/// clock is stopped and nothing moves. Stop (`stopRecording()`) ends the recording at once;
+/// Replay (`replay()`) plays it again from 0:00.
 @MainActor
 final class WelcomeRecorderDemo: ObservableObject {
-    enum Phase: Equatable {
-        /// The page arrives; the recorder waits at 0:00.
-        case idle
-        case recording
-        /// Stopped mid-sentence, and stays.
-        case frozen
-    }
+    typealias Phase = WelcomeDictation.Phase
 
     let viewModel: RecordingOverlayViewModel
+    @Published private(set) var phase = Phase.idle
+    /// When Stop was pressed (seconds from the press of Get Started), if it was.
+    private(set) var stoppedAt: TimeInterval?
+    /// How far it has played, on its clock (seconds from the press of Get Started).
+    private(set) var time: TimeInterval = 0
+    /// Get Started was pressed (the recorder shows).
+    private(set) var hasStarted = false
     private let levels = PassthroughSubject<Float, Never>()
     private var timer: Timer?
-    private var startDate: Date?
-    private(set) var phase = Phase.idle
-    var isFrozen: Bool { phase == .frozen }
+    /// Time 0 of its clock while it plays.
+    private var clockStart: Date?
+
+    /// The veil with Replay shows.
+    var showsReplay: Bool { phase == .ended }
+    /// Stop ends the recording, also in the moment it waits at 0:00 (the pointer over the
+    /// recorder shows Stop then too, as in the real one while recording).
+    var canStop: Bool { hasStarted && stoppedAt == nil && (phase == .idle || phase == .recording) }
+    /// Its clock runs (none once the veil shows).
+    var isPlaying: Bool { timer != nil }
 
     init() {
         viewModel = RecordingOverlayViewModel()
-        viewModel.state = .recording
         viewModel.showsCardWhileEmpty = true
+        showIdle()
+    }
+
+    /// Start at the press of Get Started (time 0 of `WelcomeDictation`). Starts once. With
+    /// Reduce Motion nothing plays by itself: the end shows at once (the pasted card under the
+    /// veil), and Replay plays it.
+    func start(reduceMotion: Bool) {
+        guard !hasStarted else { return }
+        hasStarted = true
+        if reduceMotion {
+            showEnd()
+        } else {
+            play(from: 0)
+        }
+    }
+
+    /// Replay: the whole flow again, from the start of the recording (0:00, no text).
+    func replay() {
+        guard phase == .ended else { return }
+        showIdle()
+        hasStarted = true
+        play(from: WelcomeDictation.recordingStarts)
+    }
+
+    /// Stop: the recording ends now, then Transcribing, Pasted and the veil, as when it ends by
+    /// itself.
+    func stopRecording() {
+        guard canStop else { return }
+        let now = currentTime()
+        stoppedAt = now
+        advance(to: now)
+    }
+
+    /// Plays up to `time` (its clock calls it every 20 ms; tests call it directly).
+    func advance(to time: TimeInterval) {
+        self.time = time
+        let next = WelcomeDictation.phase(at: time, stoppedAt: stoppedAt)
+        if next != phase { enter(next) }
+        if next == .recording { levels.send(WelcomeDictation.level(at: time)) }
+        if next == .idle || next == .recording { showLive(at: time) }
+    }
+
+    /// The end at once (Reduce Motion, or the page gone): the pasted card under the veil.
+    func showEnd() {
+        stopClock()
+        advance(to: max(time, WelcomeDictation.endsAt(stoppedAt: stoppedAt)))
+    }
+
+    /// The page went away: stop playing; a dictation under way rests on its end, so the page
+    /// shown again offers Replay.
+    func stop() {
+        stopClock()
+        if hasStarted && phase != .ended { showEnd() }
+    }
+
+    /// A still moment (renders): `time` seconds from the press of Get Started, Stop pressed at
+    /// `stoppedAt`, the waveform as the live demo draws it then (the sweep wherever the render
+    /// catches it).
+    func showStill(at time: TimeInterval, stoppedAt: TimeInterval? = nil) {
+        showIdle()
+        hasStarted = true
+        self.stoppedAt = stoppedAt
+        advance(to: time)
+        switch phase {
+        case .recording:
+            viewModel.waveform.freeze(with: WelcomeDictation.history(until: time))
+        case .transcribing:
+            let end = WelcomeDictation.recordingEnd(stoppedAt: stoppedAt)
+            viewModel.waveform.markStopped(at: Date().addingTimeInterval(end - time))
+        case .idle, .pasted, .ended:
+            break
+        }
+    }
+
+    // MARK: Steps
+
+    private func enter(_ next: Phase) {
+        switch next {
+        case .idle:
+            break
+        case .recording:
+            viewModel.waveform.start(levels: levels)
+            viewModel.isPaused = false
+        case .transcribing:
+            showLive(at: WelcomeDictation.recordingEnd(stoppedAt: stoppedAt))
+            // Stopped before the recording started: the waveform was still frozen.
+            if viewModel.waveform.isStatic { viewModel.waveform.start(levels: levels) }
+            viewModel.waveform.markStopped()
+            viewModel.isPaused = false
+            viewModel.state = .loading
+        case .pasted:
+            showPasted()
+        case .ended:
+            if phase != .pasted { showPasted() }
+            stopClock()
+        }
+        phase = next
+    }
+
+    /// 0:00, no text, paused, a flat still waveform: before the recording, and before a replay.
+    private func showIdle() {
+        stopClock()
+        stoppedAt = nil
+        time = 0
+        viewModel.state = .recording
         viewModel.transcript = LiveTranscript()
         viewModel.elapsedSeconds = 0
         viewModel.isPaused = true
         // Flat and still (no per-frame timeline) until the recording starts.
         viewModel.waveform.freeze(with: LevelHistory())
+        phase = .idle
     }
 
-    /// Start at the press of Get Started (time 0 of `WelcomeDictation`). With Reduce Motion the
-    /// resting frame shows at once. Starts once.
-    func start(reduceMotion: Bool) {
-        guard startDate == nil, !isFrozen else { return }
-        if reduceMotion {
-            showFrozen()
-            return
+    /// The timer and the live words at `time`.
+    private func showLive(at time: TimeInterval) {
+        let seconds = WelcomeDictation.elapsedSeconds(at: time, stoppedAt: stoppedAt)
+        if viewModel.elapsedSeconds != seconds { viewModel.elapsedSeconds = seconds }
+        let text = WelcomeDictation.text(at: time, stoppedAt: stoppedAt)
+        if viewModel.transcript?.stableText != text.stable || viewModel.transcript?.volatileText != text.volatile {
+            viewModel.transcript = LiveTranscript(stable: text.stable, volatile: text.volatile)
         }
-        startDate = Date()
+    }
+
+    /// "Pasted" with the check, and the final text, all settled.
+    private func showPasted() {
+        viewModel.waveform.stop()
+        viewModel.isPaused = false
+        viewModel.elapsedSeconds = WelcomeDictation.elapsedSeconds(
+            at: WelcomeDictation.recordingEnd(stoppedAt: stoppedAt), stoppedAt: stoppedAt)
+        var transcript = LiveTranscript()
+        transcript.finalize(WelcomeDictation.finalText(stoppedAt: stoppedAt))
+        viewModel.transcript = transcript
+        viewModel.state = .finished(.pasted)
+    }
+
+    // MARK: Clock
+
+    private func play(from time: TimeInterval) {
+        stopClock()
+        clockStart = Date().addingTimeInterval(-time)
         let timer = Timer(timeInterval: WelcomeDictation.levelInterval, repeats: true) { [weak self] timer in
             // The demo is gone (window closed): stop firing.
             guard let self else {
                 timer.invalidate()
                 return
             }
-            MainActor.assumeIsolated { self.tick(at: Date()) }
+            MainActor.assumeIsolated { self.advance(to: self.currentTime()) }
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+        advance(to: time)
     }
 
-    /// Advances the demo to `time` seconds after the press of Get Started (the timer calls it
-    /// every 20 ms; tests call it directly).
-    func advance(to time: TimeInterval) {
-        guard !isFrozen, time >= WelcomeDictation.recordingStarts else { return }
-        if time >= WelcomeDictation.freezeTime {
-            showFrozen()
-            return
-        }
-        if phase == .idle {
-            phase = .recording
-            viewModel.waveform.start(levels: levels)
-            viewModel.isPaused = false
-        }
-        levels.send(WelcomeDictation.level(at: time))
-        show(at: time)
+    private func currentTime() -> TimeInterval {
+        clockStart.map { Date().timeIntervalSince($0) } ?? time
     }
 
-    private func tick(at date: Date) {
-        guard let startDate else { return }
-        advance(to: date.timeIntervalSince(startDate))
-    }
-
-    /// The frame the welcome rests on, paused: the sentence on up to three lines, the last
-    /// words dimmer, a steady caret, a still capsule and waveform, 0:05.
-    func showFrozen() {
+    private func stopClock() {
         timer?.invalidate()
         timer = nil
-        // Live bars as they are when it ran; computed the same way when it never ran.
-        viewModel.waveform.freeze(with: phase == .recording ? nil : WelcomeDictation.frozenHistory())
-        phase = .frozen
-        show(at: WelcomeDictation.freezeTime)
-        viewModel.isPaused = true
-        // Redraw now: the still waveform no longer needs its per-frame timeline.
-        viewModel.objectWillChange.send()
-    }
-
-    /// The page went away: stop feeding the recorder.
-    func stop() {
-        timer?.invalidate()
-        timer = nil
-        if phase == .recording { viewModel.waveform.stop() }
-    }
-
-    private func show(at time: TimeInterval) {
-        let seconds = WelcomeDictation.elapsedSeconds(at: time)
-        if viewModel.elapsedSeconds != seconds { viewModel.elapsedSeconds = seconds }
-        let text = WelcomeDictation.text(at: time)
-        if viewModel.transcript?.stableText != text.stable || viewModel.transcript?.volatileText != text.volatile {
-            viewModel.transcript = LiveTranscript(stable: text.stable, volatile: text.volatile)
-        }
+        clockStart = nil
     }
 }

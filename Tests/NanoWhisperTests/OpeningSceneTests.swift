@@ -32,7 +32,7 @@ struct OpeningSceneTests {
         #expect(Self.close(Times.titleMomentEnds, 2.7))
         #expect(Self.close(Times.buttonPressable, 1.83))
         #expect(Self.close(Times.recordingStarts, 0.825))
-        #expect(Self.close(Times.freeze, 3.825))
+        #expect(Self.close(Times.recordingEnds, 5.125))
         #expect(Self.close(Times.sceneSettles, 1.4))
         #expect(WelcomeDictation.recordingStarts == Times.recordingStarts, "the recorder's clock is the press")
     }

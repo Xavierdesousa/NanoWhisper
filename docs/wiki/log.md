@@ -5,6 +5,15 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-21
 
+- **The welcome's recorder plays a whole dictation; History's place** (`feat/welcome-demo-flow`):
+  the demo records 4.3 s (0:00 → 0:04) at 2.6 words/s with a waveform that follows the words
+  ("So the plan for this week is the payment flow."), then the real Transcribing (0.8 s) and
+  Pasted (0.35 s) states, then a grey veil with Replay (from 0:00, any number of times); Stop
+  shows under the pointer anywhere over the card and ends it at once; Reduce Motion shows the
+  end with Replay; nothing moves under the veil (0 % CPU). The history caption says "Open it
+  from the menu bar icon." (setup page and Settings › General). Measured long dictation added
+  (570.8 s in 1.78 s, 321×). Pages: onboarding-and-settings, transcription-engines, testing
+  (hover in tests), log.
 - **Measured speed on real dictations** (`docs/measured-speed`): median 126×, best 327× real time,
   median 0.19 s (Parakeet Ultra, M3 Pro). In [transcription-engines](transcription-engines.md#measured-speed-on-real-dictations-2026-11-21).
 - **Opening scene, light recorder, theme, debug-only Open Onboarding**

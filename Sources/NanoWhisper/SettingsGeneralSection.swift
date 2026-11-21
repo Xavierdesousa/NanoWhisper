@@ -6,7 +6,8 @@ enum SettingsText {
     static let sounds = "Play a sound when recording starts and stops"
     static let pauseMedia = "Pause music and videos while recording"
     static let keepHistory = "Keep a history of what you dictate"
-    static let keepHistoryCaption = "Encrypted, stays on this Mac."
+    /// Also says where History opens: people did not find it (maintainer, 2026-11-21).
+    static let keepHistoryCaption = "Encrypted, stays on this Mac. Open it from the menu bar icon."
     static let historyUnavailable = "History is unavailable: the encryption key could not be accessed."
     static let keepLast = "Keep the last"
 
