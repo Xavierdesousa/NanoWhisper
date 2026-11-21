@@ -242,7 +242,8 @@ becomes a check, the fade-up, `InlineShortcutText`).
     downloaded is checked at once, even while it loads); a warning, the error and Try Again when
     setup failed; during a migration's switchover, the new model's ring and "<previous> stays in
     use until it is ready.". **Change…** is hidden (opacity 0) until the pointer is over the row
-    or the button has keyboard focus; it opens `ModelChoiceSheet`: the same `EngineChoiceSection`
+    or the button has keyboard focus (VoiceOver also gets it as an action of the row, not
+    verified); it opens `ModelChoiceSheet`: the same `EngineChoiceSection`
     as Settings › Engine (engines, versions, comparison, status, apply row with the draft rule),
     with Done. A draft not applied is dropped on Done, as when Settings closes.
   - *Dictation*: `ShortcutRecorderRow(isCompact: true)`: the title, the key caps and Change… (the

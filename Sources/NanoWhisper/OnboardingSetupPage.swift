@@ -224,6 +224,8 @@ struct ModelChecklistRow: View {
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         .animation(.easeOut(duration: 0.15), value: showsChange)
+        // Change… is invisible until hovered or focused: VoiceOver reaches it as an action too.
+        .accessibilityAction(named: Text(OnboardingText.change), onChange)
     }
 
     @ViewBuilder
