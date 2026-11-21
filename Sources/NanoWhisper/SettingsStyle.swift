@@ -29,9 +29,9 @@ enum GroupedStyle {
                 blue: CGFloat(value & 0xFF) / 255, alpha: 1)
     }
 
-    /// Behind the cards: the system window background, as in Finder's and Apple's own settings
-    /// windows (maintainer, 2026-11-21: "use Finder's colours").
-    static let windowNSColor = NSColor.windowBackgroundColor
+    /// Behind the cards: Finder's settings window, sampled on macOS 27 (dark #292929); light keeps
+    /// the system window background (maintainer, 2026-11-21: "use Finder's colours").
+    static let windowNSColor = dynamic("nwGroupedWindow", light: .windowBackgroundColor, dark: hex(0x292929))
     static let window = Color(nsColor: windowNSColor)
     /// A card: white / #2A2A2D.
     static let card = Color(nsColor: dynamic("nwGroupedCard", light: .white, dark: hex(0x2A2A2D)))

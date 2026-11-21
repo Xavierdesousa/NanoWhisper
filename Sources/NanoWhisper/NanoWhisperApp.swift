@@ -16,6 +16,12 @@ struct NanoWhisperApp: App {
         // own controller (`SettingsWindowController`). This empty scene only gives the app a
         // Scene; its "Settings…" command (app menu, shown while onboarding puts the app in
         // the Dock) opens the real Settings window instead.
+        // A hidden menu bar extra comes first: with `Settings` as its only scene, SwiftUI opened
+        // that scene's empty window at every launch (a blank "NanoWhisper Settings" window, seen
+        // 2026-11-21). Never inserted: the real status item is `MenuBarController`'s.
+        MenuBarExtra("NanoWhisper", systemImage: "mic", isInserted: .constant(false)) {
+            EmptyView()
+        }
         Settings {
             EmptyView()
         }
