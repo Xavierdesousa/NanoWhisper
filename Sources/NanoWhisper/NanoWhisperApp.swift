@@ -49,6 +49,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Finish Setup: the menu bar takes over, with the "After setup" popover.
         appState.onOnboardingFinished = { [weak menuBar] in menuBar?.showOnboardingHandoff() }
 
+        // Debug builds: `--show-handoff` shows the end-of-onboarding popover without going
+        // through onboarding.
+        if MenuBarHandoff.isRequestedAtLaunch(arguments: CommandLine.arguments, flavor: .current) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                menuBar.showOnboardingHandoff()
+            }
+        }
+
         // On first launch, or with `--onboarding` / `--reset-onboarding`. A short delay lets
         // the app finish launching.
         if showsOnboarding {

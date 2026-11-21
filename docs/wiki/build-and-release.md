@@ -30,7 +30,7 @@ Everything that could collide is derived from it.
 | Bundle | `NanoWhisper.app` | `NanoWhisper Debug.app` |
 | Bundle id | `com.moonji.nanowhisper` | `com.moonji.nanowhisper.debug` |
 | Executable | `NanoWhisper` | `NanoWhisperDebug` (≤ 16 chars, so `pkill -x` matches exactly) |
-| Built by | release workflow, `make ci` / `release` / `notarize` / `publish` | `make app`, `make onboarding`, `make run` (unbundled) |
+| Built by | release workflow, `make ci` / `release` / `notarize` / `publish` | `make app`, `make onboarding`, `make handoff`, `make run` (unbundled) |
 | Default hotkey | ⌥Space | ⌃⌥Space (`BuildFlavor.defaultShortcut`; Carbon hotkeys are system-wide) |
 | History folder | `Application Support/NanoWhisper` | `Application Support/NanoWhisper Debug` |
 | Temp recordings | `nanowhisper_*.wav` | `nanowhisper-debug_*.wav` |

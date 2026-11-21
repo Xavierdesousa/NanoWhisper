@@ -245,6 +245,27 @@ struct ViewRenderTests {
         }
     }
 
+    // MARK: - End of onboarding (menu bar handoff)
+
+    @Test("Handoff popover content, light and dark")
+    func handoffPopover() throws {
+        let downloading = EngineState(isSettingUp: true, progressText: "Downloading model (48%)...")
+        let cases: [(String, MenuBarHandoff.Popover, EngineState)] = [
+            ("setup-done", .setupDone, Fixtures.ready),
+            ("setup-done-downloading", .setupDone, downloading),
+            ("model-ready", .modelReady, Fixtures.ready),
+        ]
+        for (name, popover, engine) in cases {
+            let message = try #require(HandoffMessage.make(
+                popover, appName: "NanoWhisper", modelName: "Parakeet Ultra", engine: engine,
+                shortcut: MenuFixtures.shortcut, recorderPosition: .topCenter
+            ))
+            let preview = HandoffPopoverPreview(message: message)
+            try render(preview, "handoff-\(name)")
+            try render(preview, "handoff-\(name)-dark", appearance: .darkAqua)
+        }
+    }
+
     // MARK: - Settings helpers
 
     /// The real Settings window (toolbar, title, size) around fixture panes, captured with its

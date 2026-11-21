@@ -5,6 +5,14 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-20
 
+- **End of onboarding: the menu bar takes over** (`feat/menu-bar-handoff`): the approved board's
+  popovers under the status item. `MenuBarController.showOnboardingHandoff()` (called by
+  onboarding's Finish Setup) shows "NanoWhisper is in the menu bar" with the real shortcut and
+  recorder position, or the download state; one more "<model> is ready" popover if it was not
+  ready. `NSPopover`, `.applicationDefined`, closed on OK, Escape, a click elsewhere or the menu
+  opening; never activates the app; OK in the system accent. Debug-only `--show-handoff`
+  (`make handoff`). Gotchas recorded: size an `NSPopover` before showing it, popovers invisible
+  to AX from outside.
 - **Overlay, menu and stop tail, tuned live with the maintainer** (`feat/overlay-menu-tweaks`):
   overlay surface black 90 % with a soft violet inner shadow instead of a rim, no window shadow,
   Stop as an SF Symbol, a clearly visible pulse on the record capsule; waveform levels in dB every

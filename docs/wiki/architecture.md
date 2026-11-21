@@ -1,6 +1,7 @@
 # Architecture and recording pipeline
 
 Last verified against the code: 2026-11-20 (`chore/cleanup`, on top of `main` at 935e191); the
+handoff popover (Menu bar menu) against `feat/menu-bar-handoff` (on `main` at 334980e); the
 Recording overlay section on 2026-11-20 against `feat/voice-note-overlay` (on `main` at 43c1f2d)
 and again against `feat/redesign-feedback` (on `main` at d6320b5);
 the recorder (Recording pipeline, Stopping the recorder) on 2026-11-20 against
@@ -78,6 +79,43 @@ text button, so it cannot draw the download bar or the shortcut as key caps.
   lines; an `NSMenu` cannot be drawn offscreen): alignment of the view-based items with native
   ones, their highlight and click, Return on a highlighted view-based item, live updates of the
   bar while the menu is open, VoiceOver.
+
+### End of onboarding: the handoff popover
+
+Design: the same board's three popovers ("Done, model ready", "Done while the model downloads",
+"Ready, later") and the last step of the `onb3-proto` prototype (approved 2026-11-20).
+Behavior and wording: [onboarding-and-settings.md](onboarding-and-settings.md#end-of-onboarding-the-menu-bar-takes-over).
+
+- **Entry point:** `MenuBarController.showOnboardingHandoff()`, called by onboarding's Finish
+  Setup (`AppDelegate.menuBar` exposes the controller). It waits `MenuBarHandoff.showDelay`
+  (0.35 s) so the popover appears once the window has gone, then shows the popover.
+- **State is pure** (`MenuBarHandoff`, `MenuBarHandoff.swift`, tested in `MenuBarHandoffTests`):
+  `popover` is `.none`, `.setupDone` or `.modelReady`; `announcesReady` remembers that the model
+  was not ready at Finish Setup, so one more popover says when it is (`engineChanged`). The text
+  is `HandoffMessage.make(...)` from the live `EngineState`, shortcut and recorder position, so an
+  open popover follows a download's percentage. The controller re-evaluates both on every
+  `AppState` change.
+- **`NSPopover` with `.applicationDefined` behavior**, closed only by the controller: on OK,
+  Escape (`cancelOperation`), a click anywhere else (a global mouse-down monitor for other apps,
+  a local one for NanoWhisper's own windows and the status item) and `menuWillOpen`. Rejected:
+  `.transient`, which also closes when the app resigns active (it does as the onboarding window
+  goes) and watches clicks only while NanoWhisper is active. Global mouse monitors need no
+  permission (only key monitors need Accessibility).
+- **Never activates the app.** The popover is at the status bar level and shows while another
+  app is active; the status button stays highlighted while it is open. Its window is never key,
+  so a native `.borderedProminent` OK is drawn gray (inactive look): OK uses
+  `AccentButtonStyle` (system accent fill) instead. `HostingView.acceptsFirstMouse` is true so
+  a click on OK lands without first activating the app.
+- **Gotcha: size the popover before showing it.** `NSPopover` places itself with its current
+  `contentSize` (320 × 320 by default) and, when the content is smaller, shrinks keeping its
+  bottom edge: the popover stood ~160 pt below the status item. `HandoffPopoverController
+  .makePopover()` sets `contentSize` from the hosting view's fitting size first (measured in
+  `HandoffPopoverWindowTests`).
+- **Gotcha: the popover is invisible to the Accessibility API and to `CGWindowListCopyWindowInfo`
+  from another process** (macOS 27.2, debug app): no `AXWindow`, no `AXPopover` under the menu
+  extra. Its placement was checked through the app's own log (category `MenuBar`, info level:
+  "Handoff popover shown … popover {{x, y}, {w, h}} under item …" and "dismissed: <reason>").
+- Debug builds only: `--show-handoff` (`make handoff`) shows it about a second after launch.
 
 ## Recording pipeline (today)
 

@@ -1,4 +1,4 @@
-.PHONY: build app onboarding debug-bundle prod-bundle ci clean run notarize release release-zip-name publish test
+.PHONY: build app onboarding handoff debug-bundle prod-bundle ci clean run notarize release release-zip-name publish test
 
 # Two flavors are built from the same executable and can run side by side:
 #   production  NanoWhisper.app        com.moonji.nanowhisper        (ci, release, notarize, publish)
@@ -101,6 +101,14 @@ onboarding: debug-bundle
 	for i in $$(seq 50); do pgrep -x $(DEBUG_EXECUTABLE) >/dev/null || break; sleep 0.1; done
 	@open "$(DEBUG_APP)" --args --onboarding
 	@echo "Done! $(DEBUG_APP) ($(GIT_COMMIT)) launched with --onboarding."
+
+# Same as `app`, launched with --show-handoff: the end-of-onboarding popover appears under
+# the status item about a second after launch (debug builds only; nothing else changes).
+handoff: debug-bundle
+	@pkill -x $(DEBUG_EXECUTABLE) 2>/dev/null; \
+	for i in $$(seq 50); do pgrep -x $(DEBUG_EXECUTABLE) >/dev/null || break; sleep 0.1; done
+	@open "$(DEBUG_APP)" --args --show-handoff
+	@echo "Done! $(DEBUG_APP) ($(GIT_COMMIT)) launched with --show-handoff."
 
 # CI build: production bundle, no launch (GitHub Actions)
 ci: prod-bundle

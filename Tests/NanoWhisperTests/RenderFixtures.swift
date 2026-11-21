@@ -218,3 +218,17 @@ struct MenuPreview: View {
         }
     }
 }
+
+/// The handoff popover's content in an approximation of the popover's bubble (an `NSPopover`
+/// cannot be drawn offscreen; `HandoffPopoverWindowTests` captures the real one).
+struct HandoffPopoverPreview: View {
+    let message: HandoffMessage
+
+    var body: some View {
+        HandoffPopoverView(message: message, onOK: {})
+            .background(RoundedRectangle(cornerRadius: 11).fill(Color(nsColor: .windowBackgroundColor)))
+            .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(.separator))
+            .padding(16)
+            .background(Color(nsColor: .underPageBackgroundColor))
+    }
+}
