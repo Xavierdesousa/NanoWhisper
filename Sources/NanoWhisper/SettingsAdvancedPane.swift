@@ -112,7 +112,7 @@ struct AdvancedPane: View {
             SettingsSection("Debug") {
                 SettingsToggle(
                     title: "Show debug info in history",
-                    caption: "Audio length, transcription time and speed next to each entry.",
+                    caption: "The model, audio length, transcription time and speed of each dictation, in the History window.",
                     isOn: $debugMode
                 )
                 .settingsRow()

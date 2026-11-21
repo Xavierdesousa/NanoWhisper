@@ -18,8 +18,6 @@ struct MenuState: Equatable {
     var isTranscribing: Bool
     var lastError: String?
     var update: UpdateStatus.State
-    var historyEnabled: Bool
-    var historyUnavailable: Bool
 }
 
 /// What a menu item does.
@@ -115,8 +113,9 @@ enum MenuContent {
         }
 
         lines.append(.separator)
-        lines.append(.action(.showHistory, title: historyTitle(state),
-                             isEnabled: state.historyEnabled && !state.historyUnavailable))
+        // Always enabled (2026-11-21): the window itself explains history off, unavailable
+        // or empty.
+        lines.append(.action(.showHistory, title: "History…"))
         lines.append(.action(.showSettings, title: "Settings…", keyEquivalent: ","))
         lines.append(.separator)
         lines.append(.action(.quit, title: "Quit \(state.appName)", keyEquivalent: "q"))
@@ -182,10 +181,5 @@ enum MenuContent {
         if !state.microphoneGranted { return "Microphone is off" }
         if !state.accessibilityGranted { return "Accessibility is off" }
         return nil
-    }
-
-    static func historyTitle(_ state: MenuState) -> String {
-        if state.historyUnavailable { return "History (unavailable)" }
-        return state.historyEnabled ? "History…" : "History (disabled)"
     }
 }

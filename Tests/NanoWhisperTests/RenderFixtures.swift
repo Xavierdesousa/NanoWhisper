@@ -94,7 +94,7 @@ enum MenuFixtures {
             engine: EngineState(isReady: true, setupComplete: true, progressText: "Setup complete!"),
             modelName: "Parakeet Ultra", modelSize: "~630 MB",
             isRecording: false, isTranscribing: false, lastError: nil,
-            update: .upToDate(lastChecked: nil), historyEnabled: true, historyUnavailable: false
+            update: .upToDate(lastChecked: nil)
         )
         change(&state)
         return state
@@ -141,8 +141,6 @@ enum MenuFixtures {
             }),
             ("update-available", state { $0.update = .available(version: "0.0.7") }),
             ("update-downloading", state { $0.update = .downloading(version: "0.0.7", progress: 0.3) }),
-            ("history-disabled", state { $0.historyEnabled = false }),
-            ("history-unavailable", state { $0.historyUnavailable = true }),
         ]
     }
 }

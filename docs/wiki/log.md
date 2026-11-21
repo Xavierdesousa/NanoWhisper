@@ -5,6 +5,18 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-21
 
+- **History window, "List and detail"** (`feat/history-redesign`): a Notes-like split (list by
+  day, the dictation in full, toolbar Copy · Delete · search), 880 × 580 pt (min 640 × 420). Copy
+  only copies (never pastes), "Copied" 1.5 s; Delete with an Undo capsule and ⌘Z; Clear All
+  with an alert; search with highlights and "No Results"; shortcuts taught by tooltips, the
+  context menu and the empty detail, and handled by the window itself (no Edit menu, no Dock
+  icon; checked with keys posted to a harness app). History… always enabled; the window explains
+  empty, off and unavailable. Footer Change… opens Settings › General (`showSettings(pane:)`).
+  Data: default kept count 25 (was 15); turning history off deletes it after an alert; a file
+  kept while history was off is deleted once, silently, at the first launch after the update;
+  debug info stores the model and Whisper's language (old entries load without them);
+  Settings › Advanced caption corrected. Debug builds: `--history-sample`.
+  [architecture.md](architecture.md#history-window).
 - **Try it result in a serif** (`feat/try-it-serif`): the transcribed words use New York (system serif,
   21 pt), like a quotation, at the maintainer's request.
 - **Finder's colors, the app in the macOS 26+ design** (`fix/welcome-faster`): the app's binary

@@ -20,6 +20,22 @@ views (below).
 | Microphone, Accessibility with live status | Permissions (`PermissionsPane`, `SettingsPermissionsSection.swift`) | Setup page, "Getting ready" (`PermissionChecklistRow`) |
 | Updates, "Show debug info in history", "Show Onboarding Again…" | Advanced (`AdvancedPane`, `UpdateStatus`, `SettingsAdvancedPane.swift`) | — |
 
+**History switch (2026-11-21):** turning "Keep a history of what you dictate" off, in Settings
+or onboarding, with dictations kept first asks "Turn off history and delete it?" (Turn Off and
+Delete / Cancel); confirmed, the history is deleted and turned off; Cancel leaves it on; with
+nothing kept there is no alert. `SettingsContext.historyEnabled`'s setter calls
+`AppState.setHistoryEnabled(_:)`, so neither view changed. "Keep the last" defaults to 25 (was
+15). Details: [architecture.md](architecture.md#history-storage).
+
+**Opening Settings on a pane:** `AppState.showSettings(pane:)` (History's "Change…" opens General,
+where the kept count is set); without a pane it reopens the last one. An open window switches
+pane.
+
+**Advanced caption (2026-11-21):** "Show debug info in history" says "The model, audio length,
+transcription time and speed of each dictation, in the History window." (it said "next to each
+entry", and the board's "Engine, timings and audio details" named no model; the model is now
+stored, see [architecture.md](architecture.md#history-storage)).
+
 The Advanced "Debug" group exists in both builds; it is unrelated to the debug **build
 flavor** ([build-and-release.md](build-and-release.md)).
 
@@ -422,6 +438,7 @@ e.g. "⌥ Space"; the position from Settings › Recorder):
 | `--onboarding` launch argument (`make onboarding` for the debug app) | Shows onboarding at launch even if completed; settings kept. |
 | `--reset-onboarding` | Clears only the `onboardingComplete` flag (before `AppState` reads it). |
 | `--show-handoff` (debug builds only; `make handoff`) | Shows the end-of-onboarding popover about a second after launch; nothing else changes. Parsed by `MenuBarHandoff.isRequestedAtLaunch`, not `LaunchOptions`. |
+| `--history-sample` (debug builds only) | Not a replay: opens only the History window with invented dictations, nothing else starts ([architecture.md](architecture.md#history-window)). Parsed by `HistorySample.isRequestedAtLaunch`. |
 
 The first three are parsed by `LaunchOptions` (`OnboardingFlow.swift`); unknown arguments are ignored. A replay never
 re-downloads anything unless the user applies another model.

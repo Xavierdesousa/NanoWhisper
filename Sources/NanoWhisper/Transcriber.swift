@@ -70,11 +70,18 @@ actor WhisperEngine {
         try await transcribe(.path(audioPath), options: options, prompt: prompt).text
     }
 
+    /// Like `transcribe(audioPath:options:prompt:)`, with the language Whisper transcribed in
+    /// (its code, "fr"; detected unless `options` set it), for History's debug info.
+    func transcribeWithLanguage(audioPath: String, options: DecodingOptions, prompt: String? = nil) async throws -> (text: String, language: String?) {
+        let result = try await transcribe(.path(audioPath), options: options, prompt: prompt)
+        return (result.text, result.language)
+    }
+
     /// Transcribe 16 kHz mono samples (live preview of a recording in progress), like
     /// `transcribe(audioPath:options:prompt:)`, with the timed segments. Stops early when the
     /// calling task is cancelled.
     func transcribePreview(audioArray: [Float], options: DecodingOptions, prompt: String? = nil) async throws -> Transcriber.PreviewResult {
-        let (text, pieces) = try await transcribe(.samples(audioArray), options: options, prompt: prompt)
+        let (text, pieces, _) = try await transcribe(.samples(audioArray), options: options, prompt: prompt)
         return Transcriber.PreviewResult(text: text, pieces: pieces)
     }
 
@@ -85,7 +92,7 @@ actor WhisperEngine {
 
     private func transcribe(
         _ audio: Audio, options: DecodingOptions, prompt: String?
-    ) async throws -> (text: String, pieces: [Transcriber.TimedText]) {
+    ) async throws -> (text: String, pieces: [Transcriber.TimedText], language: String?) {
         await gate.acquire()
         do {
             let result = try await transcribeNow(audio, options: options, prompt: prompt)
@@ -100,7 +107,7 @@ actor WhisperEngine {
     /// Must only run while holding `gate`.
     private func transcribeNow(
         _ audio: Audio, options: DecodingOptions, prompt: String?
-    ) async throws -> (text: String, pieces: [Transcriber.TimedText]) {
+    ) async throws -> (text: String, pieces: [Transcriber.TimedText], language: String?) {
         var options = options
         if let prompt, let tokenizer = kit.tokenizer,
            let tokens = Self.promptTokens(
@@ -124,7 +131,8 @@ actor WhisperEngine {
             guard !text.isEmpty else { return nil }
             return Transcriber.TimedText(text: text, start: Double(segment.start), end: Double(segment.end))
         }
-        return (text, pieces)
+        let language = results.first.map(\.language).flatMap { $0.isEmpty ? nil : $0 }
+        return (text, pieces, language)
     }
 
     /// Segment text without Whisper's special tokens (`<|0.00|>`, `<|en|>`…).
@@ -158,6 +166,8 @@ class Transcriber {
     private var whisperSettings: WhisperSettings?
     /// Models behind `asrManager` (for live previews), when installed by `initializeParakeet`.
     private var parakeetModels: AsrModels?
+    /// The model of the installed engine, when the caller named it (History's debug info).
+    private var installedModel: SpeechModel?
 
     /// Recordings submitted to `transcribe(audioURL:)` and not finished (queued or running).
     /// Live previews pause while it is non-zero, so they never compete with a final pass.
@@ -201,8 +211,8 @@ class Transcriber {
     /// Load Parakeet models into a new `AsrManager` and install it.
     /// - Returns: `false` when a newer initialization (or a model switch) superseded this one
     ///   while the models were loading; the result is then discarded and nothing changes.
-    func initializeParakeet(models: AsrModels) async throws -> Bool {
-        let installed = try await installParakeet {
+    func initializeParakeet(models: AsrModels, variant: ParakeetVariant? = nil) async throws -> Bool {
+        let installed = try await installParakeet(model: variant.map(SpeechModel.parakeet)) {
             let manager = AsrManager(config: .default)
             try await manager.loadModels(models)
             return manager
@@ -214,7 +224,7 @@ class Transcriber {
     }
 
     /// Install the manager produced by `load` unless a newer initialization started meanwhile.
-    func installParakeet(_ load: () async throws -> AsrManager) async throws -> Bool {
+    func installParakeet(model: SpeechModel? = nil, _ load: () async throws -> AsrManager) async throws -> Bool {
         engineGeneration += 1
         let generation = engineGeneration
         let manager = try await load()
@@ -222,6 +232,7 @@ class Transcriber {
         asrManager = manager
         parakeetModels = nil
         whisperEngine = nil
+        installedModel = model
         return true
     }
 
@@ -232,16 +243,19 @@ class Transcriber {
         let models: AsrModels?
         /// `engineGeneration` when preparation started.
         fileprivate let generation: Int
+        var model: SpeechModel?
     }
 
     /// Load Parakeet models into a new `AsrManager` without installing it; the engine in use
     /// keeps working meanwhile.
-    func prepareParakeet(models: AsrModels) async throws -> PreparedParakeet {
-        try await prepareParakeet(models: models) {
+    func prepareParakeet(models: AsrModels, variant: ParakeetVariant? = nil) async throws -> PreparedParakeet {
+        var prepared = try await prepareParakeet(models: models) {
             let manager = AsrManager(config: .default)
             try await manager.loadModels(models)
             return manager
         }
+        prepared.model = variant.map(SpeechModel.parakeet)
+        return prepared
     }
 
     func prepareParakeet(models: AsrModels?, _ load: () async throws -> AsrManager) async throws -> PreparedParakeet {
@@ -259,17 +273,21 @@ class Transcriber {
         asrManager = prepared.manager
         parakeetModels = prepared.models
         whisperEngine = nil
+        installedModel = prepared.model
         return true
     }
 
     /// Install a loaded Whisper engine. Synchronous, so it cannot be overtaken itself, but it
     /// bumps the generation so a Parakeet initialization still in flight is discarded.
-    func initializeWhisper(engine: WhisperEngine, settings: WhisperSettings) {
+    /// - Parameter size: the size `engine` runs (by default the settings' size; during a
+    ///   switchover the previous size runs while the settings name the new one).
+    func initializeWhisper(engine: WhisperEngine, settings: WhisperSettings, size: WhisperModelSize? = nil) {
         engineGeneration += 1
         self.whisperEngine = engine
         self.whisperSettings = settings
         self.asrManager = nil
         self.parakeetModels = nil
+        self.installedModel = .whisper(size ?? settings.modelSize)
     }
 
     /// Discard any initialization still in flight (called when the user switches models).
@@ -293,6 +311,8 @@ class Transcriber {
 
         let engine: Engine
         let whisperSettings: WhisperSettings?
+        /// The model `engine` runs, if known (History's debug info).
+        var model: SpeechModel? = nil
 
         var asrManager: AsrManager? {
             if case .parakeet(let manager) = engine { return manager }
@@ -310,7 +330,7 @@ class Transcriber {
         } else {
             engine = .none
         }
-        return Configuration(engine: engine, whisperSettings: whisperSettings)
+        return Configuration(engine: engine, whisperSettings: whisperSettings, model: installedModel)
     }
 
     /// Test seam: replaces the actual inference for a queued recording.
@@ -358,9 +378,11 @@ class Transcriber {
     private func transcribe(audioURL: URL, with configuration: Configuration) async -> TranscriptionResult {
         switch configuration.engine {
         case .whisper(let engine):
-            return await transcribeWithWhisper(engine: engine, settings: configuration.whisperSettings, audioURL: audioURL)
+            return await transcribeWithWhisper(
+                engine: engine, settings: configuration.whisperSettings, model: configuration.model, audioURL: audioURL
+            )
         case .parakeet(let manager):
-            return await transcribeWithParakeet(manager: manager, audioURL: audioURL)
+            return await transcribeWithParakeet(manager: manager, model: configuration.model, audioURL: audioURL)
         case .none:
             Self.logger.error("Transcription requested with no engine installed")
             return .failed(.noEngine)
@@ -369,7 +391,7 @@ class Transcriber {
 
     // MARK: - Parakeet
 
-    private func transcribeWithParakeet(manager: AsrManager, audioURL: URL) async -> TranscriptionResult {
+    private func transcribeWithParakeet(manager: AsrManager, model: SpeechModel?, audioURL: URL) async -> TranscriptionResult {
         let audioDuration = Self.audioDuration(url: audioURL)
 
         let t0 = CFAbsoluteTimeGetCurrent()
@@ -384,7 +406,8 @@ class Transcriber {
             let debugInfo = TranscriptionDebugInfo(
                 audioDuration: audioDuration,
                 transcribeDuration: transcribeDuration,
-                rtf: rtf
+                rtf: rtf,
+                model: model?.displayName
             )
             return TranscriptionResult(text: text, debugInfo: debugInfo)
         } catch {
@@ -397,6 +420,7 @@ class Transcriber {
     private func transcribeWithWhisper(
         engine: WhisperEngine,
         settings whisperSettings: WhisperSettings?,
+        model: SpeechModel?,
         audioURL: URL
     ) async -> TranscriptionResult {
         let audioDuration = Self.audioDuration(url: audioURL)
@@ -404,9 +428,10 @@ class Transcriber {
 
         do {
             // The vocabulary hint is tokenized by the engine (it owns the tokenizer).
-            let text = try await engine.transcribe(
+            let options = Self.decodingOptions(for: whisperSettings)
+            let (text, language) = try await engine.transcribeWithLanguage(
                 audioPath: audioURL.path,
-                options: Self.decodingOptions(for: whisperSettings),
+                options: options,
                 prompt: whisperSettings?.promptText
             )
             let transcribeDuration = CFAbsoluteTimeGetCurrent() - t0
@@ -415,7 +440,10 @@ class Transcriber {
             let debugInfo = TranscriptionDebugInfo(
                 audioDuration: audioDuration,
                 transcribeDuration: transcribeDuration,
-                rtf: rtf
+                rtf: rtf,
+                model: model?.displayName,
+                language: language ?? whisperSettings?.language,
+                languageDetected: options.detectLanguage
             )
             return TranscriptionResult(text: text, debugInfo: debugInfo)
         } catch {

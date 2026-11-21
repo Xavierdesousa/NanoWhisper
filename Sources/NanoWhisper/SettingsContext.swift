@@ -325,7 +325,9 @@ extension AppState {
             pauseMediaEnabled: binding(\.pauseMediaEnabled),
             liveTranscriptionEnabled: binding(\.liveTranscriptionEnabled),
             offersLiveTranscription: BuildFlavor.current.supportsLiveTranscription,
-            historyEnabled: binding(\.historyEnabled),
+            // Turning it off with dictations kept asks first (`setHistoryEnabled`).
+            historyEnabled: Binding(get: { [unowned self] in historyEnabled },
+                                    set: { [unowned self] in setHistoryEnabled($0) }),
             historyUnavailable: historyUnavailable,
             maxHistoryCount: binding(\.maxHistoryCount),
             recorderPosition: binding(\.recorderPosition),

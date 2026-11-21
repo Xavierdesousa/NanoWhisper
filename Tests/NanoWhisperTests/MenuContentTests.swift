@@ -11,7 +11,7 @@ struct MenuContentTests {
             engine: EngineState(isReady: true, setupComplete: true, progressText: "Setup complete!"),
             modelName: "Parakeet Ultra", modelSize: "~630 MB",
             isRecording: false, isTranscribing: false, lastError: nil,
-            update: .upToDate(lastChecked: nil), historyEnabled: true, historyUnavailable: false
+            update: .upToDate(lastChecked: nil)
         )
         change(&state)
         return state
@@ -120,7 +120,7 @@ struct MenuContentTests {
         #expect(deferred == [.status("Parakeet TDT 0.6B v3 is ready")])
     }
 
-    @Test("Last error, update available and downloading, history titles, debug header")
+    @Test("Last error, update available and downloading, History always enabled, debug header")
     func otherLines() {
         #expect(lines { $0.lastError = "Empty transcription" }.contains(.status("Empty transcription", tone: .failure)))
         #expect(lines { $0.update = .available(version: "0.0.7") }
@@ -130,8 +130,7 @@ struct MenuContentTests {
         #expect(lines { $0.update = .disabled }.allSatisfy {
             if case .action(.installUpdate, _, _, _, _, _) = $0 { return false }; return true
         })
-        #expect(lines { $0.historyEnabled = false }.contains(.action(.showHistory, title: "History (disabled)", isEnabled: false)))
-        #expect(lines { $0.historyUnavailable = true }.contains(.action(.showHistory, title: "History (unavailable)", isEnabled: false)))
+        #expect(lines().contains(.action(.showHistory, title: "History…")))
         let debug = lines { $0.appName = "NanoWhisper Debug"; $0.debugHeader = "v0.0.6 · abc1234" }
         #expect(Array(debug.prefix(2)) == [.header(title: "NanoWhisper Debug", detail: "v0.0.6 · abc1234"), .separator])
         #expect(debug.last == .action(.quit, title: "Quit NanoWhisper Debug", keyEquivalent: "q"))

@@ -1,230 +1,412 @@
+import AppKit
 import SwiftUI
 
-struct HistoryView: View {
-    @ObservedObject var appState: AppState
-    @State private var showClearConfirm = false
+// The History window's SwiftUI parts: the list (left), the detail (right) and the full-window
+// messages (empty, off, unavailable). The window, toolbar and split are AppKit
+// (`HistoryWindowController`). Design: "History, list and detail" boards (approved 2026-11-21).
+
+// MARK: - Style
+
+enum HistoryStyle {
+    static let listWidth: CGFloat = 300
+    static let listMinWidth: CGFloat = 250
+    static let listMaxWidth: CGFloat = 420
+    static let detailMinWidth: CGFloat = 380
+    static let footerHeight: CGFloat = 34
+    static let detailTextWidth: CGFloat = 540
+
+    /// The find highlight behind a match: yellow at 50 % (light) / 36 % (dark); on a selected
+    /// row (accent behind white text) white at 28 %.
+    static let matchHighlight = Color(nsColor: NSColor(name: "nwHistoryMatch") { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor(srgbRed: 1, green: 214 / 255, blue: 10 / 255, alpha: 0.36)
+            : NSColor(srgbRed: 1, green: 204 / 255, blue: 0, alpha: 0.5)
+    })
+    static let selectedMatchHighlight = Color.white.opacity(0.28)
+
+    /// `text` with every match of `query` on the find highlight.
+    static func highlighted(_ text: String, query: String, on selectedRow: Bool = false) -> AttributedString {
+        var attributed = AttributedString(text)
+        for range in HistorySearch.ranges(of: query, in: text) {
+            guard let lower = AttributedString.Index(range.lowerBound, within: attributed),
+                  let upper = AttributedString.Index(range.upperBound, within: attributed) else { continue }
+            attributed[lower..<upper].backgroundColor = selectedRow ? selectedMatchHighlight : matchHighlight
+        }
+        return attributed
+    }
+}
+
+// MARK: - List
+
+struct HistoryListView: View {
+    @ObservedObject var model: HistoryWindowModel
 
     var body: some View {
         VStack(spacing: 0) {
-            if appState.history.isEmpty {
-                Spacer()
-                VStack(spacing: 10) {
-                    Image(systemName: "text.bubble")
-                        .font(.system(size: 36, weight: .light))
-                        .foregroundColor(.secondary.opacity(0.5))
-                    Text("No transcriptions yet")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-                Spacer()
+            if model.visibleEntries.isEmpty {
+                Text("No Results")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                historyList
-
-                Divider()
-
-                HStack {
-                    Text("\(appState.history.count) transcription\(appState.history.count == 1 ? "" : "s")")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Spacer()
-                    ActionButton(label: "Clear All", icon: "trash", color: .red.opacity(0.8)) {
-                        showClearConfirm = true
-                    }
-                    .alert("Clear History", isPresented: $showClearConfirm) {
-                        Button("Cancel", role: .cancel) {}
-                        Button("Clear All", role: .destructive) {
-                            appState.history.removeAll()
-                        }
-                    } message: {
-                        Text("Are you sure you want to delete all transcriptions? This cannot be undone.")
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                list
             }
+            Rectangle().fill(GroupedStyle.separator).frame(height: 1)
+            HistoryListFooter(model: model)
         }
-        .frame(minWidth: 480, maxWidth: .infinity, minHeight: 300, maxHeight: .infinity)
+        .frame(minWidth: HistoryStyle.listMinWidth)
     }
 
-    private var historyList: some View {
-        List {
-            ForEach(Array(appState.history.enumerated()), id: \.element.id) { index, entry in
-                HistoryRow(entry: entry, showDebug: appState.debugMode, onCopy: {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(entry.text, forType: .string)
-                }, onDelete: {
-                    appState.history.remove(at: index)
-                })
-                .listRowInsets(EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8))
-                .listRowSeparator(.hidden)
+    private var list: some View {
+        List(selection: $model.selection) {
+            // Day titles as plain rows rather than `Section`s: the inset style puts a large gap
+            // and a line under each section header.
+            ForEach(model.sections) { section in
+                Text(section.title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, section.id == model.sections.first?.id ? 0 : 8)
+                    .listRowSeparator(.hidden)
+                    .selectionDisabled()
+                    .accessibilityAddTraits(.isHeader)
+                ForEach(section.entries) { entry in
+                    HistoryRow(entry: entry, query: model.query, now: model.now(), calendar: model.calendar)
+                        .tag(entry.id)
+                        .listRowSeparator(.hidden)
+                }
             }
         }
-        .listStyle(.plain)
+        .listStyle(.inset)
+        .scrollContentBackground(.hidden)
+        .contextMenu(forSelectionType: UUID.self) { ids in
+            if !ids.isEmpty {
+                Button("Copy") { model.copy(ids: ids) }
+                    .keyboardShortcut("c", modifiers: .command)
+                Button("Delete") { model.delete(ids: ids) }
+                    .keyboardShortcut(.delete, modifiers: [])
+                Divider()
+            }
+            Button("Clear All…") { model.requestClearAll() }
+        }
     }
 }
 
 struct HistoryRow: View {
     let entry: HistoryEntry
-    let showDebug: Bool
-    let onCopy: () -> Void
-    let onDelete: () -> Void
-    @State private var copied = false
-    @State private var isHovering = false
+    let query: String
+    let now: Date
+    let calendar: Calendar
+    /// Increased on a selected row with the list focused (accent behind white text).
+    @Environment(\.backgroundProminence) private var prominence
 
-    private static let timeFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm"
-        return f
-    }()
-
-    private static let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.doesRelativeDateFormatting = true
-        f.dateStyle = .medium
-        f.timeStyle = .none
-        return f
-    }()
-
-    @ViewBuilder
-    private func debugInfoView(_ info: TranscriptionDebugInfo) -> some View {
-        HStack(spacing: 12) {
-            if let audio = info.audioDuration, audio > 0 {
-                debugTag("Audio", String(format: "%.1fs", audio))
+    var body: some View {
+        let parts = HistoryText.titleAndPreview(of: entry.text)
+        let selected = prominence == .increased
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(HistoryStyle.highlighted(parts.title, query: query, on: selected))
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(HistoryText.time(entry.date, calendar: calendar))
+                    .font(.system(size: 11))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
             }
-            if let transcribe = info.transcribeDuration {
-                debugTag("Transcribe", String(format: "%.2fs", transcribe))
-            }
-            if let rtf = info.rtf {
-                debugTag("RTF", String(format: "%.2fx", rtf))
+            if !parts.preview.isEmpty {
+                Text(HistoryStyle.highlighted(parts.preview, query: query, on: selected))
+                    .font(.system(size: 12))
+                    .lineSpacing(1)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
             }
         }
-        .padding(6)
-        .background(RoundedRectangle(cornerRadius: 4).fill(Color.blue.opacity(0.06)))
+        .padding(.vertical, 5)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            "\(HistoryText.dayTitle(for: entry.date, now: now, calendar: calendar)) \(HistoryText.time(entry.date, calendar: calendar)), \(parts.title)"
+        )
+    }
+}
+
+/// "Keeps the last 25. Change…" and "Clear All…" under the list ("Last 25." when narrow).
+struct HistoryListFooter: View {
+    @ObservedObject var model: HistoryWindowModel
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            row(HistoryText.keeps(model.settings.keptCount))
+            row(HistoryText.keepsShort(model.settings.keptCount))
+        }
+        .font(.system(size: 11.5))
+        .lineLimit(1)
+        .padding(.horizontal, 14)
+        .frame(height: HistoryStyle.footerHeight)
     }
 
-    private func debugTag(_ label: String, _ value: String) -> some View {
-        HStack(spacing: 3) {
-            Text(label)
-                .foregroundColor(.secondary)
-            Text(value)
-                .foregroundColor(.primary)
+    private func row(_ keeps: String) -> some View {
+        HStack(spacing: 6) {
+            Text(keeps)
+                .foregroundStyle(.secondary)
+                .fixedSize()
+            Button("Change…") { model.openSettings() }
+                .buttonStyle(.link)
+                .fixedSize()
+                .help("Open Settings › General, where the number kept is set")
+            Spacer(minLength: 12)
+            Button("Clear All…") { model.requestClearAll() }
+                .buttonStyle(.link)
+                .fixedSize()
+                .disabled(model.state != .entries)
         }
-        .font(.system(size: 10, design: .monospaced))
     }
+}
+
+// MARK: - Detail
+
+struct HistoryDetailView: View {
+    @ObservedObject var model: HistoryWindowModel
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            if let entry = model.selectedEntry {
+                HistoryEntryDetail(
+                    entry: entry, query: model.query, showsDebugInfo: model.settings.showsDebugInfo,
+                    now: model.now(), calendar: model.calendar
+                )
+                .id(entry.id)
+            } else {
+                HistoryShortcutsHint()
+            }
+            if model.showsUndoToast {
+                HistoryUndoToast(undo: model.undo)
+                    .padding(.bottom, 16)
+                    .transition(.opacity)
+            }
+        }
+        .frame(minWidth: HistoryStyle.detailMinWidth, maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.easeOut(duration: 0.2), value: model.showsUndoToast)
+    }
+}
+
+struct HistoryEntryDetail: View {
+    let entry: HistoryEntry
+    let query: String
+    let showsDebugInfo: Bool
+    let now: Date
+    let calendar: Calendar
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("\(HistoryText.detailDate(for: entry.date, now: now, calendar: calendar)) · \(HistoryText.words(HistoryText.wordCount(entry.text)))")
+                    .font(.system(size: 12))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                Text(HistoryStyle.highlighted(entry.text, query: query))
+                    .font(.system(size: 14.5))
+                    .lineSpacing(5)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: HistoryStyle.detailTextWidth, alignment: .leading)
+                    .padding(.top, 12)
+                if showsDebugInfo, let info = entry.debugInfo {
+                    let rows = HistoryText.debugRows(info)
+                    if !rows.isEmpty {
+                        HistoryDebugCard(rows: rows)
+                            .frame(maxWidth: HistoryStyle.detailTextWidth, alignment: .leading)
+                            .padding(.top, 22)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 34)
+            .padding(.top, 22)
+            .padding(.bottom, 64)
+        }
+    }
+}
+
+/// "Debug info": a card (the shared `groupedCard()`), label and value per row.
+struct HistoryDebugCard: View {
+    let rows: [HistoryText.DebugRow]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // Date header
-            HStack(spacing: 6) {
-                Text(Self.dateFormatter.string(from: entry.date))
-                Text("·")
-                Text(Self.timeFormatter.string(from: entry.date))
-                Spacer()
-            }
-            .font(.system(size: 11))
-            .foregroundColor(.secondary.opacity(0.7))
-
-            // Text content
-            Text(entry.text)
-                .font(.body)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            // Debug info
-            if showDebug, let info = entry.debugInfo {
-                debugInfoView(info)
-            }
-
-            // Actions
-            HStack(spacing: 12) {
-                Spacer()
-
-                ActionButton(
-                    label: copied ? "Copied" : "Copy",
-                    icon: copied ? "checkmark" : "doc.on.doc",
-                    color: copied ? .green : .secondary
-                ) {
-                    onCopy()
-                    copied = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        copied = false
+            Text("Debug info")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 4) {
+                ForEach(rows, id: \.label) { row in
+                    GridRow {
+                        Text(row.label)
+                            .foregroundStyle(.secondary)
+                            .frame(width: 110, alignment: .leading)
+                        Text(row.value)
+                            .textSelection(.enabled)
                     }
                 }
-
-                ActionButton(label: "Delete", icon: "trash", color: .secondary, action: onDelete)
             }
+            .font(.system(size: 12))
+            .monospacedDigit()
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(isHovering ? Color.primary.opacity(0.04) : Color.primary.opacity(0.02))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
-        )
-        .onHover { isHovering = $0 }
+        .padding(.horizontal, 14)
+        .padding(.top, 10)
+        .padding(.bottom, 11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .groupedCard()
+        .accessibilityElement(children: .combine)
     }
 }
 
-struct ActionButton: View {
-    let label: String
-    let icon: String
-    var color: Color = .secondary
-    let action: () -> Void
-    @State private var isHovering = false
+/// Nothing selected: the four shortcuts, in the flat key boxes of Settings.
+struct HistoryShortcutsHint: View {
+    static let shortcuts: [(keys: [ShortcutKey], text: String)] = [
+        ([.init(glyph: "⌘", spokenName: "Command"), .init(glyph: "C", spokenName: "C")], "Copy the selected dictation"),
+        ([.init(glyph: "⌫", spokenName: "Delete")], "Delete it"),
+        ([.init(glyph: "⌘", spokenName: "Command"), .init(glyph: "Z", spokenName: "Z")], "Undo a delete"),
+        ([.init(glyph: "⌘", spokenName: "Command"), .init(glyph: "F", spokenName: "F")], "Search"),
+    ]
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: icon)
-                Text(label)
+        VStack(spacing: 16) {
+            Text("No dictation selected")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                ForEach(Self.shortcuts, id: \.text) { shortcut in
+                    GridRow {
+                        KeyCaps(keys: shortcut.keys)
+                            .gridColumnAlignment(.trailing)
+                        Text(shortcut.text)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(shortcut.keys.map(\.spokenName).joined(separator: " ")): \(shortcut.text)")
+                }
             }
-            .font(.system(size: 11, weight: .medium))
-            .foregroundColor(color)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(isHovering ? Color.primary.opacity(0.08) : Color.clear)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 5))
         }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
-@MainActor
-class HistoryWindowController {
-    private var window: NSWindow?
+/// Key boxes for keys that are not a `Shortcut` (⌘C, ⌫).
+struct KeyCaps: View {
+    let keys: [ShortcutKey]
+    var size: KeyCapSize = .regular
 
-    func show(appState: AppState) {
-        if let w = window {
-            w.collectionBehavior = [.moveToActiveSpace]
-            centerOnCurrentScreen(w)
-            w.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
+    var body: some View {
+        HStack(spacing: size.spacing) {
+            ForEach(Array(keys.enumerated()), id: \.offset) { _, key in
+                KeyCapView(glyph: key.glyph, size: size)
+            }
         }
+        .fixedSize()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(keys.map(\.spokenName).joined(separator: " "))
+    }
+}
 
-        let view = HistoryView(appState: appState)
-        let hostingView = NSHostingView(rootView: view)
+/// "Dictation deleted · Undo ⌘Z", for 5 s after a delete (⌘Z keeps working after it).
+struct HistoryUndoToast: View {
+    let undo: () -> Void
 
-        let w = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 440),
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        w.title = "\(BuildFlavor.current.displayName) — History"
-        w.contentView = hostingView
-        w.contentMinSize = NSSize(width: 380, height: 260)
-        w.isReleasedWhenClosed = false
-        w.isRestorable = false
-        w.collectionBehavior = [.moveToActiveSpace]
-        centerOnCurrentScreen(w)
-        w.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        window = w
+    var body: some View {
+        HStack(spacing: 10) {
+            Text("Dictation deleted")
+            Button(action: undo) {
+                HStack(spacing: 6) {
+                    Text("Undo").fontWeight(.medium)
+                    KeyCaps(keys: [.init(glyph: "⌘", spokenName: "Command"), .init(glyph: "Z", spokenName: "Z")], size: .small)
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 24)
+                .background(Capsule().fill(Color.primary.opacity(0.07)))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Undo")
+        }
+        .font(.system(size: 12.5))
+        .padding(.leading, 14)
+        .padding(.trailing, 5)
+        .frame(height: 34)
+        .background(Capsule().fill(.regularMaterial))
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.14), radius: 9, y: 4)
+        .fixedSize()
+    }
+}
+
+// MARK: - Full-window messages
+
+/// History empty, off, or unavailable: one message instead of the list and detail.
+struct HistoryMessageView: View {
+    @ObservedObject var model: HistoryWindowModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 0) {
+                switch model.state {
+                case .unavailable:
+                    message(symbol: "lock", title: "History can’t be read right now",
+                            text: "It is encrypted with a key from this Mac, and the key could not be read. Nothing was deleted. \(BuildFlavor.current.displayName) tries again the next time it opens; until then, new dictations are not kept.")
+                case .off:
+                    message(symbol: "pause.circle", title: "History is off",
+                            text: "Dictations are pasted but not kept. Turn it on to find them here later, encrypted on this Mac.")
+                    Button("Turn On", action: model.turnOn)
+                        .buttonStyle(.borderedProminent)
+                        .padding(.top, 16)
+                case .empty, .entries:
+                    message(symbol: "clock.arrow.circlepath", title: "No dictations yet",
+                            text: "What you dictate appears here, newest first.")
+                    HStack(spacing: 5) {
+                        Text("Press")
+                        ShortcutKeysView(shortcut: model.settings.shortcut)
+                        Text("in any app to start.")
+                    }
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 10)
+                    .accessibilityElement(children: .combine)
+                }
+            }
+            .padding(.horizontal, 48)
+            .padding(.bottom, 16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if model.state == .empty {
+                Rectangle().fill(GroupedStyle.separator).frame(height: 1)
+                HStack(spacing: 6) {
+                    Text(HistoryText.keeps(model.settings.keptCount))
+                        .foregroundStyle(.secondary)
+                    Button("Change…") { model.openSettings() }
+                        .buttonStyle(.link)
+                    Spacer()
+                }
+                .font(.system(size: 11.5))
+                .padding(.horizontal, 16)
+                .frame(height: 38)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func message(symbol: String, title: String, text: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 40, weight: .light))
+            .foregroundStyle(.tertiary)
+            .padding(.bottom, 14)
+            .accessibilityHidden(true)
+        Text(title)
+            .font(.system(size: 17, weight: .semibold))
+            .multilineTextAlignment(.center)
+        Text(text)
+            .font(.system(size: 13))
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: 380)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 6)
     }
 }

@@ -5,7 +5,8 @@ handoff popover (Menu bar menu) against `feat/menu-bar-handoff` (on `main` at 33
 Recording overlay section on 2026-11-20 against `feat/voice-note-overlay` (on `main` at 43c1f2d)
 and again against `feat/redesign-feedback` (on `main` at d6320b5);
 the recorder (Recording pipeline, Stopping the recorder) on 2026-11-20 against
-`fix/stop-recording-crash` (on `main` at b15be20).
+`fix/stop-recording-crash` (on `main` at b15be20); History (window, storage, debug info) on
+2026-11-21 against `feat/history-redesign` (on `main` at aaac406).
 
 ## What it is
 
@@ -27,12 +28,13 @@ There is no Xcode project and no app sandbox; the bundle is assembled and signed
 | Overlay | `RecordingOverlayController` (`RecordingOverlay.swift`) | Floating panel ("Voice note" design): record capsule, scrolling waveform, timer, result; placed by `RecorderPosition`; follows display changes. See [Recording overlay](#recording-overlay) below. |
 | Model setup | `SetupManager` (`SetupManager.swift`) | Downloads and loads the selected model. See [transcription-engines.md](transcription-engines.md). |
 | Transcription | `Transcriber` (`Transcriber.swift`) | Serial queue of transcriptions over the installed engine. An engine error is logged and returned as `TranscriptionResult.failure`, never as empty text. |
-| History | `HistoryStore` (`HistoryStore.swift`) | Encrypted history file: entries, load/save, max-count trimming, unavailable state. See below. |
+| History | `HistoryStore`, `HistorySettings` (`HistoryStore.swift`) | Encrypted history file: entries, load/save, max-count trimming, unavailable state, deleting everything; the stored settings and the one-time cleanup of a file kept while history was off. See below. |
 | Temp recordings | `TemporaryRecordings` (`TemporaryRecordings.swift`) | Zero-then-delete of a WAV; removal of this build's leftovers at launch. |
 | Paste | `PasteManager` (`PasteManager.swift`) | Puts text on the pasteboard, posts ⌘V with `CGEvent`, restores the previous clipboard after 3 s if untouched. Needs Accessibility. |
 | Media pause | `MediaController` (`MediaController.swift`) | See [media-pause.md](media-pause.md). |
 | Sounds | `SoundManager` (`SoundManager.swift`) | Start, stop and no-result cues. |
-| Settings, onboarding, history windows | `SettingsWindowController`, `OnboardingWindowController`, `HistoryWindowController` | See [onboarding-and-settings.md](onboarding-and-settings.md). |
+| Settings, onboarding windows | `SettingsWindowController`, `OnboardingWindowController` | See [onboarding-and-settings.md](onboarding-and-settings.md). |
+| History window | `HistoryWindowController`, `HistoryWindow`, `HistoryWindowModel` (`HistoryWindow.swift`, `HistoryWindowModel.swift`, `HistoryView.swift`, `HistoryAlerts.swift`) | List and detail of the kept dictations. See [History window](#history-window). |
 | Updates | `AutoUpdater` (`AutoUpdater.swift`) | See [build-and-release.md](build-and-release.md). |
 
 ## Menu bar menu
@@ -50,7 +52,9 @@ text button, so it cannot draw the download bar or the shortcut as key caps.
   onboarding was never finished and its window is closed; "Start Dictation" / "Stop Dictation"
   with the shortcut as plain glyphs like the native key equivalents (`Shortcut.menuEquivalentString`,
   e.g. "⌃⌥ Space"; 2026-11-20: no boxes in the menu), disabled until the model is ready; one line for the model
-  state; the last error; an update line; History…, Settings… ⌘,; Quit <app> ⌘Q.
+  state; the last error; an update line; History…, Settings… ⌘,; Quit <app> ⌘Q. History… is
+  always enabled since 2026-11-21 (it was "History (disabled)" / "History (unavailable)", greyed):
+  the window explains those states itself.
 - **Model line by state** (from `EngineState`, same precedence as before the redesign):
   downloading → "Downloading <model>, 64%" with a bar (no percentage: "Downloading <model>…"
   and an indeterminate bar); compiling → "Optimizing <model> for this Mac…"; setup error →
@@ -340,18 +344,25 @@ environment values forced in a test host).
 - File: `history.json` in `~/Library/Application Support/<flavor display name>/`
   (`BuildFlavor.supportDirectory(in:)`), so production and debug never share it.
 - `HistoryStore` (`HistoryStore.swift`, `@MainActor`, `ObservableObject`) owns it: `entries`
-  (newest first), `isUnavailable`, `add(_:keepingAtMost:)`, `trim(to:)`, `replaceEntries(_:)`.
-  It loads in its initializer and writes the whole file (atomically) after each change. `AppState.history`
-  and `AppState.historyUnavailable` forward to it (its `objectWillChange` is forwarded too), so
-  views did not change. The file URL and key are injectable for `HistoryStoreTests`.
+  (newest first), `isUnavailable`, `add(_:keepingAtMost:)`, `insert(_:keepingAtMost:)` (at its
+  place by date), `trim(to:)`, `replaceEntries(_:)`, `deleteAll()`, `hasFile`. It loads in its
+  initializer and writes the whole file (atomically) after each change.
+  `AppState.historyUnavailable` forwards to it (its `objectWillChange` is forwarded too); the
+  History window edits it through `HistoryWindowModel` (`AppState.history` was removed). The file
+  URL and key are injectable for tests.
+- **`deleteAll()`** (2026-11-21): empties the entries and deletes the file, overwritten with
+  zeros first (`TemporaryRecordings.securelyDelete`, best effort on APFS/SSD). Used by Clear All,
+  by turning history off, and by the one-time cleanup below. It also deletes a file that could
+  not be read (the history is then available again: nothing unreadable is left to protect).
 - Encrypted with AES-256-GCM (`HistoryCrypto`). The key is derived with HKDF-SHA256 from the
   machine's `IOPlatformUUID` and the constant salt `com.moonji.nanowhisper.history.v1`
   (pinned by a test).
 - If the file cannot be decrypted or decoded (wrong key, damage, plain text), or encryption
   fails, the history is **unavailable**: nothing is read as plain text, nothing is written, and
-  the unreadable file is left untouched; the History menu item and toggle are disabled until
-  relaunch. (Before the extraction, deleting from an already-open History window could still
-  overwrite an unreadable file; the store now refuses every write while unavailable.)
+  the unreadable file is left untouched until relaunch; the Settings toggle is disabled with a red
+  note, the menu's History… stays enabled (since 2026-11-21) and the window says "History can’t
+  be read right now". (Before the extraction, deleting from an already-open History window could
+  still overwrite an unreadable file; the store refuses every write while unavailable.)
 - **What it protects:** the file at rest (a copy, a backup, another Mac) and against casual
   reading. Not against software running under the same user account: the hardware UUID is
   readable by any process and the salt is public.
@@ -361,6 +372,127 @@ Keychain needs entitlements that fail without a provisioning profile
 (`errSecMissingEntitlement -34018`), so commit 240f784 switched to a derived key: no storage,
 no prompt, tied to the machine (but readable by any local process, see above). The salt is a crypto constant, not an identifier: changing it
 makes existing history unreadable. Both flavors keep it.
+
+**Settings** (`HistorySettings`, `UserDefaults`): `historyEnabled` (on unless turned off) and
+`maxHistoryCount`, whose default is **25** since 2026-11-21 (the maintainer's decision; the code's
+fallback was 15). A stored value is kept. Settings offers 5, 10, 15, 25, 50, 100.
+
+**History off means nothing kept** (maintainer, 2026-11-21). Before, turning history off only
+stopped adding entries and kept the file. Now:
+- Turning it off (Settings › General, or onboarding's switch: both go through
+  `SettingsContext.historyEnabled` → `AppState.setHistoryEnabled(_:)` → `HistoryTurnOff`) with
+  dictations kept shows "Turn off history and delete it?" (`HistoryAlerts.turnOffAlert`, a sheet on
+  the key window; Turn Off and Delete / Cancel; Return does nothing). Confirmed: `deleteAll()`,
+  then `historyEnabled = false`. Cancel: nothing changes, the switch shows on again. Nothing kept:
+  off at once, no alert (an empty file left on disk is deleted too).
+- **One-time cleanup** (`HistorySettings.runOffCleanupOnce`, in `AppState.init` right after the
+  settings are read): at the first launch after the update, an install with history off whose
+  file is still there gets it deleted, silently (the board's "History is off, these were kept
+  before" banner was rejected). The flag `historyOffCleanupDone` is set whatever it finds, so it
+  never runs again; later, turning history off goes through the alert. The file is deleted even if
+  it cannot be read (history is off; nothing in it would ever be shown). A notice is logged
+  (category `AppState`) when it deletes.
+
+**Debug info per entry** (`TranscriptionDebugInfo`): audio length, transcription time, real-time
+factor, and since 2026-11-21 **`model`** (the name Settings uses: "Parakeet Ultra", "Whisper Large
+v3 Turbo") and, for Whisper, **`language`** (the code it transcribed in) with **`languageDetected`**
+(false when Settings set the language). `Transcriber` records the installed model
+(`installedModel`, captured in `Configuration.model` when a recording is submitted, so a queued
+recording names the engine that transcribes it): Parakeet from the variant `AppState.startEngine`
+/ `adoptUpgradedModel` loaded, Whisper from `SetupManager.loadedWhisperModelSize` (during a
+switchover the previous size runs while the settings name the new one). The language is
+WhisperKit's `TranscriptionResult.language` of the first result
+(`WhisperEngine.transcribeWithLanguage`). Every field is optional: entries saved before decode
+without them and show no Model or Language row (tested with a sealed file in the old format). The
+fields are saved with every entry; the debug setting only shows or hides them.
+
+## History window
+
+Design: Claude Design canvas "NanoWhisper Redesign", page "History", direction 2 "List and
+detail" (boards `hist-split`, `hist-split-states`, `hist-shortcuts`, build notes `hist-notes`;
+approved 2026-11-21 with the maintainer's answers). Built in `feat/history-redesign`.
+
+- **Window** (`HistoryWindow`, an `NSWindow` subclass): titled, closable, miniaturizable,
+  resizable, `.fullSizeContentView`, `toolbarStyle = .unified`, no background color (the system
+  draws Finder's, as for Settings). Title "History", `subtitle` the count ("10 dictations", "2 of
+  10 match", "No matches", "Nothing kept", "Unavailable"). 880 × 580 pt, minimum 640 × 420; frame
+  autosaved ("History"), centered the first time. Closing hides it: window and model live until
+  the app quits, so ⌘Z still undoes a delete after reopening. Each opening clears the search and
+  selects the newest (so ⌘C copies it at once). No Dock icon and no Edit menu (the maintainer's
+  decision; the board's Edit-menu option was rejected).
+- **Content** (`HistoryContentController`): an `NSSplitViewController`, the list as
+  `NSSplitViewItem(contentListWithViewController:)` (300 pt, 250–420, holds its width, no
+  collapse) and the detail (at least 380 pt), each an `NSHostingController` with
+  `sizingOptions = []`; when empty, off or unavailable, one full-width message instead.
+- **List** (`HistoryListView`, SwiftUI `List(selection:)`, `.inset` style, no separators): day
+  titles (Today, Yesterday, the weekday within a week, then "Saturday 14 November", with the year
+  when not this year; `HistoryText.dayTitle`); rows with the first sentence (13 pt semibold;
+  `HistoryText.titleAndPreview`: up to `.?!:` followed by a space, else 60 characters cut at a
+  space), the time on the right (`.shortened`, 12/24 h from the system) and two preview lines.
+  The day titles are plain rows (`selectionDisabled()`), not `Section`s: in the inset style a
+  `Section` added ~45 pt and a line under each header. The `.plain` style drew full-width square
+  selections instead of the board's rounded inset ones. Context menu
+  (`contextMenu(forSelectionType:)`, the system's accent ring on the clicked row): Copy ⌘C,
+  Delete ⌫, Clear All…; on empty space only Clear All…. Footer: "Keeps the last 25." Change…
+  (Settings › General, `AppState.showSettings(pane:)`) and Clear All…; "Last 25." when narrow
+  (`ViewThatFits`).
+- **Detail** (`HistoryDetailView`): "Today at 10:42 · 63 words", the text at 14.5 pt (max 540 pt,
+  selectable), and with "Show debug info in history" a `groupedCard()` "Debug info": Model,
+  Language ("French, detected"; Whisper only), Audio, Transcription, Real-time factor ("0.014 (72×
+  faster than real time)"); rows an older entry lacks are left out. Nothing selected: "No
+  dictation selected" and ⌘C, ⌫, ⌘Z, ⌘F in the flat key boxes (`KeyCapView`).
+- **Toolbar** (`HistoryToolbarController`): flexible space, then Copy and Delete as one momentary
+  `NSSegmentedControl` (Copy first, with its label; two separate items drew two glass capsules),
+  then an `NSSearchToolbarItem` capped at 210 pt (without the cap the field took all the free
+  toolbar width). Tooltips "Copy the selected dictation (⌘C)", "Delete the selected dictation (⌫)",
+  "Search (⌘F)". Copy and Delete are disabled with nothing selected; the search is hidden (macOS
+  15+; disabled on 14) when there is no list.
+- **Copy** writes the text to the pasteboard only (`HistoryWindowModel.copySelection`); nothing is
+  ever pasted into another app. The segment reads "Copied" with a green check for 1.5 s; VoiceOver
+  hears "Copied".
+- **Delete** has no alert: the next entry is selected (the previous one at the end), a capsule
+  "Dictation deleted · Undo ⌘Z" shows for 5 s, and ⌘Z puts the entry back at its place
+  (`HistoryStore.insert`, by date) and selects it; ⇧⌘Z redoes. The undo manager is the window's
+  (`HistoryWindow.undoManager` returns the model's), shared with the search field, so ⌘Z undoes
+  whichever came last. **Clear All…** asks "Delete all 10 dictations?" (Delete All / Cancel; Return
+  does nothing), then `deleteAll()`; not undoable (the undo stack is cleared).
+- **Search** (`HistorySearch`): filters as you type, ignoring case, accents and width (the rule of
+  `localizedStandardContains`), highlights every match in the list and the detail (yellow at
+  50 % light / 36 % dark; white 28 % on an accent-selected row), selects the first match; "No
+  Results" in the list; Esc (the field's own) clears it and brings back the selection from before.
+- **States** (`HistoryWindowModel.state`): unavailable (lock, "History can’t be read right now",
+  no search, no actions), off ("History is off", Turn On), empty ("No dictations yet", "Press ⌥
+  Space in any app to start." with the user's shortcut in key boxes, the footer with Change…),
+  entries.
+- **Keys without a menu bar.** The app is an accessory: no menu bar shows, so nothing relies on
+  menu key equivalents. `HistoryWindow` routes keys itself (`HistoryKeyRouting`, pure and tested):
+  `performKeyEquivalent` takes ⌘C, ⌘Z, ⇧⌘Z, ⌘F, ⌘W (and sends ⌘A/⌘X/⌘V to the focused text);
+  `sendEvent` takes ⌫ and Forward Delete. Typing in the search field keeps ⌫, and ⌘C of its own
+  selection; a word selection in the detail copies only those words. Keys go by character
+  (`charactersIgnoringModifiers`), so ⌘Z is the key labelled Z on any layout.
+  - **Gotcha: SwiftUI's selectable text is not an `NSTextView` on macOS 26/27.** `.textSelection
+    (.enabled)` puts a `SwiftUI.AppKitTextInteractionView` (an `NSCoreInteractionView`) in the
+    responder chain, without `selectedRange`. It answers `validateMenuItem(_:)` for `copy:`: false
+    with nothing selected, true after `selectAll:` (checked in a test process, 2026-11-21); that is
+    how `HistoryWindow.keyFocus` knows whether words are selected.
+  - **Checked in an active accessory app** (2026-11-21): a harness bundle (this branch's debug
+    executable under another bundle identifier, launched with `--history-sample`, invented
+    entries only) received key presses posted to its pid only (`CGEvent.postToPid`), with
+    SwiftUI's main menu in place: ⌘C put the text on the sample's private pasteboard, ⌫ deleted
+    (4 → 3), ⌘Z restored (4), ⌘F focused the search field, typing filtered ("4 of 4 match"), ⌫ in
+    the field edited the search (still 4), ⌘W closed. Trap: virtual key codes are positions, the
+    maintainer's Mac uses the French AZERTY layout (key code 6, ANSI "Z", types "w": ⌘W).
+- **`--history-sample`** (debug builds only, `HistorySample`): opens the History window alone with
+  four invented dictations in a temporary folder under a random key, Copy to a private pasteboard
+  (`com.moonji.nanowhisper.debug.history-sample`), debug info shown. Nothing else starts (no
+  `AppState`, so the real history is never read; no hotkey, no menu bar item); quits when the
+  window closes. Logs each refresh (subtitle, focus; category `HistorySample`).
+- **Not built from the boards:** the banner for history kept while off (replaced by the one-time
+  cleanup), the Edit-menu option, a "Find…" menu command (⌘F is handled by the window).
+- **Not verified:** the real window in the app with real clicks (accent selection, the context
+  menu's ring, tooltips, the Undo capsule's button, Change… opening Settings on General, Turn On),
+  VoiceOver (row labels, key boxes, announcements), the toolbar's glass and scroll edge as the
+  window server draws them, macOS 14 and 15.
 
 ## Temporary recordings
 
