@@ -102,6 +102,20 @@ Agents had **no screen capture** until 2026-11-21. These worked on 2026-11-19:
      running app, the popover is visible neither to the Accessibility API nor to
      `CGWindowListCopyWindowInfo`; log its window frame from the app instead
      (`log show --info --predicate 'subsystem == "com.moonji.nanowhisper.debug"'`).
+   - **Hover (feat/welcome-demo-flow, 2026-11-21):** synthesized mouse moves
+     (`NSEvent.mouseEvent(with: .mouseMoved…)` through `window.sendEvent` or `NSApp.sendEvent`)
+     do not drive SwiftUI's `onHover`, and `NSApp.postEvent` of one ended the process: tracking
+     areas follow the real pointer. A posted real move
+     (`CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, …).post(tap: .cghidEventTap)`)
+     does move it (the terminal has the permission), but a test process takes no event from the
+     window server, since nothing runs `NSApp.run()`; pumping pointer events with
+     `NSApp.nextEvent(matching:until:inMode:dequeue:)` + `NSApp.sendEvent` delivered the
+     enter/exit, and `onHover` fired, also with the test process inactive and on the
+     non-activating overlay panel. **Trap:** after `NSApp.nextEvent` the Swift Testing process
+     exited (status 0, no results printed) at its next `await`; usable once, with results
+     written to stderr, not as a committed test. It moves the user's pointer: put it back after.
+     Synthesized **clicks** do work (`window.sendEvent`, down then up 50 ms later), also on a
+     SwiftUI `Button` that only shows on hover once the hover state is set by the test.
    - **Design reference:** the design canvas's HTML can be rendered with headless Chrome
      (`--headless=new --screenshot --force-device-scale-factor=2 --user-data-dir=<scratch>`) to
      compare with the captures side by side.

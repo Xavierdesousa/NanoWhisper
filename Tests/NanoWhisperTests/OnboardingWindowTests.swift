@@ -16,7 +16,7 @@ import Testing
 @MainActor
 struct OnboardingWindowTests {
 
-    @Test("Opening scene: the title moment waits, Return presses Get Started, the welcome arrives, the recorder records 125 ms after it and stops paused at 0:03")
+    @Test("Opening scene: the title moment waits, Return presses Get Started, the welcome arrives, the recorder records 125 ms after it to 0:04, transcribes, pastes, then rests still under the veil")
     func welcomeEntrance() async throws {
         let session = try ActiveApp()
         defer { session.end() }
@@ -48,7 +48,9 @@ struct OnboardingWindowTests {
         var travelCPU = 0.0
 
         let recording = WelcomeDictation.recordingStarts
-        let end = WelcomeDictation.freezeTime
+        let end = WelcomeDictation.recordingEnds
+        // The veil has faded in.
+        let rest = WelcomeDictation.endsAt(stoppedAt: nil) + WelcomeDictation.veilFade + 0.1
         var captured: [(Double, NSBitmapImageRep)] = [(-1, titleMoment)]
         let start = pressDate
         // The recorder has faded in (`recorderAppears` + 0.45 s) and waits idle until
@@ -58,8 +60,8 @@ struct OnboardingWindowTests {
         // The recorder's dictation (as before the scene), between two captures: the baseline.
         var dictationCPU = (start: 0.0, date: Date(), value: 0.0)
         let settled = OpeningScene.Times.sceneSettles
-        for time in [idleStart, idleEnd, settled, recording + 0.5, recording + 1.5, recording + 2.5,
-                     end + 0.3, end + 1.0] {
+        for time in [idleStart, idleEnd, settled, recording + 0.5, recording + 1.5, recording + 2.5, recording + 4.1,
+                     end + 0.45, end + 0.95, rest, rest + 1.0] {
             let wait = time - Date().timeIntervalSince(start)
             if wait > 0 { try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }
             if time == settled {
@@ -84,6 +86,9 @@ struct OnboardingWindowTests {
                 #expect(!demo.viewModel.isPaused)
                 #expect(demo.viewModel.visibleTranscript?.isEmpty == false, "words are arriving")
             }
+            if time == recording + 4.1 { #expect(demo.viewModel.elapsedFormatted == "0:04") }
+            if time == end + 0.45 { #expect(demo.phase == .transcribing && demo.viewModel.state == .loading) }
+            if time == end + 0.95 { #expect(demo.phase == .pasted && demo.viewModel.state == .finished(.pasted)) }
         }
         // At rest (nothing moves): the baseline of this test process.
         let restCPUStart = Self.cpuTime()
@@ -92,21 +97,21 @@ struct OnboardingWindowTests {
         print(String(format: "Opening scene CPU (test process): entrance %.0f %%, waiting %.0f %%, travel %.0f %%, "
                      + "dictation %.0f %% (as before the scene), at rest %.0f %%",
                      entranceCPU * 100, waitingCPU * 100, travelCPU * 100, dictationCPU.value * 100, restCPU * 100))
-        #expect(demo.isFrozen)
-        #expect(demo.viewModel.isPaused)
-        #expect(demo.viewModel.elapsedFormatted == "0:03")
-        #expect(demo.viewModel.visibleTranscript?.volatileText == " we’ll see")
-        #expect(demo.viewModel.waveform.isStatic)
+        #expect(demo.phase == .ended && demo.showsReplay)
+        #expect(!demo.isPlaying, "its clock is stopped under the veil")
+        #expect(demo.viewModel.elapsedFormatted == "0:04")
+        #expect(demo.viewModel.visibleTranscript?.finalText == OnboardingText.welcomeSentence)
+        #expect(restCPU < 0.03, "nothing animates under the veil: \(restCPU)")
 
-        // Paused means still: the idle card and the frozen card draw the same pixels over time
-        // (no capsule pulse, no caret blink, no waveform glide).
+        // Paused means still: the idle card and the card under the veil draw the same pixels
+        // over time (no capsule pulse, no caret blink, no waveform glide).
         let idleA = try #require(captured.first { $0.0 == idleStart }?.1)
         let idleB = try #require(captured.first { $0.0 == idleEnd }?.1)
-        let restA = try #require(captured.first { $0.0 == end + 0.3 }?.1)
-        let restB = try #require(captured.first { $0.0 == end + 1.0 }?.1)
+        let restA = try #require(captured.first { $0.0 == rest }?.1)
+        let restB = try #require(captured.first { $0.0 == rest + 1.0 }?.1)
         let recorder = Self.recorderRect(in: window)
         #expect(Self.samePixels(idleA, idleB, in: recorder), "the idle recorder does not move")
-        #expect(Self.samePixels(restA, restB, in: recorder), "the frozen recorder does not move")
+        #expect(Self.samePixels(restA, restB, in: recorder), "the recorder under the veil does not move")
 
         if let directory = OverlayCapture.directory {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -114,6 +119,88 @@ struct OnboardingWindowTests {
                 let name = time < 0 ? "onboarding-welcome-title-moment" : String(format: "onboarding-welcome-press+%05.2fs", time)
                 try OverlayCapture.write(rep, name, in: directory)
             }
+        }
+    }
+
+    /// Hover (Stop under the pointer anywhere over the card) is not tested here: it follows the
+    /// real pointer, whose events reach a window only through `NSApp.nextEvent`, and calling that
+    /// in a Swift Testing process ended the process at the next `await` (exit 0, 2026-11-21).
+    /// It was checked once by hand that way: wiki onboarding-and-settings, the welcome's recorder.
+    @Test("The welcome's recorder: Stop (shown under the pointer) ends the recording; Replay plays it again from 0:00")
+    func welcomeStopAndReplay() async throws {
+        let session = try ActiveApp()
+        defer { session.end() }
+        let demo = WelcomeRecorderDemo()
+        let scene = OpeningSceneClock()
+        let window = try Self.show(page: .welcome, demo: demo, scene: scene, dark: true)
+        defer { window.close() }
+        try await Task.sleep(nanoseconds: UInt64((OpeningScene.Times.buttonPressable + 0.1) * 1_000_000_000))
+        Self.pressReturn(in: window)
+        try await Task.sleep(nanoseconds: UInt64((WelcomeDictation.recordingStarts + 0.6) * 1_000_000_000))
+        #expect(demo.phase == .recording)
+        let card = try #require(try Self.recorderFrame(in: window), "the recorder card in a capture")
+        #expect(abs(card.width - OverlayMetrics.cardWidth) < 1 && abs(card.height - 106) < 1, "\(card)")
+
+        // The pointer over it, as its hover sets it: Stop instead of the timer.
+        demo.viewModel.isPointerOver = true
+        try await Task.sleep(nanoseconds: 300_000_000)
+        if let directory = OverlayCapture.directory {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try OverlayCapture.write(try Self.capture(window), "onboarding-welcome-pointer-stop", in: directory)
+        }
+
+        // A click on Stop (where the timer was): Transcribing at once, then Pasted, then the veil.
+        let stop = NSPoint(x: card.maxX - OverlayMetrics.trailingPadding - OverlayMetrics.trailingSlotWidth / 2,
+                           y: card.maxY - OverlayMetrics.headerHeight / 2)
+        try await Self.click(at: stop, in: window)
+        #expect(demo.stoppedAt != nil, "Stop was clicked")
+        #expect(demo.phase == .transcribing)
+        try await Task.sleep(nanoseconds: 1_300_000_000)
+        #expect(demo.phase == .ended && demo.showsReplay)
+        #expect(!demo.isPlaying, "its clock is stopped under the veil")
+
+        // Replay, below the pasted line: from 0:00 again, then the whole flow to the veil.
+        try await Self.click(at: NSPoint(x: card.midX, y: card.minY + 26), in: window)
+        #expect(demo.phase == .recording, "Replay was clicked")
+        #expect(demo.viewModel.elapsedFormatted == "0:00")
+        try await Task.sleep(nanoseconds: UInt64((WelcomeDictation.recordingDuration + 1.4) * 1_000_000_000))
+        #expect(demo.phase == .ended, "the whole flow again, to the veil")
+    }
+
+    /// The welcome recorder's card in a dark window (points, AppKit coordinates), found in a
+    /// capture: its near-black surface and the violet glow inside its edge, on the window's
+    /// #1F1F1F (its drop shadows only darken that grey a little).
+    private static func recorderFrame(in window: NSWindow) throws -> NSRect? {
+        let rep = try capture(window)
+        let scale = CGFloat(rep.pixelsWide) / rep.size.width
+        var minX = Int.max, minY = Int.max, maxX = -1, maxY = -1
+        var pixel = [Int](repeating: 0, count: 4)
+        // Between the catch phrase and the facts.
+        for y in Int(220 * scale)..<Int(440 * scale) {
+            for x in 0..<rep.pixelsWide {
+                rep.getPixel(&pixel, atX: x, y: y)
+                let (r, g, b) = (pixel[0], pixel[1], pixel[2])
+                let surface = r < 14 && g < 14 && b < 14
+                let glow = b > r + 12 && b > g + 25
+                guard surface || glow else { continue }
+                minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+            }
+        }
+        guard maxX >= 0 else { return nil }
+        let top = CGFloat(minY) / scale, bottom = CGFloat(maxY + 1) / scale
+        return NSRect(x: CGFloat(minX) / scale, y: window.frame.height - bottom,
+                      width: CGFloat(maxX + 1 - minX) / scale, height: bottom - top)
+    }
+
+    /// A click, sent to the window as the window server would (down, then up 50 ms later).
+    private static func click(at point: NSPoint, in window: NSWindow) async throws {
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try #require(NSEvent.mouseEvent(
+                with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+            ))
+            window.sendEvent(event)
+            try await Task.sleep(nanoseconds: 50_000_000)
         }
     }
 

@@ -90,7 +90,7 @@ struct ViewRenderTests {
         revealsModelChange: Bool = false, recordsShortcut: Bool = false
     ) throws {
         let demo = WelcomeRecorderDemo()
-        demo.showFrozen()
+        demo.start(reduceMotion: true)
         try renderOnboardingWindow(
             name, page: page, demo: demo, scene: OpeningSceneClock(fixedAt: 99, pressedFor: .infinity),
             context: context, tryIt: tryIt, dark: dark, reduceMotion: true,
@@ -143,7 +143,7 @@ struct ViewRenderTests {
             let suffix = dark ? "dark" : "light"
             for moment in Self.sceneMoments {
                 let demo = WelcomeRecorderDemo()
-                if moment.pt == .infinity { demo.showFrozen() }
+                if moment.pt == .infinity { demo.showStill(at: WelcomeDictation.endsAt(stoppedAt: nil)) }
                 try renderOnboardingWindow(
                     "scene-\(moment.name)-\(suffix)", page: .welcome, demo: demo,
                     scene: OpeningSceneClock(fixedAt: moment.t, pressedFor: moment.pt),
@@ -156,12 +156,40 @@ struct ViewRenderTests {
                 scene: OpeningSceneClock(fixedAt: 0), context: Fixtures.onboardingContext(), dark: dark, reduceMotion: true
             )
             let frozen = WelcomeRecorderDemo()
-            frozen.showFrozen()
+            frozen.start(reduceMotion: true)
             try renderOnboardingWindow(
                 "scene-reduce-motion-rest-\(suffix)", page: .welcome, demo: frozen,
                 scene: OpeningSceneClock(fixedAt: 0, pressedFor: .infinity), context: Fixtures.onboardingContext(),
                 dark: dark, reduceMotion: true
             )
+        }
+    }
+
+    // MARK: - The welcome's recorder demo
+
+    @Test("Welcome recorder demo: recording, the pointer over it (Stop), Transcribing, Pasted, the veil with Replay")
+    func welcomeDemo() throws {
+        let dictation = WelcomeDictation.self
+        let moments: [(name: String, time: Double, pointerOver: Bool)] = [
+            ("1-recording", dictation.recordingStarts + 2.6, false),
+            ("2-pointer-stop", dictation.recordingStarts + 2.6, true),
+            ("3-recording-0-04", dictation.recordingEnds - 0.05, false),
+            ("4-transcribing", dictation.recordingEnds + 0.45, false),
+            ("5-pasted", dictation.recordingEnds + 0.95, false),
+            ("6-replay", dictation.endsAt(stoppedAt: nil), true),
+        ]
+        for dark in [false, true] {
+            let suffix = dark ? "dark" : "light"
+            for moment in moments {
+                let demo = WelcomeRecorderDemo()
+                demo.showStill(at: moment.time)
+                demo.viewModel.isPointerOver = moment.pointerOver
+                try renderOnboardingWindow(
+                    "welcome-demo-\(moment.name)-\(suffix)", page: .welcome, demo: demo,
+                    scene: OpeningSceneClock(fixedAt: 99, pressedFor: .infinity),
+                    context: Fixtures.onboardingContext(), dark: dark, reduceMotion: false
+                )
+            }
         }
     }
 

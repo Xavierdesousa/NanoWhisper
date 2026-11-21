@@ -257,10 +257,16 @@ By length (current code): under 15 s → median 103× (0.10 s); 15–60 s → 12
 60 s → 236× (0.67 s). Short dictations are dominated by a fixed cost of about 0.1 s, so the
 ratio grows with length.
 
+**Long-dictation reference** (added later on 2026-11-21, same conditions: debug build, Parakeet
+Ultra, M3 Pro): one dictation of **570.8 s of speech (9 min 31 s, 960 words) transcribed in
+1.78 s = 321× real time**, "9½ minutes of speech, text in 1.8 s". The table above describes
+the first 25 dictations and does not include it. The best ratio stays **327×** (the 269.7 s,
+4 min 30 s dictation).
+
 Not verified: why the released build was slower on the same Mac (different model or code
 version at the time, warm-up; the entries of that build do not record the model); other Macs.
 Honest claims: "up to 327× faster than real time", "typically about 125×", "most dictations
-are text in under a quarter of a second".
+are text in under a quarter of a second", "9½ minutes of speech, text in 1.8 s".
 
 ## Known limits / not verified
 

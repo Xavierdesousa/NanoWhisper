@@ -1,6 +1,6 @@
 # Onboarding and Settings
 
-Last verified against the code: 2026-11-21 (the opening scene, the Appearance setting and the debug-only Open Onboarding in `feat/opening-scene-light-overlay`, with unit tests, offscreen renders and real-window tests in a test process, not in the app; window colors, the onboarding window's container and the blank-window fix in `fix/welcome-faster`, in the debug app; `feat/settings-and-menu-redesign`; End of onboarding against `feat/menu-bar-handoff`; the Settings window, colors and sizing again in `feat/redesign-feedback`; onboarding rewritten in `feat/onboarding-icon`; welcome sequence, cards, toolbar icons and the Engine comparison in `fix/onboarding-settings-polish`, also run in the debug app), with unit tests, offscreen renders and window captures; the Settings redesign was not run in the app (see Known limits). Source: PR #15, the model migration PR, the Settings and menu redesign PR, the handoff PR #31, the onboarding "Icon" PR and the code.
+Last verified against the code: 2026-11-21 (the welcome's recorder flow and the history caption in `feat/welcome-demo-flow`, with unit tests, offscreen renders and real-window tests in a test process, not in the app; the opening scene, the Appearance setting and the debug-only Open Onboarding in `feat/opening-scene-light-overlay`, with unit tests, offscreen renders and real-window tests in a test process, not in the app; window colors, the onboarding window's container and the blank-window fix in `fix/welcome-faster`, in the debug app; `feat/settings-and-menu-redesign`; End of onboarding against `feat/menu-bar-handoff`; the Settings window, colors and sizing again in `feat/redesign-feedback`; onboarding rewritten in `feat/onboarding-icon`; welcome sequence, cards, toolbar icons and the Engine comparison in `fix/onboarding-settings-polish`, also run in the debug app), with unit tests, offscreen renders and window captures; the Settings redesign was not run in the app (see Known limits). Source: PR #15, the model migration PR, the Settings and menu redesign PR, the handoff PR #31, the onboarding "Icon" PR and the code.
 
 ## What it is
 
@@ -283,25 +283,64 @@ becomes a check, the fade-up, `InlineShortcutText`).
   (`RecordingOverlayViewModel.showsCardWhileEmpty`), levels sent every 20 ms through
   `OverlayWaveform.start(levels:)` (the real envelope, normalizer and 50 ms slots), words set as
   `LiveTranscript(stable:volatile:)` (the newest two dimmer), the timer from
-  `WelcomeDictation.elapsedSeconds`. **Dictation (`WelcomeDictation`, `WelcomeRecorderDemo.Phase`;
-  times from the press of Get Started since the opening scene):** the recorder fades up idle
-  from 0.25 s (0:00, no text, flat still waveform, `RecordingOverlayViewModel.isPaused`: the
-  capsule still at the dim end of its breath, the caret steady), has arrived at 0.7 s, and
-  `idleWait` (**125 ms**; 1 s then 0.25 s were too long) later, at 0.825 s, records for **3 s**
-  (pulse, timer, moving waveform; the 29-word spoken sentence over 2.7 s, faster than real
-  speech on purpose, "to show it is fast"); then it freezes, **paused**: three lines, "we'll
-  see" dimmer, the caret shown steady (a hidden caret read as a finished note; steady reads as
-  stopped where the next word would go), the capsule still, the waveform still
-  (`OverlayWaveform.freeze(with:)`), 0:03. The levels keep the sine phase of the shape approved
-  before the scene (`WelcomeDictation.levelPhase`, the recording then started 0.745 s after the
-  window opened), as the prototype does. A real-window test checks that the idle and the
-  frozen recorder draw identical pixels over time. Two traps: a `repeatForever` pulse is not
-  stopped by later non-animated changes, so the indicator gets a new identity when it pauses or
-  resumes (`.id(isPaused)`); and `OverlayWaveform` is not observable, so the view takes its
-  `revision` (bumped on start and freeze) as an input, or it kept its first body (no bars at
-  all while recording). Not interactive (`allowsHitTesting(false)`, so no Stop under the
-  pointer). Reduce Motion: the frozen frame at once (`WelcomeDictation.frozenHistory()`
-  computes the bars the same way).
+  `WelcomeDictation.elapsedSeconds`. Nothing opens the microphone or pastes: it is a
+  simulation. **The demo's flow (since 2026-11-21, `feat/welcome-demo-flow`; maintainer: the
+  former freeze at 0:03 looked odd and 29 words in 2.7 s unrealistic).** `WelcomeDictation`
+  holds the timings and the pure steps (`phase(at:stoppedAt:)`), `WelcomeRecorderDemo` plays
+  them in the view model; times from the press of Get Started:
+
+  | Step (`WelcomeDictation.Phase`) | From | What shows |
+  |---|---|---|
+  | `idle` | 0.25 s (fades up), arrived 0.7 s | 0:00, no text, flat still waveform, `isPaused` (capsule still at the dim end of its breath) |
+  | `recording` | 0.825 s (`idleWait` **125 ms** after it arrived) | pulse, timer 0:00 → 0:04, words at **2.6 words/s** (`wordsPerSecond`), the first 0.2 s in |
+  | `transcribing` | the end: 4.3 s later (`recordingDuration`), or at Stop | the real state (`.loading`): light capsule, "Transcribing…", bars sinking then the sweep, **0.8 s** |
+  | `pasted` | + 0.8 s | `.finished(.pasted)`: green check, "Pasted", the final text all settled, 0:04, **0.35 s** |
+  | `ended` | + 0.35 s (6.275 s without Stop) | a grey veil over the card fades in (0.3 s) with **Replay** (`arrow.counterclockwise`, a standard push button) centred under the pasted line; the clock stops |
+
+  - **Pace:** the maintainer's real dictations run about 1.7–2.2 words/s; at most 1.25 times
+    that was asked, so 2.6 (one named constant). The sentence is now the whole phrase said in
+    those 4 s, "So the plan for this week is the payment flow." (10 words, one line; its last
+    word shows at 3.97 s, then a short silence before the end, as before someone presses Stop).
+    Each word shows once said (`wordShowsAt`, 80 % into its slot).
+  - **Waveform rhythm:** the levels follow the words (`WelcomeDictation.level(at:)`): room noise
+    between words (a gap of 22 % of the slot, 45 % after punctuation), one bump per syllable
+    (vowel groups, 1–3), each word a little louder or softer; about 2.6 bursts a second
+    instead of the former fixed 12.3 rad/s sine (frantic at this pace).
+  - **Recording length:** 4.3 s, not 4.0: at exactly 4 s the transcribing state replaces the
+    timer with "Transcribing…", so 0:04 would never be seen while recording.
+  - **Stop:** as in the real overlay, the pointer anywhere over the card shows Stop: the view's
+    own `onHover` on the whole card (the welcome's recorder had `allowsHitTesting(false)`
+    before, so no hover where the content is). Clicking it (`stopRecording()`, also an
+    accessibility action while it can stop) ends the recording at once, also in the 125 ms
+    idle: the words and the timer stop where they were, then Transcribing, Pasted and the veil
+    as when it ends by itself. A phrase cut by Stop is "pasted" with a full stop
+    (`finalText(stoppedAt:)`: "So the plan.").
+  - **Replay** (`replay()`, only from the veil) starts again at the recording: 0:00, empty text,
+    recording; any number of times. The page going away mid-flow (`stop()`) rests it on the
+    veil.
+  - **Reduce Motion (decided):** nothing plays by itself; the press shows the end at once (the
+    pasted card under the veil, `start(reduceMotion: true)`). Replay then plays the flow as the
+    real recorder does with Reduce Motion (timer and words; no pulse, no glide, no sweep, the
+    veil without a fade): an explicit request, and otherwise Replay would do nothing.
+  - **CPU:** the clock (a 20 ms `Timer`) stops at the veil; under it the card shows the pasted
+    state (no waveform, no caret), so nothing redraws: 0 % at rest, and a real-window test
+    checks that the recorder under the veil draws identical pixels over 1 s. The veil and its
+    button exist only while the veil shows (`ReplayVeil`).
+  - **CPU while it records (measured 2026-11-21, debug build, test process, 120 Hz built-in
+    display, light):** 82–85 % of a core, against 33–41 % for the former demo in the same
+    harness (`main`, same machine, run back to back). Not the demo's logic or its views: the
+    waveform draws the same ~120 frames a second in both, and swapping in the former recorder
+    view, the former sentence, the former levels, no capsule pulse or no veil left it at
+    82–90 %. What changed is the text: with **no** text change at all the same card costs
+    100–104 %; the former demo changed its text every 93 ms (10.7 words/s), which made the
+    window's frames cheaper, the new one every 385 ms. So this is the cost of the real
+    overlay's waveform with mostly still text, as the live recorder runs without live text;
+    not changed here (the overlay is shared). Not measured in a release build.
+  - Two traps (kept): a `repeatForever` pulse is not stopped by later non-animated changes, so
+    the indicator gets a new identity when it pauses or resumes (`.id(isPaused)`); and
+    `OverlayWaveform` is not observable, so the view takes its `revision` (bumped on start and
+    freeze) as an input. Renders use `showStill(at:stoppedAt:)` (the bars computed by
+    `WelcomeDictation.history(until:)`).
 - **Setup page:** header (icon 36 pt, "Set up NanoWhisper", subtitle), then four grouped sections:
   - *Getting ready* (`PermissionChecklistDisplay`): Microphone (Required) and "Pasting into other
     apps" (Recommended), each with a circle that becomes a check. Microphone not asked: "Allow…"
@@ -327,8 +366,13 @@ becomes a check, the fade-up, `InlineShortcutText`).
   - *Dictation*: `ShortcutRecorderRow(isCompact: true)`: the title, the key caps and Change… (the
     "Press a shortcut…" field and Cancel while recording).
   - *Settings*: Open at login; Pause music and videos while recording; Keep a history of what you
-    dictate ("Encrypted, stays on this Mac."; disabled with the red note when history is
-    unavailable); Play a sound when recording starts and stops. Small switches, system accent.
+    dictate ("Encrypted, stays on this Mac. Open it from the menu bar icon."; disabled with the
+    red note when history is unavailable); Play a sound when recording starts and stops. Small
+    switches, system accent. The caption says where History opens since 2026-11-21 (maintainer:
+    users never learned where to find it); it is `SettingsText.keepHistoryCaption`, so Settings ›
+    General's history row says the same, on one line in both. Not in the end-of-onboarding
+    popover (maintainer's choice; that popover already says "History and Settings are in this
+    menu").
   - Footer: the first thing missing ("Allow the microphone to dictate.", "Dictation needs the
     microphone.", "Parakeet keeps downloading while you go on.", else "You can change all of this
     later in Settings.") and Continue, always enabled.
@@ -410,11 +454,12 @@ approved 2026-11-21). Implemented in `feat/opening-scene-light-overlay`. Files:
   | Title moment (after the sunrise starts) | icon 118 pt from 0.8 s over 0.9 s (88 → 100 %, blur 6 → 0); "NanoWhisper" 40 pt and the headline 16 pt (82 %) from 1.2 s over 1.2 s, rising 8 pt; Get Started from 1.2 s, spring 1.1 s bounce 0.17, from 90 %; group moved −10 pt; button white, 44 pt, ≥ 100 pt wide, 34 pt below the headline |
   | Press and travel | travel after 0.05 s, `.smooth` 0.75 s; title fades 0.25 s, button 0.2 s (dips to 97 → 94 %) |
   | After the press | aura "shrinks into the icon", settle 0.7 s (`.smooth`), ends a 330 pt halo at 35 % |
-  | Welcome arrives (after the press) | recorder 0.25 s, catch phrase 0.45 s, facts together 0.55 s, Continue 0.6 s; fade-ups 0.45 s, 10 pt, cubic-bezier(0.2, 0.7, 0.2, 1); recording 0.125 s after the recorder has arrived, sentence over 2.7 s, 3 s recording |
+  | Welcome arrives (after the press) | recorder 0.25 s, catch phrase 0.45 s, facts together 0.55 s, Continue 0.6 s; fade-ups 0.45 s, 10 pt, cubic-bezier(0.2, 0.7, 0.2, 1); recording 0.125 s after the recorder has arrived, 4.3 s (`recordingLength`; was 3 s, see the welcome's recorder above) |
 
   Moments: the title moment is complete at **2.7 s** (then it breathes and waits); Return
   presses Get Started from 1.83 s (`buttonPressable`, the prototype's rule); after the press the
-  recorder records at 0.825 s and freezes at 3.825 s; the scene's own motion ends at 1.4 s.
+  recorder records at 0.825 s until 5.125 s (`Times.recordingEnds`), then transcribes, pastes
+  and rests under the veil from 6.275 s; the scene's own motion ends at 1.4 s.
 - **How:** every frame is a pure function, `OpeningScene.frame(t:pt:dark:reduceMotion:)`, a
   port of the prototype's `renderVals` (same springs: ω = 2π / duration, damping 1 − bounce; same
   cubic-béziers), so the renders at any moment match the prototype (compared with the prototype
@@ -432,14 +477,15 @@ approved 2026-11-21). Implemented in `feat/opening-scene-light-overlay`. Files:
 - **Reduce Motion:** no sunrise and no breathing: the title moment at once; the press
   cross-fades (0.3 s) to the welcome at rest, the icon and the headline faded out and in at
   their places, a halo of the second colour behind the icon (the prototype's "glow" fallback),
-  the recorder on its frozen frame.
+  the recorder on its end (pasted, under the veil with Replay).
 - **Light:** a lavender dawn with dark text (`#1C1C1E`), the light recorder.
 - **When it plays:** each time the welcome appears: first launch, `--onboarding`, "Finish
   Setup…", and the debug build's "Open Onboarding" (which restarts it, [Replay](#replay)).
 - **CPU (measured 2026-11-21, release build, test process, 120 Hz built-in display, light):**
   about one core during the entrance (2.7 s, 108 %) and during the travel and arrival (1.4 s,
   92–101 %), 10–23 % while the title moment breathes, 0 % at rest; for comparison the recorder's
-  dictation as built costs 36–42 % in the same harness. Frames delivered: ~117 per second of
+  dictation as built costs 36–42 % in the same harness (82–85 % since the welcome-demo flow,
+  see the welcome's recorder above: why). Frames delivered: ~117 per second of
   120. Investigated with `sample`: most of each display refresh is SwiftUI's fixed cost for an
   animating hosting view in this window (graph update and dirty propagation, AppKit layout and
   constraint passes, dynamic colour resolution, commit), about 8 ms per refresh **whatever
@@ -614,6 +660,23 @@ following the same logic.
   conditions.
 
 ## Known limits / not verified
+
+- The welcome's recorder flow and the history caption (2026-11-21, `feat/welcome-demo-flow`),
+  verified: unit tests (`WelcomeRecorderTests`: pace, timeline and timer, words and final
+  text, Stop at any moment, the levels following the words, the demo's steps, Stop, Replay
+  three times, Reduce Motion, still moments, wording); offscreen renders of the welcome
+  recording, with Stop under the pointer, at 0:04, transcribing, pasted and under the veil,
+  light and dark (`ViewRender/welcomeDemo`), of the setup page and Settings › General with the
+  new caption; the real window in a test process (`OnboardingWindowTests`: the whole flow to the
+  veil, the recorder under the veil still for 1 s and 0 % CPU at rest; a synthesized click on
+  Stop ends the recording, then on Replay plays it again to the veil). **Hover** checked once
+  with the real pointer moved over the card in a test process (posted `CGEvent` moves, events
+  pumped by hand, see [testing](testing-and-verification.md)): Stop showed at all 8 points
+  (waveform, the four edges 1.5 pt inside, text, timer, an empty line) and hid outside; not a
+  committed test. The real overlay's panel did the same at 5 points with NanoWhisper inactive.
+  **Not verified:** the flow in the debug app, VoiceOver (the recorder's "Stop recording"
+  action, Replay), Replay with Full Keyboard Access, Reduce Motion on screen (only renders and
+  unit tests).
 
 - Opening scene, Appearance, Open Onboarding (2026-11-21, `feat/opening-scene-light-overlay`),
   verified: unit tests (`OpeningSceneTests`: the saved values, the moments, frames at the start,

@@ -7,7 +7,8 @@ import SwiftUI
 /// render tests draw every page and state without a running app.
 struct OnboardingContent: View {
     @ObservedObject var model: OnboardingModel
-    @ObservedObject var demo: WelcomeRecorderDemo
+    /// Not observed: only the recorder follows its steps (`WelcomeRecorderContent`).
+    let demo: WelcomeRecorderDemo
     /// The welcome's opening scene.
     let scene: OpeningSceneClock
     let context: SettingsContext

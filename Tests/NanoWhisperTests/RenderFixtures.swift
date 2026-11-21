@@ -334,7 +334,7 @@ enum OverlayFixtures {
             waveform.start(levels: PassthroughSubject<Float, Never>())
             waveform.markStopped(at: Date().addingTimeInterval(-(WaveformMetrics.sinkDuration + 0.6)))
         } else {
-            waveform = OverlayWaveform(staticHistory: WelcomeDictation.frozenHistory())
+            waveform = OverlayWaveform(staticHistory: WelcomeDictation.history(until: WelcomeDictation.recordingStarts + 3.6))
         }
         let model = RecordingOverlayViewModel(waveform: waveform)
         model.state = state
