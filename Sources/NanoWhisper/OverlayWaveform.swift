@@ -188,21 +188,24 @@ enum WaveformMetrics {
     private static let litHeights: [CGFloat] = [6, 5, 4, 3]
 
     /// Bars `elapsed` seconds after the recording stopped: the last recorded bars sink to
-    /// dots, then the sweep runs (none with Reduce Motion). As many bars as `last`.
-    static func transcribingBars(from last: [WaveformBar], elapsed: TimeInterval, reduceMotion: Bool) -> [WaveformBar] {
+    /// dots, then the sweep runs (none with Reduce Motion). As many bars as `last`. The dots'
+    /// opacity is the appearance's (`OverlayColors.sweepDimOpacity`).
+    static func transcribingBars(
+        from last: [WaveformBar], elapsed: TimeInterval, reduceMotion: Bool, dimOpacity: Double = dimDotOpacity
+    ) -> [WaveformBar] {
         let count = max(1, last.count)
         if reduceMotion || elapsed >= sinkDuration {
             let sweep = reduceMotion ? nil : sweepPosition(at: elapsed - sinkDuration, count: count)
-            return (0..<count).map { index in sweepBar(index: index, sweep: sweep) }
+            return (0..<count).map { index in sweepBar(index: index, sweep: sweep, dimOpacity: dimOpacity) }
         }
         // Ease-out from the recorded bars to dim dots.
         let t = max(0, elapsed) / sinkDuration
         let eased = 1 - (1 - t) * (1 - t)
         return (0..<count).map { index in
-            let from = index < last.count ? last[index] : WaveformBar(height: dotHeight, opacity: dimDotOpacity)
+            let from = index < last.count ? last[index] : WaveformBar(height: dotHeight, opacity: dimOpacity)
             return WaveformBar(
                 height: from.height + (dotHeight - from.height) * eased,
-                opacity: from.opacity + (dimDotOpacity - from.opacity) * eased
+                opacity: from.opacity + (dimOpacity - from.opacity) * eased
             )
         }
     }
@@ -214,14 +217,14 @@ enum WaveformMetrics {
         return max(0, phase) * Double(count + 8) - 4
     }
 
-    static func sweepBar(index: Int, sweep: Double?) -> WaveformBar {
+    static func sweepBar(index: Int, sweep: Double?, dimOpacity: Double = dimDotOpacity) -> WaveformBar {
         if let sweep {
             let distance = abs(Double(index) - sweep)
             if distance < 4 {
                 return WaveformBar(height: litHeights[Int(distance)], opacity: 1, isLit: true)
             }
         }
-        return WaveformBar(height: dotHeight, opacity: dimDotOpacity)
+        return WaveformBar(height: dotHeight, opacity: dimOpacity)
     }
 }
 
@@ -347,6 +350,9 @@ struct OverlayWaveformView: View {
     var fillsWidth = false
     /// `waveform.revision` when the parent rendered: redraws after a start or a freeze.
     var revision = 0
+    /// Bars in the ink, the sweep in its violet; the sweep's dim dots in the ink at
+    /// `sweepDimOpacity` (light: 25 %, dark: 32 %).
+    var colors: OverlayColors = .dark
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -369,27 +375,29 @@ struct OverlayWaveformView: View {
         Canvas { graphics, size in
             let count = fillsWidth ? WaveformMetrics.barCount(fitting: size.width) : LevelHistory.barCount
             let frame = Self.frame(waveform: waveform, isTranscribing: isTranscribing, count: count,
-                                   date: date, reduceMotion: reduceMotion)
-            Self.draw(frame.bars, offset: frame.offset, in: &graphics, size: size)
+                                   date: date, reduceMotion: reduceMotion, dimOpacity: colors.sweepDimOpacity)
+            Self.draw(frame.bars, offset: frame.offset, colors: colors, in: &graphics, size: size)
         }
     }
 
     private static func frame(
-        waveform: OverlayWaveform, isTranscribing: Bool, count: Int, date: Date, reduceMotion: Bool
+        waveform: OverlayWaveform, isTranscribing: Bool, count: Int, date: Date, reduceMotion: Bool, dimOpacity: Double
     ) -> (bars: [WaveformBar], offset: CGFloat) {
         if isTranscribing {
             let elapsed = waveform.stoppedAt.map { date.timeIntervalSince($0) } ?? WaveformMetrics.sinkDuration
             let bars = WaveformMetrics.transcribingBars(
-                from: waveform.barsAtStop(count: count), elapsed: elapsed, reduceMotion: reduceMotion)
+                from: waveform.barsAtStop(count: count), elapsed: elapsed, reduceMotion: reduceMotion,
+                dimOpacity: dimOpacity)
             return (bars, 0)
         }
         let progress = reduceMotion ? 0 : waveform.glideProgress(at: date)
         return (WaveformMetrics.bars(for: waveform.history, count: count), -WaveformMetrics.pitch * progress)
     }
 
-    private static let litColor = Color(red: 0xE9 / 255, green: 0xC4 / 255, blue: 0xFE / 255)
-
-    private static func draw(_ bars: [WaveformBar], offset: CGFloat, in graphics: inout GraphicsContext, size: CGSize) {
+    private static func draw(
+        _ bars: [WaveformBar], offset: CGFloat, colors: OverlayColors, in graphics: inout GraphicsContext, size: CGSize
+    ) {
+        let lit = OverlayPalette.rgb(colors.sweepLit)
         let width = WaveformMetrics.barWidth
         // Right-aligned: the newest bar ends at the trailing edge.
         let rowWidth = CGFloat(bars.count) * WaveformMetrics.pitch - WaveformMetrics.barSpacing
@@ -398,7 +406,7 @@ struct OverlayWaveformView: View {
             let x = origin + CGFloat(index) * WaveformMetrics.pitch + offset
             let rect = CGRect(x: x, y: (size.height - bar.height) / 2, width: width, height: bar.height)
             let path = Path(roundedRect: rect, cornerRadius: min(width, bar.height) / 2)
-            graphics.fill(path, with: .color((bar.isLit ? litColor : .white).opacity(bar.opacity)))
+            graphics.fill(path, with: .color(bar.isLit ? lit.opacity(bar.opacity) : colors.ink(bar.opacity)))
         }
     }
 }

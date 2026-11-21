@@ -198,6 +198,9 @@ final class HandoffPopoverController: NSViewController {
         popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         popover.contentViewController = self
         popover.contentSize = preferredContentSize
+        // The app's theme (Settings › General › Appearance): left nil, a popover takes the
+        // appearance of the status item it points to, which is the menu bar's.
+        popover.appearance = NSApp.appearance
         return popover
     }
 

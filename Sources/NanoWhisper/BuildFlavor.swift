@@ -91,6 +91,11 @@ enum BuildFlavor: String, CaseIterable, Sendable {
     /// it: the toggle is hidden and no live session starts, even when the stored setting is on
     /// (the stored value is kept). The debug build keeps it so it can be worked on.
     var supportsLiveTranscription: Bool { self == .debug }
+
+    /// Settings › Advanced › "Open Onboarding" (replays onboarding from its opening scene, with
+    /// Settings left open) is a tool for working on onboarding: production has no such control
+    /// (maintainer, 2026-11-21). `--onboarding` still works in both builds.
+    var offersOnboardingReplay: Bool { self == .debug }
 }
 
 /// Version information embedded in the bundle's Info.plist.

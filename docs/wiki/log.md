@@ -5,6 +5,16 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-21
 
+- **Opening scene, light recorder, theme, debug-only Open Onboarding**
+  (`feat/opening-scene-light-overlay`, PR #38): the welcome opens on the approved opening scene (violet
+  sunrise, title moment, Get Started, travel into the welcome; values from the prototype's saved
+  Tweaks, `OpeningScene.Tweak`); the recording overlay gets a light palette (`OverlayColors`) and
+  its drop shadows in a click-through child window; Settings › General › Appearance (System,
+  Light, Dark: `NSApp.appearance`); Settings › Advanced's onboarding replay exists only in the
+  debug build, keeps Settings open and restarts from the scene. Measured: the scene costs about
+  one core while it moves (SwiftUI's per-refresh cost in this window). Pages: onboarding-and-settings
+  (Opening scene, Appearance, Replay), architecture (Recording overlay), testing (prototype
+  references, CPU), log.
 - **History asks before deleting one dictation** (`feat/history-confirm-delete`): an alert that
   also teaches ⌘Z; undo/redo never ask. Updated [architecture](architecture.md#history-window).
 - **History window, "List and detail"** (`feat/history-redesign`): a Notes-like split (list by

@@ -55,8 +55,12 @@ Agents had **no screen capture** until 2026-11-21. These worked on 2026-11-19:
 
 1. **Offscreen PNG renders of SwiftUI views.**
    `NANOWHISPER_RENDER_DIR=<dir> swift test --filter ViewRender` writes every onboarding page
-   and state, every Settings pane and Engine state (light and dark), the Remove Unused Models
-   sheet and every menu state to `<dir>`; read the PNGs to check layout. The Settings and
+   and state, the opening scene at eight moments and with Reduce Motion (`scene-*.png`, from a
+   fixed `OpeningSceneClock`), every Settings pane and Engine state (light and dark), the
+   recording overlay in every state, light and dark, on a pale and a saturated wallpaper and
+   with Reduce Transparency (`overlay-*.png`, `OverlaySheet`: each overlay with its shadow
+   window's view behind it, as on screen), the Remove Unused Models sheet and every menu state
+   to `<dir>`; read the PNGs to check layout. The Settings and
    onboarding renders are the **real windows** (`SettingsWindowController.makeWindow`,
    `OnboardingWindowController.makeWindow`, never shown; onboarding with Reduce Motion set in the
    environment so every entrance shows its end and the welcome's recorder its frozen frame): the frame view
@@ -101,6 +105,25 @@ Agents had **no screen capture** until 2026-11-21. These worked on 2026-11-19:
    - **Design reference:** the design canvas's HTML can be rendered with headless Chrome
      (`--headless=new --screenshot --force-device-scale-factor=2 --user-data-dir=<scratch>`) to
      compare with the captures side by side.
+     **Animated prototypes (2026-11-21, opening scene):** a board's `.dc.html` needs the canvas
+     runtime (`support.js`, not among the published files). What worked: download the component
+     (`onb4-win`) and its CSS with the Artifact tool, extract its pure script (the motion maths
+     and `renderVals`) into a scratch `.js`, and write a small page that calls it with the
+     prototype's **saved** Tweak values and a moment from the query string, builds the
+     component's markup and links the CSS; headless Chrome then renders any moment
+     (`ref.html?t=…&pt=…&theme=…`) to compare with `ViewRender`'s renders of the same moments.
+     Read the saved values from the prototype's `data-props` (each Tweak's `default`): the
+     script's own `DEF` object and boards that import the component without `cfg` use older
+     values.
+   - **CPU of an animation (2026-11-21):** `getrusage(RUSAGE_SELF)` before and after a phase in
+     an opt-in window test gives the test process's CPU (`OnboardingWindowTests/welcomeEntrance`
+     prints it). Measure a release build: `swift build -c release --build-tests -Xswiftc
+     -enable-testing`, then `swift test -c release -Xswiftc -enable-testing --skip-build
+     --filter …`. Trap: a test that `dump`s the `body` of a view whose opaque type is used only by
+     the test fails to link in release (the optimizer strips the type's metadata). To see where
+     the time goes, `sample <pid>`; pick **your own** test process by its path
+     (`pgrep -f "swiftpm-testing-helper.*<worktree>"`): another agent's tests may be running
+     (2026-11-21: a History window test was sampled by mistake).
 3. **Standalone harnesses compiling the app's own sources.** Compile selected files from
    `Sources/NanoWhisper/` with a small `main.swift` against the same dependency versions, to run
    real models or real subprocesses outside the app. Used for: Parakeet v3 loading from a cloned

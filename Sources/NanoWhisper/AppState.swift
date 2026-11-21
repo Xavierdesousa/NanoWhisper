@@ -51,6 +51,15 @@ class AppState: ObservableObject {
         didSet { recorderPosition.save(to: .standard) }
     }
 
+    /// System, Light or Dark (`AppAppearance.defaultsKey`, System by default), applied to the
+    /// whole app at once (`NSApp.appearance`).
+    @Published var appearance: AppAppearance = AppAppearance.load(from: .standard) {
+        didSet {
+            appearance.save(to: .standard)
+            appearance.apply()
+        }
+    }
+
     /// Live transcription of the recording in progress, if any.
     var liveSession: LiveTranscriptionSession?
 
@@ -154,6 +163,8 @@ class AppState: ObservableObject {
     init() {
         // Whether the app ran before. Read before anything below writes to the defaults.
         let isExistingInstall = ModelMigrations.isExistingInstall(.standard)
+        // Before any window opens (onboarding, the overlay).
+        appearance.apply()
 
         recordingOverlay.onStop = { [weak self] in
             Task { @MainActor in
@@ -697,16 +708,28 @@ class AppState: ObservableObject {
 
     // MARK: - Onboarding
 
-    /// Open onboarding (first launch, "Finish Setup…", "Show Onboarding Again…" or
-    /// `--onboarding`). Settings are kept as they are; the model downloads when the setup page
-    /// opens, unless it is already on this Mac. The app shows in the Dock while onboarding is
-    /// open and returns to menu-bar-only after.
+    /// Open onboarding (first launch, "Finish Setup…" or `--onboarding`). Settings are kept as
+    /// they are; the model downloads when the setup page opens, unless it is already on this
+    /// Mac. The app shows in the Dock while onboarding is open and returns to menu-bar-only after.
     func showOnboarding() {
         settingsWindow.close()
+        presentOnboarding(restart: false)
+    }
+
+    /// Debug builds only: Settings › Advanced › Open Onboarding. Settings stays open behind;
+    /// onboarding opens, or starts again from the opening scene if it is already open. Nothing
+    /// is reset: onboarding shows the settings as they are (wiki: onboarding-and-settings, Replay).
+    func openOnboardingForDebug() {
+        guard BuildFlavor.current.offersOnboardingReplay else { return }
+        presentOnboarding(restart: true)
+    }
+
+    private func presentOnboarding(restart: Bool) {
         NSApp.setActivationPolicy(.regular)
         isOnboardingVisible = true
         onboardingWindow.show(
             appState: self,
+            restart: restart,
             onFinish: { [weak self] in self?.completeOnboarding() },
             onClose: { [weak self] in self?.onboardingWindowDidClose() }
         )

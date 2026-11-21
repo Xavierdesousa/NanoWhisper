@@ -84,21 +84,33 @@ struct ViewRenderTests {
 
     /// The real onboarding window (title bar, size, background) around fixture pages, never
     /// shown: controls draw in their inactive look. Reduce Motion is set so every entrance shows
-    /// its end (the welcome's recorder rests on its frozen frame).
+    /// its end (the welcome rests after the press, its recorder on its frozen frame).
     private func renderOnboarding(
         _ name: String, page: OnboardingPage, context: SettingsContext, tryIt: TryItInputs? = nil, dark: Bool,
         revealsModelChange: Bool = false, recordsShortcut: Bool = false
     ) throws {
-        _ = NSApplication.shared
         let demo = WelcomeRecorderDemo()
         demo.showFrozen()
+        try renderOnboardingWindow(
+            name, page: page, demo: demo, scene: OpeningSceneClock(fixedAt: 99, pressedFor: .infinity),
+            context: context, tryIt: tryIt, dark: dark, reduceMotion: true,
+            revealsModelChange: revealsModelChange, recordsShortcut: recordsShortcut
+        )
+    }
+
+    private func renderOnboardingWindow(
+        _ name: String, page: OnboardingPage, demo: WelcomeRecorderDemo, scene: OpeningSceneClock,
+        context: SettingsContext, tryIt: TryItInputs? = nil, dark: Bool, reduceMotion: Bool,
+        revealsModelChange: Bool = false, recordsShortcut: Bool = false
+    ) throws {
+        _ = NSApplication.shared
         let content = OnboardingContent(
-            model: OnboardingModel(page: page), demo: demo, context: context,
+            model: OnboardingModel(page: page), demo: demo, scene: scene, context: context,
             tryIt: tryIt ?? Fixtures.tryIt(.ready), appIcon: Fixtures.appIcon,
             modelChoice: { AnyView(EmptyView()) },
             revealsModelChange: revealsModelChange, recordsShortcut: recordsShortcut
         )
-        .environment(\._accessibilityReduceMotion, true)
+        .environment(\._accessibilityReduceMotion, reduceMotion)
         let window = OnboardingWindowController.makeWindow(content: content)
         window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         RunLoop.current.run(until: Date().addingTimeInterval(0.4))
@@ -108,6 +120,64 @@ struct ViewRenderTests {
         frameView.cacheDisplay(in: frameView.bounds, to: rep)
         try write(rep, name)
         window.close()
+    }
+
+    // MARK: - Opening scene
+
+    /// Key moments of the opening scene (the prototype's saved values), light and dark: `t`
+    /// after the welcome appeared, then `pt` after the press of Get Started.
+    static let sceneMoments: [(name: String, t: Double, pt: Double?)] = [
+        ("1-empty", 0.15, nil),
+        ("2-sunrise", 0.95, nil),
+        ("3-logo-and-title", 1.75, nil),
+        ("4-button-pop", 1.8, nil),
+        ("5-title-moment", 99, nil),
+        ("6-travel", 99, 0.25),
+        ("7-landing", 99, 0.55),
+        ("8-rest", 99, .infinity),
+    ]
+
+    @Test("Opening scene at its key moments, light and dark, and with Reduce Motion")
+    func openingScene() throws {
+        for dark in [false, true] {
+            let suffix = dark ? "dark" : "light"
+            for moment in Self.sceneMoments {
+                let demo = WelcomeRecorderDemo()
+                if moment.pt == .infinity { demo.showFrozen() }
+                try renderOnboardingWindow(
+                    "scene-\(moment.name)-\(suffix)", page: .welcome, demo: demo,
+                    scene: OpeningSceneClock(fixedAt: moment.t, pressedFor: moment.pt),
+                    context: Fixtures.onboardingContext(), dark: dark, reduceMotion: false
+                )
+            }
+            // Reduce Motion: the title moment at once; after the press, the welcome with a halo.
+            try renderOnboardingWindow(
+                "scene-reduce-motion-title-\(suffix)", page: .welcome, demo: WelcomeRecorderDemo(),
+                scene: OpeningSceneClock(fixedAt: 0), context: Fixtures.onboardingContext(), dark: dark, reduceMotion: true
+            )
+            let frozen = WelcomeRecorderDemo()
+            frozen.showFrozen()
+            try renderOnboardingWindow(
+                "scene-reduce-motion-rest-\(suffix)", page: .welcome, demo: frozen,
+                scene: OpeningSceneClock(fixedAt: 0, pressedFor: .infinity), context: Fixtures.onboardingContext(),
+                dark: dark, reduceMotion: true
+            )
+        }
+    }
+
+    // MARK: - Recording overlay, light and dark
+
+    @Test("Recording overlay: every state, light and dark, on a pale and a saturated wallpaper")
+    func overlayStates() throws {
+        for (appearance, wallpaper) in [(NSAppearance.Name.aqua, OverlaySheet.Wallpaper.pale), (.aqua, .saturated),
+                                        (.darkAqua, .pale), (.darkAqua, .saturated)] {
+            let name = "overlay-\(appearance == .aqua ? "light" : "dark")-on-\(wallpaper.rawValue)"
+            try render(OverlaySheet(wallpaper: wallpaper, reduceTransparency: false), name, appearance: appearance)
+        }
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            let name = "overlay-\(appearance == .aqua ? "light" : "dark")-reduce-transparency"
+            try render(OverlaySheet(wallpaper: .saturated, reduceTransparency: true), name, appearance: appearance)
+        }
     }
 
     // MARK: - Settings window (toolbar panes)
@@ -194,6 +264,15 @@ struct ViewRenderTests {
         var debug = SettingsFixture()
         debug.updates = Fixtures.updates(.disabled, appName: "NanoWhisper Debug")
         try renderSettings(.advanced, "settings-advanced-debug", debug)
+        // Production: no "Open Onboarding".
+        var productionAdvanced = SettingsFixture()
+        productionAdvanced.flavor = .production
+        try renderSettings(.advanced, "settings-advanced-production", productionAdvanced)
+        try renderSettings(.advanced, "settings-advanced-production-dark", productionAdvanced, dark: true)
+        // The Appearance row with Dark chosen.
+        var darkTheme = SettingsFixture()
+        darkTheme.appearance = .dark
+        try renderSettings(.general, "settings-general-theme-dark", darkTheme, dark: true)
         var updating = SettingsFixture()
         updating.updates = Fixtures.updates(.downloading(version: "0.0.7", progress: 0.3))
         try renderSettings(.advanced, "settings-advanced-downloading", updating)

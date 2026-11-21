@@ -58,6 +58,38 @@ struct OverlayWindowTests {
         await Self.waitUntilHidden(controller)
     }
 
+    @Test("The drop shadows: a click-through child window around the card, following it as it grows and when dragged")
+    func shadowWindowFollows() async throws {
+        let (controller, levels) = (RecordingOverlayController(), PassthroughSubject<Float, Never>())
+        let id = UUID()
+        controller.show(audioLevelPublisher: levels, transcriptID: id, position: .topCenter)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let window = try #require(controller.window)
+        let shadow = try #require(controller.shadowWindow)
+        #expect(shadow.parent === window, "a child window: it moves with the panel")
+        #expect(shadow.ignoresMouseEvents, "the shadow's margin never takes a click")
+        #expect(window.hasShadow == false)
+        #expect(shadow.frame == OverlayShadowPanel.frame(around: window.frame))
+        #expect(shadow.level == window.level)
+
+        var transcript = LiveTranscript()
+        transcript.update(partial: "Bonjour, ceci est un test")
+        controller.updateTranscript(transcript, for: id)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        #expect(window.frame.size == NSSize(width: 380, height: 106))
+        #expect(shadow.frame == OverlayShadowPanel.frame(around: window.frame), "it follows the card")
+
+        // A drag moves the panel's origin.
+        window.setFrameOrigin(NSPoint(x: window.frame.minX - 40, y: window.frame.minY - 30))
+        try await Task.sleep(nanoseconds: 100_000_000)
+        #expect(shadow.frame == OverlayShadowPanel.frame(around: window.frame))
+
+        controller.dismiss(showing: .pasted)
+        await Self.waitUntilHidden(controller)
+        #expect(controller.shadowWindow == nil)
+        #expect(!shadow.isVisible)
+    }
+
     @Test("The record indicator stays in place when the recording starts from a SwiftUI button")
     func indicatorStaysInPlace() async throws {
         // As in onboarding's Try-it: the app is active, and a SwiftUI button in its key window

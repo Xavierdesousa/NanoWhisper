@@ -33,6 +33,29 @@ struct GeneralPane: View {
             SettingsSection("History") {
                 HistorySettingsRows(context: context, showsLimit: true)
             }
+            SettingsSection("Appearance") {
+                AppearanceRow(selection: context.appearance)
+                    .settingsRow()
+            }
+        }
+    }
+}
+
+/// System, Light or Dark, for the whole app (Settings only, not in onboarding).
+struct AppearanceRow: View {
+    let selection: Binding<AppAppearance>
+
+    static let title = "Theme"
+    static let caption = "System follows macOS. Applies to every NanoWhisper window and to the recorder."
+
+    var body: some View {
+        SettingsRow(title: Self.title, caption: Self.caption) {
+            Picker(Self.title, selection: selection) {
+                ForEach(AppAppearance.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
         }
     }
 }

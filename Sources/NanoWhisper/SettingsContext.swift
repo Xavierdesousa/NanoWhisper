@@ -235,6 +235,10 @@ struct SettingsContext {
     /// Where the recording overlay appears (`AppState.recorderPosition`).
     var recorderPosition: Binding<RecorderPosition>
 
+    // Appearance (Settings only)
+    /// System, Light or Dark for the whole app (`AppState.appearance`).
+    var appearance: Binding<AppAppearance> = .constant(.system)
+
     // Downloaded models (Settings only)
     var storage: ModelStorageContext
 
@@ -331,6 +335,7 @@ extension AppState {
             historyUnavailable: historyUnavailable,
             maxHistoryCount: binding(\.maxHistoryCount),
             recorderPosition: binding(\.recorderPosition),
+            appearance: binding(\.appearance),
             storage: modelStorageContext
         )
     }

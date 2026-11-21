@@ -16,28 +16,63 @@ import Testing
 @MainActor
 struct OnboardingWindowTests {
 
-    @Test("Welcome: the page arrives with the recorder idle, it records 125 ms later, then stops paused at 0:03")
+    @Test("Opening scene: the title moment waits, Return presses Get Started, the welcome arrives, the recorder records 125 ms after it and stops paused at 0:03")
     func welcomeEntrance() async throws {
         let session = try ActiveApp()
         defer { session.end() }
         let demo = WelcomeRecorderDemo()
-        let window = try Self.show(page: .welcome, demo: demo, dark: false)
+        let scene = OpeningSceneClock()
+        let window = try Self.show(page: .welcome, demo: demo, scene: scene, dark: false)
         defer { window.close() }
         #expect(window.frame.size == OnboardingWindowPlacement.size)
 
+        // The opening scene up to the title moment; CPU of this process while it plays (the
+        // window server's compositing is not counted).
+        let sceneStart = Date()
+        let cpuBefore = Self.cpuTime()
+        try await Task.sleep(nanoseconds: UInt64((OpeningScene.Times.titleMomentEnds + 0.1) * 1_000_000_000))
+        let entranceCPU = (Self.cpuTime() - cpuBefore) / Date().timeIntervalSince(sceneStart)
+        #expect(scene.isWaiting, "the title moment waits for the press")
+        #expect(!scene.isAnimating, "no frames while it waits (the breathing is an animation)")
+        let waitCPUStart = Self.cpuTime()
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+        let waitingCPU = Self.cpuTime() - waitCPUStart
+        let titleMoment = try Self.capture(window)
+
+        // Return presses Get Started.
+        let travelCPUStart = Self.cpuTime()
+        Self.pressReturn(in: window)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        #expect(scene.isPressed, "Return pressed Get Started")
+        let pressDate = try #require(scene.pressDate)
+        var travelCPU = 0.0
+
         let recording = WelcomeDictation.recordingStarts
         let end = WelcomeDictation.freezeTime
-        var captured: [(Double, NSBitmapImageRep)] = []
-        let start = Date()
-        // The recorder has faded in (`recorderAppears` + `FadeUp.duration`) and waits idle until
+        var captured: [(Double, NSBitmapImageRep)] = [(-1, titleMoment)]
+        let start = pressDate
+        // The recorder has faded in (`recorderAppears` + 0.45 s) and waits idle until
         // `recording`: two frames in that short span, the second just before it.
-        let idleStart = WelcomeDictation.recorderAppears + FadeUp.duration + 0.03
-        let idleEnd = recording - 0.05
-        for time in [0.12, idleStart, idleEnd, recording + 0.5, recording + 1.5, recording + 2.5,
+        let idleStart = WelcomeDictation.entranceEnds + 0.02
+        let idleEnd = recording - 0.04
+        // The recorder's dictation (as before the scene), between two captures: the baseline.
+        var dictationCPU = (start: 0.0, date: Date(), value: 0.0)
+        let settled = OpeningScene.Times.sceneSettles
+        for time in [idleStart, idleEnd, settled, recording + 0.5, recording + 1.5, recording + 2.5,
                      end + 0.3, end + 1.0] {
             let wait = time - Date().timeIntervalSince(start)
             if wait > 0 { try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }
+            if time == settled {
+                // The travel and the welcome's arrival (two captures included, ~3 % of it).
+                travelCPU = (Self.cpuTime() - travelCPUStart) / Date().timeIntervalSince(pressDate)
+                #expect(scene.isSettled && !scene.isAnimating, "the scene's frames stop once the welcome has arrived")
+                continue
+            }
+            if time == recording + 1.5 {
+                dictationCPU.value = (Self.cpuTime() - dictationCPU.start) / Date().timeIntervalSince(dictationCPU.date)
+            }
             captured.append((time, try Self.capture(window)))
+            if time == recording + 0.5 { dictationCPU = (Self.cpuTime(), Date(), 0) }
             if time == idleEnd {
                 #expect(demo.phase == .idle, "idle until the recording starts")
                 #expect(demo.viewModel.isPaused)
@@ -50,6 +85,13 @@ struct OnboardingWindowTests {
                 #expect(demo.viewModel.visibleTranscript?.isEmpty == false, "words are arriving")
             }
         }
+        // At rest (nothing moves): the baseline of this test process.
+        let restCPUStart = Self.cpuTime()
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+        let restCPU = Self.cpuTime() - restCPUStart
+        print(String(format: "Opening scene CPU (test process): entrance %.0f %%, waiting %.0f %%, travel %.0f %%, "
+                     + "dictation %.0f %% (as before the scene), at rest %.0f %%",
+                     entranceCPU * 100, waitingCPU * 100, travelCPU * 100, dictationCPU.value * 100, restCPU * 100))
         #expect(demo.isFrozen)
         #expect(demo.viewModel.isPaused)
         #expect(demo.viewModel.elapsedFormatted == "0:03")
@@ -69,13 +111,67 @@ struct OnboardingWindowTests {
         if let directory = OverlayCapture.directory {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             for (time, rep) in captured {
-                try OverlayCapture.write(rep, String(format: "onboarding-welcome-t%05.2fs", time), in: directory)
+                let name = time < 0 ? "onboarding-welcome-title-moment" : String(format: "onboarding-welcome-press+%05.2fs", time)
+                try OverlayCapture.write(rep, name, in: directory)
             }
-            // The resting frame in dark too.
-            let dark = try Self.show(page: .welcome, demo: WelcomeRecorderDemo(), dark: true)
-            try await Task.sleep(nanoseconds: UInt64((end + 0.5) * 1_000_000_000))
-            try OverlayCapture.write(try Self.capture(dark), "onboarding-welcome-rest-dark", in: directory)
-            dark.close()
+        }
+    }
+
+    @Test("Open Onboarding again: the same window restarts from the opening scene; without restart it is only brought front")
+    func restartFromScene() async throws {
+        let session = try ActiveApp()
+        defer { session.end() }
+        let controller = OnboardingWindowController()
+        var scenes: [OpeningSceneClock] = []
+        var closes = 0
+        func content() -> AnyView {
+            let scene = OpeningSceneClock()
+            scenes.append(scene)
+            return AnyView(OnboardingTestHost(
+                model: OnboardingModel(page: .welcome), demo: WelcomeRecorderDemo(), scene: scene, tryState: TryState(),
+                context: Fixtures.onboardingContext(microphone: .granted, accessibility: .granted)))
+        }
+        controller.show(restart: true, recorder: .topCenter, onClose: { closes += 1 }, makeContent: content)
+        let window = try #require(controller.openWindow)
+        defer { window.close() }
+        try await Task.sleep(nanoseconds: 2_000_000_000)
+        #expect(scenes.count == 1)
+        #expect(scenes[0].hasStarted)
+        #expect(scenes[0].press(reduceMotion: false), "the first run reaches the welcome")
+        let frame = window.frame
+
+        // Finish Setup… / --onboarding: the open window as it is.
+        controller.show(restart: false, recorder: .topCenter, onClose: { closes += 1 }, makeContent: content)
+        #expect(scenes.count == 1)
+        #expect(controller.openWindow === window)
+
+        // The debug button: the same window, new content, the scene from its start.
+        controller.show(restart: true, recorder: .topCenter, onClose: { closes += 1 }, makeContent: content)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        #expect(scenes.count == 2)
+        #expect(controller.openWindow === window)
+        #expect(window.frame == frame, "the window stays where it is")
+        #expect(scenes[1].hasStarted && !scenes[1].isPressed, "the new scene plays from its start")
+        #expect(closes == 0, "restarting is not closing")
+    }
+
+    /// CPU time (user + system) of this process, in seconds.
+    private static func cpuTime() -> Double {
+        var usage = rusage()
+        getrusage(RUSAGE_SELF, &usage)
+        func seconds(_ time: timeval) -> Double { Double(time.tv_sec) + Double(time.tv_usec) / 1_000_000 }
+        return seconds(usage.ru_utime) + seconds(usage.ru_stime)
+    }
+
+    /// Return, as the keyboard sends it to the key window.
+    private static func pressReturn(in window: NSWindow) {
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            guard let event = NSEvent.keyEvent(
+                with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
+                isARepeat: false, keyCode: 36
+            ) else { continue }
+            NSApp.sendEvent(event)
         }
     }
 
@@ -114,7 +210,7 @@ struct OnboardingWindowTests {
         defer { NSApp.appearance = previousAppearance }
 
         let state = TryState()
-        let window = try Self.show(page: .tryIt, demo: WelcomeRecorderDemo(), dark: dark, tryIt: state)
+        let window = try Self.show(page: .tryIt, demo: WelcomeRecorderDemo(), scene: OpeningSceneClock(), dark: dark, tryIt: state)
         defer { window.close() }
         OnboardingWindowController.place(window, recorder: .topCenter, on: window.screen)
 
@@ -181,10 +277,10 @@ struct OnboardingWindowTests {
     /// The real window (`OnboardingWindowController.makeWindow`) with fixture content, placed as
     /// the app places it and shown, key, in an active app.
     private static func show(
-        page: OnboardingPage, demo: WelcomeRecorderDemo, dark: Bool, tryIt: TryState? = nil
+        page: OnboardingPage, demo: WelcomeRecorderDemo, scene: OpeningSceneClock, dark: Bool, tryIt: TryState? = nil
     ) throws -> NSWindow {
         let content = OnboardingTestHost(
-            model: OnboardingModel(page: page), demo: demo, tryState: tryIt ?? TryState(),
+            model: OnboardingModel(page: page), demo: demo, scene: scene, tryState: tryIt ?? TryState(),
             context: Fixtures.onboardingContext(microphone: .granted, accessibility: .granted)
         )
         let window = OnboardingWindowController.makeWindow(content: content)
@@ -271,6 +367,7 @@ struct OnboardingWindowTests {
 private struct OnboardingTestHost: View {
     @ObservedObject var model: OnboardingModel
     let demo: WelcomeRecorderDemo
+    let scene: OpeningSceneClock
     @ObservedObject var tryState: OnboardingWindowTests.TryState
     let context: SettingsContext
 
@@ -278,7 +375,7 @@ private struct OnboardingTestHost: View {
         var inputs = Fixtures.tryIt(tryState.stage)
         inputs.showsLiveWords = true
         return OnboardingContent(
-            model: model, demo: demo, context: context, tryIt: inputs, appIcon: Fixtures.appIcon,
+            model: model, demo: demo, scene: scene, context: context, tryIt: inputs, appIcon: Fixtures.appIcon,
             modelChoice: { AnyView(EmptyView()) }
         )
     }

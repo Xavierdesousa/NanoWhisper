@@ -162,7 +162,7 @@ private struct LiveSettingsPane: View {
                     }
                 ),
                 debugMode: $appState.debugMode,
-                showOnboarding: { appState.showOnboarding() }
+                openOnboarding: AdvancedPane.openOnboardingAction(flavor: .current) { appState.openOnboardingForDebug() }
             )
         }
     }
