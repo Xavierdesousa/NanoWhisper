@@ -6,7 +6,7 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 ## 2026-11-21
 
 - **Opening scene, light recorder, theme, debug-only Open Onboarding**
-  (`feat/opening-scene-light-overlay`): the welcome opens on the approved opening scene (violet
+  (`feat/opening-scene-light-overlay`, PR #38): the welcome opens on the approved opening scene (violet
   sunrise, title moment, Get Started, travel into the welcome; values from the prototype's saved
   Tweaks, `OpeningScene.Tweak`); the recording overlay gets a light palette (`OverlayColors`) and
   its drop shadows in a click-through child window; Settings › General › Appearance (System,
