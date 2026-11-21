@@ -80,6 +80,43 @@ struct HistoryWindowTests {
 
     // MARK: - Delete and undo
 
+    @Test("Deleting one dictation asks first; Cancel keeps it, and undo/redo never ask")
+    func deleteAsksFirst() {
+        let store = HistoryFixtures.store()
+        let model = HistoryFixtures.model(store: store)
+        var asked = 0
+        var answer = false
+        model.confirmDelete = { done in asked += 1; done(answer) }
+        model.selection = entries[1].id
+
+        #expect(model.deleteSelection())
+        #expect(asked == 1)
+        #expect(store.entries.count == entries.count)
+        #expect(!model.canUndo)
+
+        model.delete(ids: [entries[0].id])
+        #expect(asked == 2)
+        #expect(store.entries.count == entries.count)
+
+        answer = true
+        model.deleteSelection()
+        #expect(asked == 3)
+        #expect(!store.entries.contains { $0.id == entries[1].id })
+        model.undo()
+        model.redo()
+        #expect(asked == 3)
+    }
+
+    @Test("The delete alert says how to undo, and Escape cancels")
+    func deleteAlertText() {
+        let alert = HistoryAlerts.deleteOneAlert()
+        #expect(alert.messageText == "Delete this dictation?")
+        #expect(alert.informativeText.contains("⌘Z"))
+        #expect(alert.buttons.map(\.title) == ["Delete", "Cancel"])
+        #expect(alert.buttons[0].hasDestructiveAction)
+        #expect(alert.buttons[1].keyEquivalent == "\u{1b}")
+    }
+
     @Test("Deleting selects the next one; undo puts it back at its place and selects it; redo deletes again")
     func deleteUndoRedo() {
         let store = HistoryFixtures.store()
@@ -315,6 +352,9 @@ struct HistoryWindowTests {
         let model = HistoryFixtures.model(store: store, pasteboard: pasteboard)
         let window = HistoryWindow(model: model)
         defer { window.close() }
+        // The window asks with a modal alert; answer it here (the alert is tested on its own).
+        var deleteAsked = 0
+        model.confirmDelete = { done in deleteAsked += 1; done(true) }
         RunLoop.current.run(until: Date().addingTimeInterval(0.3))
         #expect(window.undoManager === model.undoManager)
 
@@ -324,6 +364,7 @@ struct HistoryWindowTests {
 
         // ⌫: a plain key down, through sendEvent.
         window.sendEvent(try key("\u{7f}", UInt16(kVK_Delete), [], window: window))
+        #expect(deleteAsked == 1)
         #expect(store.entries.first?.id == entries[1].id)
         #expect(model.selection == entries[1].id)
 

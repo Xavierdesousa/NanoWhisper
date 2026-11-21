@@ -453,7 +453,11 @@ approved 2026-11-21 with the maintainer's answers). Built in `feat/history-redes
 - **Copy** writes the text to the pasteboard only (`HistoryWindowModel.copySelection`); nothing is
   ever pasted into another app. The segment reads "Copied" with a green check for 1.5 s; VoiceOver
   hears "Copied".
-- **Delete** has no alert: the next entry is selected (the previous one at the end), a capsule
+- **Delete** (⌫, the toolbar or the context menu) asks first since 2026-11-21, at the
+  maintainer's request (a misclick lost a dictation with no warning): "Delete this dictation?",
+  "You can bring it back with ⌘Z." (Delete, the default button, / Cancel, Escape) — the alert also
+  teaches ⌘Z (`HistoryAlerts.deleteOneAlert`, `HistoryWindowModel.confirmDelete`). Undo and redo
+  never ask. Then the next entry is selected (the previous one at the end), a capsule
   "Dictation deleted · Undo ⌘Z" shows for 5 s, and ⌘Z puts the entry back at its place
   (`HistoryStore.insert`, by date) and selects it; ⇧⌘Z redoes. The undo manager is the window's
   (`HistoryWindow.undoManager` returns the model's), shared with the search field, so ⌘Z undoes

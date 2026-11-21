@@ -5,6 +5,8 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-21
 
+- **History asks before deleting one dictation** (`feat/history-confirm-delete`): an alert that
+  also teaches ⌘Z; undo/redo never ask. Updated [architecture](architecture.md#history-window).
 - **History window, "List and detail"** (`feat/history-redesign`): a Notes-like split (list by
   day, the dictation in full, toolbar Copy · Delete · search), 880 × 580 pt (min 640 × 420). Copy
   only copies (never pastes), "Copied" 1.5 s; Delete with an Undo capsule and ⌘Z; Clear All

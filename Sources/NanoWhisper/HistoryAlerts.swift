@@ -34,7 +34,7 @@ enum HistoryTurnOff {
     }
 }
 
-/// The two alerts about deleting history, as drawn on the History boards.
+/// The alerts about deleting history, as drawn on the History boards.
 @MainActor
 enum HistoryAlerts {
     static func turnOffAlert(count: Int) -> NSAlert {
@@ -46,6 +46,18 @@ enum HistoryAlerts {
         delete.hasDestructiveAction = true
         // Return must not delete: only a click (or Space on the focused button) does.
         delete.keyEquivalent = ""
+        alert.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
+        return alert
+    }
+
+    /// One dictation (Delete key, toolbar, context menu). It can be undone, so Return deletes
+    /// and the alert says how to undo (the user learns ⌘Z here).
+    static func deleteOneAlert() -> NSAlert {
+        let alert = NSAlert()
+        alert.messageText = "Delete this dictation?"
+        alert.informativeText = "You can bring it back with ⌘Z."
+        let delete = alert.addButton(withTitle: "Delete")
+        delete.hasDestructiveAction = true
         alert.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
         return alert
     }

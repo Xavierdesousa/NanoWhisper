@@ -241,6 +241,9 @@ final class HistoryWindowModel: ObservableObject {
     var openSettings: () -> Void = {}
     /// Asks before Clear All; calls back with `true` to delete.
     var confirmClearAll: (_ count: Int, _ done: @escaping (Bool) -> Void) -> Void = { _, done in done(false) }
+    /// Asks before deleting one dictation (Delete key, toolbar, context menu); calls back with
+    /// `true` to delete. The window shows an alert that also teaches ⌘Z; tests answer directly.
+    var confirmDelete: (_ done: @escaping (Bool) -> Void) -> Void = { done in done(true) }
     /// Posts a VoiceOver announcement.
     var announce: (String) -> Void = { HistoryWindowModel.postAnnouncement($0) }
 
@@ -372,11 +375,12 @@ final class HistoryWindowModel: ObservableObject {
 
     // MARK: Delete and undo
 
-    /// Delete the selected dictation; the next one is selected. Undoable (⌘Z).
+    /// Delete the selected dictation after `confirmDelete`; the next one is selected. Undoable (⌘Z).
+    /// Returns `false` when there is nothing to delete.
     @discardableResult
     func deleteSelection() -> Bool {
         guard state == .entries, let entry = selectedEntry else { return false }
-        delete(entry)
+        confirmThenDelete(entry)
         return true
     }
 
@@ -384,7 +388,17 @@ final class HistoryWindowModel: ObservableObject {
         guard state == .entries else { return }
         // The context menu acts on the clicked row (one at a time).
         guard let entry = visibleEntries.first(where: { ids.contains($0.id) }) else { return }
-        delete(entry)
+        confirmThenDelete(entry)
+    }
+
+    /// Asks first (a misclick or a stray Delete key must not lose a dictation), then deletes if
+    /// the entry is still there. Undo and redo call `delete(_:)` directly, without asking.
+    private func confirmThenDelete(_ entry: HistoryEntry) {
+        confirmDelete { [weak self] confirmed in
+            guard confirmed, let self, self.state == .entries,
+                  self.store.entries.contains(where: { $0.id == entry.id }) else { return }
+            self.delete(entry)
+        }
     }
 
     private func delete(_ entry: HistoryEntry) {
