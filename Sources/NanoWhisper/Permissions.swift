@@ -8,28 +8,6 @@ enum Permission: CaseIterable, Identifiable {
 
     var id: Self { self }
 
-    var title: String {
-        switch self {
-        case .microphone: return "Microphone"
-        case .accessibility: return "Accessibility"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .microphone: return "mic"
-        case .accessibility: return "accessibility"
-        }
-    }
-
-    /// Why the app needs it, shown under the permission in Settings and onboarding.
-    var reason: String {
-        switch self {
-        case .microphone: return "Hears you while you dictate. Audio never leaves this Mac."
-        case .accessibility: return "Pastes the text into the app you are typing in."
-        }
-    }
-
     /// Privacy pane of System Settings where the permission is changed.
     var settingsURL: URL {
         switch self {
@@ -42,8 +20,9 @@ enum Permission: CaseIterable, Identifiable {
 }
 
 /// Live state of a permission, mapped to one action everywhere:
-/// `.notDetermined` offers "Grant" (the system shows its own request), `.denied` offers
-/// "Open Settings…" (only System Settings can change it), `.granted` shows a checkmark.
+/// `.notDetermined` offers "Allow…" (the system shows its own request), `.denied` offers
+/// "Open System Settings" (only System Settings can change it), `.granted` shows a check
+/// (`Permission.actionTitle(for:)`).
 enum PermissionStatus: Equatable {
     case granted
     case notDetermined

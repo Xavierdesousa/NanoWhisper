@@ -20,7 +20,7 @@ WhisperKit, both Core ML), and the text is pasted into the frontmost app.
 |---|---|
 | `swift build` | Debug build of the executable. |
 | `swift test` | Unit tests (Swift Testing). CI runs exactly this. |
-| `NANOWHISPER_RENDER_DIR=<dir> swift test --filter ViewRender` | Renders onboarding, every Settings pane (the real window, light and dark) and the menu states to PNGs in `<dir>` (offscreen; the suite is skipped without the variable). |
+| `NANOWHISPER_RENDER_DIR=<dir> swift test --filter ViewRender` | Renders every onboarding page and state and every Settings pane (the real windows, light and dark) and the menu states to PNGs in `<dir>` (offscreen; the suite is skipped without the variable). |
 | `make app` | Builds, signs and (re)launches **NanoWhisper Debug.app**. See the flavor rules below. |
 | `make onboarding` | Same as `make app`, launched with `--onboarding`. |
 | `make handoff` | Same as `make app`, launched with `--show-handoff` (the end-of-onboarding popover, debug builds only). |
@@ -80,7 +80,8 @@ State in the PR what was not verified. See [testing](docs/wiki/testing-and-verif
 | Transcription | `Transcriber.swift` (`Transcriber`, `WhisperEngine`, `SerialGate`), `TranscriptionEngine.swift` (model enums, `WhisperSettings`), `LiveTranscription.swift` and `LiveTranscript.swift` (live preview, debug build only) |
 | Model download and cache | `SetupManager.swift`, `ModelMigrations.swift` (migration steps, obsolete replacements), `ModelSwitchover.swift` (smooth switchover), `ModelStore.swift` (allow-listed folders, lock, removal) |
 | Media pause | `MediaController.swift`, `MediaPlaybackController.swift`, `NowPlayingPlaybackController.swift`, `MediaRemoteJXA.swift`, `Subprocess.swift` |
-| Settings and onboarding | `SettingsView.swift` (window, `SettingsPane`, `SettingsTabViewController`, `SettingsPaneController`), `Settings*Pane.swift`, `Settings*Section.swift` (panes and the sections onboarding shares), `SettingsStyle.swift`, `SettingsContext.swift`, `ShortcutKeysView.swift`, `OnboardingFlow.swift`, `OnboardingView.swift`, `Permissions.swift`, `ModelComparisonView.swift` |
+| Settings | `SettingsView.swift` (window, `SettingsPane`, `SettingsTabViewController`, `SettingsPaneController`), `Settings*Pane.swift`, `Settings*Section.swift` (panes, and the rows onboarding shares: `ShortcutRecorderRow`, `EngineChoiceSection`), `SettingsStyle.swift`, `SettingsContext.swift`, `ShortcutKeysView.swift`, `Permissions.swift`, `ModelComparisonView.swift` |
+| Onboarding | `OnboardingFlow.swift` (pages, row states, `TryItStage`, new-install defaults, window placement, the welcome's dictation, `LaunchOptions`), `OnboardingView.swift` (`OnboardingContent`, `OnboardingWindowController`), `OnboardingWelcomePage.swift`, `OnboardingSetupPage.swift`, `OnboardingTryItPage.swift`, `OnboardingStyle.swift`, `OnboardingText.swift` (every string) |
 | History window | `HistoryView.swift` |
 | Build flavor, updates | `BuildFlavor.swift`, `AutoUpdater.swift` |
 | Misc | `WindowUtils.swift` |

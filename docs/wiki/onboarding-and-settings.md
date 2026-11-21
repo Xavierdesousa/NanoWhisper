@@ -1,23 +1,23 @@
 # Onboarding and Settings
 
-Last verified against the code: 2026-11-20 (`feat/settings-and-menu-redesign`; End of onboarding against `feat/menu-bar-handoff`; the Settings window, colors and sizing again in `feat/redesign-feedback`), with unit tests and offscreen renders; the Settings redesign was not run in the app (see Known limits). Source: PR #15, the model migration PR, the Settings and menu redesign PR and the code.
+Last verified against the code: 2026-11-21 (`feat/settings-and-menu-redesign`; End of onboarding against `feat/menu-bar-handoff`; the Settings window, colors and sizing again in `feat/redesign-feedback`; onboarding rewritten in `feat/onboarding-icon`), with unit tests, offscreen renders and window captures; the Settings redesign was not run in the app (see Known limits). Source: PR #15, the model migration PR, the Settings and menu redesign PR, the handoff PR #31, the onboarding "Icon" PR and the code.
 
 ## What it is
 
-Settings and onboarding read the same `SettingsContext` and share their wording
-(`SettingsText`, `ShortcutRecorderRow`, `DictationBehaviorToggles`, `HistorySettingsRows`).
-Since the redesign (2026-11-20) Settings has its own pane views; onboarding keeps the sections
-it had (its redesign was not approved and is postponed).
+Settings and onboarding read the same `SettingsContext` and share their wording and rows
+(`SettingsText`, `ShortcutRecorderRow`, `EngineChoiceSection`). Settings has its toolbar panes;
+onboarding (redesigned 2026-11-20, direction "Icon") is one window of three pages with its own
+views (below).
 
 | Area | Settings pane (file) | Onboarding |
 |---|---|---|
-| Shortcut (`ShortcutRecorderRow`, `SettingsShortcutSection.swift`) | General | Shortcut step (`ShortcutSettingsSection`) |
-| Open at login, sounds, pause media, history on/off (`DictationBehaviorToggles`, `HistorySettingsRows`, `SettingsGeneralSection.swift`) | General, plus "Keep the last N" (disabled while history is off) | Shortcut step (`GeneralSettingsSection`) |
-| Engine, model, status, apply row, Whisper language and vocabulary | Engine (`EnginePane`, `SettingsEnginePane.swift`) | Model step (`ModelSettingsSection`, `SettingsModelSection.swift`) |
+| Shortcut (`ShortcutRecorderRow`, `SettingsShortcutSection.swift`) | General | Setup page, "Dictation" (the row with `isCompact`: no caption, no reset button) |
+| Open at login, sounds, pause media, history on/off (`DictationBehaviorToggles`, `HistorySettingsRows`, `SettingsGeneralSection.swift`) | General, plus "Keep the last N" (disabled while history is off) | Setup page, "Settings" (four switches, same labels; no history size) |
+| Engine, model, status, apply row, Whisper language and vocabulary (`EngineChoiceSection`, `SettingsEnginePane.swift`) | Engine (`EnginePane`) | Setup page, "Model" row; its Change… opens `ModelChoiceSheet` with the same section |
 | Downloaded models, "Remove Unused Models…" (`ModelStorageRow`, `UnusedModelsSheet`, `SettingsStorageSection.swift`) | Engine | — |
-| Live transcription (beta, debug builds only) | Recorder (`RecorderPane`, `SettingsRecorderPane.swift`) | Shortcut step |
-| Recorder position (`RecorderPositionPicker` from the Voice note overlay, PR #24; `AppState.recorderPosition` through `SettingsContext.recorderPosition`) | Recorder | — |
-| Microphone, Accessibility with live status | Permissions (`PermissionsPane`, `SettingsPermissionsSection.swift`) | Permissions step (`PermissionsSettingsSection`) |
+| Live transcription (beta, debug builds only) | Recorder (`RecorderPane`, `SettingsRecorderPane.swift`) | — (Try it says the words show in the recorder when it is on) |
+| Recorder position (`RecorderPositionPicker` from the Voice note overlay, PR #24; `AppState.recorderPosition` through `SettingsContext.recorderPosition`) | Recorder | — (Try it names where the recorder appears) |
+| Microphone, Accessibility with live status | Permissions (`PermissionsPane`, `SettingsPermissionsSection.swift`) | Setup page, "Getting ready" (`PermissionChecklistRow`) |
 | Updates, "Show debug info in history", "Show Onboarding Again…" | Advanced (`AdvancedPane`, `UpdateStatus`, `SettingsAdvancedPane.swift`) | — |
 
 The Advanced "Debug" group exists in both builds; it is unrelated to the debug **build
@@ -106,9 +106,9 @@ Design: Claude Design canvas "NanoWhisper Redesign", Settings page, proposal 1 "
   - The model line under the selected engine is quiet ("Parakeet Ultra, ~630 MB. Change…");
     Change… shows the picker and the speed/accuracy comparison (`ModelComparisonView`, kept from
     the old Settings). It stays open while the draft names another model.
-  - **Whisper language and vocabulary apply right away in Settings** (`SettingsContext
-    .setWhisperOptions`), as the design asks: they never load a model. Onboarding still applies
-    them with the draft.
+  - **Whisper language and vocabulary apply right away** (`SettingsContext
+    .setWhisperOptions`), as the design asks: they never load a model. The same in onboarding's
+    model sheet, which shows the same `EngineChoiceSection`.
   - "Recommended" also marks the Parakeet engine (`TranscriptionModelType.isRecommended`; its
     default model, Ultra, is the recommended one).
   - Not drawn as designed: "4 models, 1.7 GB on this Mac" (counting needs a scan of the Whisper
@@ -132,7 +132,8 @@ border, glyph inside, no fill or shadow (maintainer's request, reference: ⌥ �
 from the design notes: 20 pt caps, 11.5 pt medium glyph, radius 5, 3 pt apart; border black
 22 % / white 28 %, glyph #3C3C43 / white 85 % (light / dark); 16 pt caps with a 10 pt glyph in
 captions and menus. Keys come from `Shortcut.keys` (⌃ ⌥ ⇧ ⌘, then the key). Used in Settings ›
-General, the menu's Start Dictation item and onboarding's Try-it row. Change… swaps the caps
+General and onboarding's setup page and Try it page (also inline in a sentence,
+`InlineShortcutText`). Change… swaps the caps
 for a 150 × 22 pt "Press a shortcut…" field and Cancel; the caption becomes "Press the keys you
 want, or [esc] to cancel."
 
@@ -182,37 +183,133 @@ want, or [esc] to cancel."
   loaded models, pending-migration fallbacks, and what the other flavor may use. Rules and lock:
   [transcription-engines.md](transcription-engines.md#removing-models-modelstoreswift).
 
-## Onboarding flow
+## Onboarding
 
-`OnboardingStep` (`OnboardingFlow.swift`): Welcome → Model → Permissions → Shortcut → Done.
+Design: Claude Design canvas "NanoWhisper Redesign", page "Onboarding", direction **"Icon"**
+(boards `onb3-icon` "Welcome and setup page", `onb3-try` "Try it", the component `onb3-icon-win`
+and the prototype `onb3-proto`; approved 2026-11-20). Implemented in `feat/onboarding-icon`,
+English only. Every string is in `OnboardingText` (`OnboardingText.swift`), so a French version
+can be added there.
 
-- Step indicator, Back / Continue, Skip Setup on every step but Done. Fixed 560×600 pt window;
-  long steps scroll.
-- **No step blocks.** `OnboardingProgress.indicatorState(of:current:)`: Model and Permissions
-  show as done as soon as their goal is met, even before the user reaches them; a passed step
-  whose goal is not met is flagged (`.needsAttention`).
-- **First launch does not download before the user has seen the choice.**
-  `ModelAvailability.shouldDeferSetupAtLaunch(...)` holds the Parakeet download until the user
-  clicks Download on the Model step, or finishes or skips onboarding
-  (`AppState.completeOnboarding()` → `loadSelectedModelIfIdle()`). A model already on disk still
-  loads at launch. During the deferred state the menu offers "Download <model> (<size>)".
-- **Done step "Try it" box:** a recording started while the Done step is showing **and**
-  NanoWhisper is the active app is a test (`DictationDestination.onboardingTest`): its text shows
-  in the window, is not pasted, not saved. A dictation into another app still pastes.
-  - The button and the shortcut are shown as two equal ways to start it ("Record a Test or
-    press ⌃⌥Space", the shortcut as key caps, `ShortcutKeysView`).
-  - **Hotkey path (checked in code, 2026-11-20):** Carbon hotkey → `HotkeyManager.onHotkeyPressed`
-    → `AppState.toggleRecording()` → `startRecording()` → `DictationDestination.atStart(testBoxShowing:
-    capturesTestTranscription, appIsActive: NSApp.isActive)`. With the onboarding window in front
-    the app is active, so it is a test; pressing again stops it, and the destination chosen at
-    start is kept. `capturesTestTranscription` follows the step (`onChange(of: step)`; a new
-    hosting view starts at Welcome on each show). It is a normal dictation instead when another
-    app is in front, and nothing starts until the model is ready (`toggleRecording` sets
-    "Model not loaded yet"). Carbon hotkeys fire while NanoWhisper itself is active.
-- While onboarding is open the app uses activation policy `.regular` (Dock icon); it returns to
-  `.accessory` when the window closes, however it closes (`AppState.onboardingWindowDidClose()`).
-- Closing the window without finishing on a first launch leaves `onboardingComplete` unset, so
-  onboarding shows again at the next launch.
+**One window, three pages** (`OnboardingPage`: welcome → setup → Try it; `OnboardingModel` holds
+the page and the model sheet). Files: `OnboardingFlow.swift` (pure logic: pages, the setup rows'
+states, `TryItStage`, `NewInstallDefaults`, `OnboardingWindowPlacement`, `WelcomeDictation`,
+`LaunchOptions`), `OnboardingView.swift` (`OnboardingContent`, the live `OnboardingView`,
+`OnboardingWindowController`), `OnboardingWelcomePage.swift`, `OnboardingSetupPage.swift`,
+`OnboardingTryItPage.swift`, `OnboardingStyle.swift` (colors, grouped rows, the circle that
+becomes a check, the fade-up, `InlineShortcutText`).
+
+- **Window:** 580 × 640 pt for every page, title bar included (`.fullSizeContentView`,
+  transparent title bar, no visible title: traffic lights over the content); the design's
+  background (#F2F2F4 / #1E1E20). The `NSHostingView` has `sizingOptions = []`: left to size the
+  window it added the title bar's safe area (672 pt). Opens with a 0.25 s fade (none with Reduce
+  Motion); a page change fades the new page in over 0.3 s.
+- **Position** (`OnboardingWindowPlacement.frame(in:recorder:)`): on the screen with the pointer
+  (where the recorder appears; `centerOnCurrentScreen` used the same screen), centred, then moved
+  away from the recorder's largest frame (the 380 × 106 card, 12 pt inside the visible frame at
+  the user's `RecorderPosition`) with a 16 pt gap, only when they would overlap horizontally:
+  down for the top positions, up for Bottom Center. On 1440 × 900 (menu bar 24 pt) the window
+  goes 16 pt below centre; on a 13-inch Air (1470 × 956) it stays centred (21 pt clear). Clamped
+  to the visible frame on smaller screens (the overlap is then unavoidable).
+- **Welcome:** icon, "Speak where you’d type.", the catch phrase, the recorder, the four facts
+  (SF Symbols `laptopcomputer`, `lock`, `bolt`; the text cursor is drawn from the design's glyph,
+  no plain I-beam symbol exists), Continue. Each element fades up 10 pt over 0.45 s at the
+  design's delays (`WelcomePage.Delay`). **The recorder is the real `RecordingOverlayView`** with
+  its own `RecordingOverlayViewModel`, driven by `WelcomeRecorderDemo` (no microphone): the card
+  from the start (`RecordingOverlayViewModel.showsCardWhileEmpty`), levels sent every 20 ms
+  through `OverlayWaveform.start(levels:)` (the real envelope, normalizer and 50 ms slots), words
+  set as `LiveTranscript(stable:volatile:)` (the newest two dimmer), the timer from
+  `WelcomeDictation.elapsedSeconds`. At 3.55 s it freezes (`OverlayWaveform.freeze(with:)`: still
+  bars, no per-frame timeline): two lines, "team review" dimmer, the caret, 0:03; the capsule
+  keeps pulsing and the caret blinking, as in the real recorder. Not interactive
+  (`allowsHitTesting(false)`, so no Stop under the pointer). Reduce Motion: the frozen frame at
+  once (`WelcomeDictation.frozenHistory()` computes the bars the same way), no fades.
+- **Setup page:** header (icon 36 pt, "Set up NanoWhisper", subtitle), then four grouped sections:
+  - *Getting ready* (`PermissionChecklistDisplay`): Microphone (Required) and "Pasting into other
+    apps" (Recommended), each with a circle that becomes a check. Microphone not asked: "Allow…"
+    (`AVCaptureDevice.requestAccess` through `PermissionMonitor.request`); denied: orange circle,
+    "Turned off in System Settings. macOS won’t ask again." in red, "Open System Settings".
+    Pasting: "Allow…" shows the system prompt, then "Open System Settings" (Accessibility has no
+    denied answer; the circle stays empty). Its caption says "Without it, text stays in History."
+    only while history is on (otherwise "Without it, nothing is pasted."): without Accessibility
+    `PasteManager` pastes nothing and only History keeps the text. Polled every second while the
+    window is open (`PermissionMonitor`, stopped when the window closes).
+  - *Model* (`ModelChecklistDisplay`): "<model> by <vendor>" (the user's model on a replay:
+    "Whisper Small by OpenAI"), "The speech model that runs on this Mac.", the status on the left:
+    a ring that fills with the download and "23% of ~630 MB" on the right; a turning arc without
+    a percentage ("Downloading…"), while optimizing or loading a model not on disk yet; a check
+    as soon as the model is on this Mac (`ModelAvailability.downloaded`, so a model already
+    downloaded is checked at once, even while it loads); a warning, the error and Try Again when
+    setup failed; during a migration's switchover, the new model's ring and "<previous> stays in
+    use until it is ready.". **Change…** is hidden (opacity 0) until the pointer is over the row
+    or the button has keyboard focus (VoiceOver also gets it as an action of the row, not
+    verified); it opens `ModelChoiceSheet`: the same `EngineChoiceSection`
+    as Settings › Engine (engines, versions, comparison, status, apply row with the draft rule),
+    with Done. A draft not applied is dropped on Done, as when Settings closes.
+  - *Dictation*: `ShortcutRecorderRow(isCompact: true)`: the title, the key caps and Change… (the
+    "Press a shortcut…" field and Cancel while recording).
+  - *Settings*: Open at login; Pause music and videos while recording; Keep a history of what you
+    dictate ("Encrypted, stays on this Mac."; disabled with the red note when history is
+    unavailable); Play a sound when recording starts and stops. Small switches, system accent.
+  - Footer: the first thing missing ("Allow the microphone to dictate.", "Dictation needs the
+    microphone.", "Parakeet keeps downloading while you go on.", else "You can change all of this
+    later in Settings.") and Continue, always enabled.
+- **Try it:** "Try it", "Press [⌥][Space], say a sentence, then press it again to see what you
+  said." (`InlineShortcutText`: the real shortcut's caps inside wrapped, balanced text), a
+  484 × 356 stage, Back and Finish Setup. **The recorder is the real overlay at its real place**:
+  Start Recording and the shortcut both call `AppState.toggleRecording()`; nothing is drawn in
+  the window. Stages (`TryItStage.resolve`): ready ("Press ⌥ Space to start", "or", Start
+  Recording, "The recorder appears at the top of the screen, as it will in any app." with the
+  user's position); listening (from the start until the stop; Stop); transcribing (from the stop,
+  including the 300 ms tail, `AppState.isFinishingRecording`); the result ("You said", the text,
+  "Transcribed on this Mac.", "Press ⌥ Space or [Try Again]"; Try Again clears the result, back
+  to ready, as the prototype does); nothing recognized; the model not ready (downloading with a
+  bar and "64% of ~630 MB", optimizing, loading, failed with Try Again); the microphone missing.
+  Finish Setup is off while it listens or transcribes. Back returns to the setup page (it drops
+  a result, and a test still running is discarded when it ends).
+  - **Nothing is pasted or saved:** the page sets `capturesTestTranscription` (only on Try it);
+    `DictationDestination.atStart(testBoxShowing:appIsActive:)` makes a recording started then,
+    with the app in front, a test (`DictationOutcome`: shown, or discarded once the page is gone).
+    The overlay ends with "Done". Hotkey path unchanged: Carbon hotkey → `toggleRecording()` →
+    `startRecording()`; Carbon hotkeys fire while NanoWhisper itself is active.
+- **Finish Setup** → `OnboardingModel.finish(stage:)` → `AppState.completeOnboarding()` →
+  `OnboardingCompletion.finish`: the `onboardingComplete` flag, the window closes (activation
+  policy back to `.accessory`), `loadSelectedModelIfIdle()`, then `onOnboardingFinished`, which
+  `AppDelegate` wires to `MenuBarController.showOnboardingHandoff()` (next section). The red close
+  button closes the window without finishing: on a first launch onboarding shows again at the
+  next launch, and the menu offers "Finish Setup…".
+- **First download.** `ModelAvailability.shouldDeferSetupAtLaunch(...)` still holds a new
+  install's Parakeet download at launch; it now starts when the setup page opens
+  (`AppState.onboardingPageDidAppear(.setup)` → `loadSelectedModelIfIdle()`; also on Try it and
+  at Finish Setup). A model already on disk loads at launch. Closing on the welcome page downloads
+  nothing.
+- **Defaults for a new install** (`NewInstallDefaults`): the four switches start on. Sound and
+  history already defaulted to on. "Pause music and videos while recording" is now on for a new
+  install; an install that ran before (`ModelMigrations.isExistingInstall`, read at the top of
+  `AppState.init` before anything writes) keeps its stored value, or off if it never chose (the
+  old default). The resolved value is stored at launch, so it does not flip once the install
+  counts as existing. "Open at login" is a login item (`SMAppService`), not a stored value: a new
+  install records `launchAtLoginDefaultPending` at its first launch, and the login item is
+  registered when the setup page first shows the switch on (once; turning it off sticks).
+- **Activation policy:** `.regular` (Dock icon) while the window is open, `.accessory` after,
+  however it closes (`AppState.onboardingWindowDidClose()`).
+- **Where the code and the design disagree (code followed):**
+  - Listening: "Your words write themselves in the recorder" is true only with live
+    transcription (debug builds, opt-in). Otherwise the page says "The recorder at the top of the
+    screen shows your voice as you speak." (`OnboardingText.listeningNote`).
+  - The model still downloading: the board says "The try starts by itself when the download
+    finishes"; the prototype only switches the page to ready (starting the microphone by itself
+    would not be acceptable), so the note says "You can try it as soon as it’s ready."
+  - Microphone never asked on Try it: the board offers "Open System Settings" for denied *or*
+    never asked, but an app that never asked is not listed in System Settings; never asked offers
+    "Allow…" (the system request) with "Allow the microphone".
+  - The recorder's place is the user's `RecorderPosition` in the copy ("at the top left of the
+    screen", "at the bottom of the screen"), not always "the top".
+  - The download amount keeps the size's "~" ("23% of ~630 MB"): sizes are approximate.
+  - Not drawn and added from the code: a failed model setup (warning, Try Again), a model
+    optimizing or loading, nothing recognized, history off (Pasting caption) or unavailable.
+  - Live transcription is no longer offered in onboarding (the design has four switches); it
+    stays in Settings › Recorder. The history size stays in Settings.
 
 ## End of onboarding: the menu bar takes over
 
@@ -263,6 +360,7 @@ e.g. "⌥ Space"; the position from Settings › Recorder):
 | How | Effect |
 |---|---|
 | Settings › Advanced › "Show Onboarding Again…" | Opens onboarding; settings kept. |
+| The menu's "Finish Setup…" (onboarding never finished, window closed) | Opens onboarding at the welcome page. |
 | `--onboarding` launch argument (`make onboarding` for the debug app) | Shows onboarding at launch even if completed; settings kept. |
 | `--reset-onboarding` | Clears only the `onboardingComplete` flag (before `AppState` reads it). |
 | `--show-handoff` (debug builds only; `make handoff`) | Shows the end-of-onboarding popover about a second after launch; nothing else changes. Parsed by `MenuBarHandoff.isRequestedAtLaunch`, not `LaunchOptions`. |
@@ -279,15 +377,32 @@ re-downloads anything unless the user applies another model.
   window closed, because a closed window keeps its SwiftUI view and `onDisappear` never ran; it
   now stops when the window closes. The menu said "Loading model..." during the deferred
   first-launch state; it now offers the download.
-- Onboarding wording changed with the Settings redesign only where a row is shared: the
-  shortcut row (key caps and Change…) and the toggle labels ("Open at login", "Play a sound
-  when recording starts and stops", "Pause music and videos while recording", "Keep a history
-  of what you dictate"). The steps and their order did not change.
+- 2026-11-20, onboarding redesign ("Icon"): the five steps (Welcome, Model, Permissions,
+  Shortcut, Done with a step indicator and Skip Setup, 560 × 600 pt) became three pages in a
+  580 × 640 pt window; the separate Model step and its in-window model form became one Model row
+  whose Change… opens the Settings Engine section in a sheet; the Try-it box moved from the Done
+  step to its own page, with the recorder at its real place instead of described in a box. The
+  old views (`OnboardingView`'s steps, `OnboardingStep`, `OnboardingProgress`, the step
+  indicator, `ModelSettingsSection`, `ModelStatusRow`, `GeneralSettingsSection`,
+  `ShortcutSettingsSection`, `PermissionsSettingsSection`, `PermissionRow`) and their renders
+  were removed; Settings did not use them.
 
 ## Known limits / not verified
 
-- Not checked in the app: the Try it recording (button and hotkey), and Grant changing to
-  Granted — both need microphone and Accessibility granted to the debug app.
+- Onboarding ("Icon", 2026-11-21), verified: unit tests (`OnboardingFlowTests`); offscreen renders
+  of every page and state in the real window, light and dark (`ViewRender`, `onboarding-*.png`);
+  the real window on screen in a test process (`OnboardingWindowTests`: the welcome's entrance
+  and dictation over 4 s, Try it with the real recorder panel at Top Center not overlapping the
+  window, on the real screen and composited on 1440 × 900); in the debug app (`make onboarding`,
+  dark appearance), window captures of the welcome from launch to rest (the entrance, the words,
+  the frozen card at 0:03) and of the setup page with both permissions allowed and the model
+  checked. Compared with the design boards rendered in headless Chrome.
+- **Not verified:** a new install's first run (download starting on the setup page, the login
+  item registered, Allow… prompts turning into checks), Change… revealed with the keyboard
+  (Full Keyboard Access), the model sheet in the app, the Try it recording in the app (no
+  microphone by agents), the window's position on a real 1440 × 900 screen, VoiceOver, macOS 14.
+  Captures from a test process show controls in their inactive look (a test process cannot
+  activate itself).
 - `PermissionMonitor` polls every second while onboarding is open, and in Settings while the
   Permissions pane is showing.
 - Settings redesign (2026-11-20): verified with offscreen renders of the real window (toolbar,

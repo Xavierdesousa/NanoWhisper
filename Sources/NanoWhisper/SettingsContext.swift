@@ -3,9 +3,9 @@ import FluidAudio
 
 // MARK: - Engine configuration
 
-/// The transcription settings chosen in the Model section: engine, Parakeet version and
-/// Whisper options. Settings and onboarding edit a draft of it; nothing takes effect until
-/// the draft is applied (see `ModelSettingsSection`).
+/// The transcription settings chosen in the Engine section: engine, Parakeet version and
+/// Whisper options. Settings and onboarding's model sheet edit a draft of it; nothing takes
+/// effect until the draft is applied (see `EngineChoiceSection`).
 struct EngineConfiguration: Equatable {
     var modelType: TranscriptionModelType
     var parakeetVariant: ParakeetVariant
@@ -81,8 +81,9 @@ enum ModelAvailability: Equatable {
         return AsrModels.modelsExist(at: legacy, version: .v3)
     }
 
-    /// First launch only: hold off the automatic model download until the user picks a model
-    /// in onboarding (or finishes it). A model already on disk still loads right away, and
+    /// First launch only: hold off the automatic model download until onboarding's setup page
+    /// opens, where the model is shown (or onboarding finishes). A model already on disk still
+    /// loads right away, and
     /// Whisper (only reachable on a first launch after `--reset-onboarding`) always does.
     static func shouldDeferSetupAtLaunch(
         isFirstLaunch: Bool,

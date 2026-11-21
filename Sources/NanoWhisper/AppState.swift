@@ -39,8 +39,9 @@ class AppState: ObservableObject {
         didSet { UserDefaults.standard.set(debugMode, forKey: "debugMode") }
     }
 
+    /// On for a new install, off for an older install that never chose (`NewInstallDefaults`).
     @Published var pauseMediaEnabled: Bool = false {
-        didSet { UserDefaults.standard.set(pauseMediaEnabled, forKey: "pauseMediaEnabled") }
+        didSet { UserDefaults.standard.set(pauseMediaEnabled, forKey: NewInstallDefaults.pauseMediaKey) }
     }
 
     /// Show the text in the overlay while recording (see AppState+LiveTranscription.swift).
@@ -134,13 +135,16 @@ class AppState: ObservableObject {
     /// The record shortcut, mirrored from `hotkeyManager` so views update when it changes.
     @Published private(set) var shortcut: Shortcut = .default
 
-    /// True while onboarding's last step (with its Try-it box) is showing. A recording
-    /// started then, with the app active, is a test (see `DictationDestination`).
+    /// True while onboarding's Try it page is showing. A recording started then, with the app
+    /// active, is a test (see `DictationDestination`).
     @Published var capturesTestTranscription = false {
         didSet { if !capturesTestTranscription { testTranscription = nil } }
     }
     /// Text of the last test dictation; empty when nothing was recognized.
     @Published private(set) var testTranscription: String?
+    /// Finish Setup was clicked and the onboarding window closed: the menu bar takes over
+    /// (`AppDelegate` shows the "After setup" popover under the status item).
+    var onOnboardingFinished: (() -> Void)?
     /// Destination of the recording in progress, decided when it started.
     private var recordingDestination: DictationDestination = .paste
 
@@ -152,6 +156,9 @@ class AppState: ObservableObject {
     private var interruptedRecordingsTask: Task<Void, Never>?
 
     init() {
+        // Whether the app ran before. Read before anything below writes to the defaults.
+        let isExistingInstall = ModelMigrations.isExistingInstall(.standard)
+
         recordingOverlay.onStop = { [weak self] in
             Task { @MainActor in
                 self?.toggleRecording()
@@ -221,11 +228,8 @@ class AppState: ObservableObject {
         let storedMax = UserDefaults.standard.integer(forKey: Self.maxHistoryKey)
         maxHistoryCount = storedMax > 0 ? storedMax : 15
         debugMode = UserDefaults.standard.bool(forKey: "debugMode")
-        if UserDefaults.standard.object(forKey: "pauseMediaEnabled") == nil {
-            pauseMediaEnabled = false
-        } else {
-            pauseMediaEnabled = UserDefaults.standard.bool(forKey: "pauseMediaEnabled")
-        }
+        // Stored, so it does not change once this install counts as an existing one.
+        pauseMediaEnabled = NewInstallDefaults.apply(isExistingInstall: isExistingInstall, to: .standard)
         liveTranscriptionEnabled = UserDefaults.standard.bool(forKey: Self.liveTranscriptionKey)
         observeTerminationForLiveTranscription()
 
@@ -238,8 +242,7 @@ class AppState: ObservableObject {
             _ = PasteManager.checkAccessibility(prompt: false)
         }
 
-        // Load persisted model selection. Read before anything below writes a default.
-        let isExistingInstall = ModelMigrations.isExistingInstall(.standard)
+        // Load persisted model selection.
         if let raw = UserDefaults.standard.string(forKey: Self.selectedModelKey),
            let model = TranscriptionModelType(rawValue: raw) {
             selectedModelType = model
@@ -681,9 +684,10 @@ class AppState: ObservableObject {
 
     // MARK: - Onboarding
 
-    /// Open onboarding (first launch, "Show Onboarding Again…" or `--onboarding`). Settings
-    /// are kept as they are; nothing downloads unless the user applies another model.
-    /// The app shows in the Dock while onboarding is open and returns to menu-bar-only after.
+    /// Open onboarding (first launch, "Finish Setup…", "Show Onboarding Again…" or
+    /// `--onboarding`). Settings are kept as they are; the model downloads when the setup page
+    /// opens, unless it is already on this Mac. The app shows in the Dock while onboarding is
+    /// open and returns to menu-bar-only after.
     func showOnboarding() {
         settingsWindow.close()
         NSApp.setActivationPolicy(.regular)
@@ -695,15 +699,42 @@ class AppState: ObservableObject {
         )
     }
 
-    /// Finish or Skip Setup: remember onboarding as done and make sure a model loads.
-    func completeOnboarding() {
-        UserDefaults.standard.set(true, forKey: Self.onboardingCompleteKey)
-        onboardingWindow.close()
-        loadSelectedModelIfIdle()
+    /// A page of the onboarding window appeared.
+    func onboardingPageDidAppear(_ page: OnboardingPage) {
+        capturesTestTranscription = page.capturesTestTranscription
+        switch page {
+        case .welcome:
+            break
+        case .setup:
+            // The first launch held the download back until now (`shouldDeferSetupAtLaunch`).
+            loadSelectedModelIfIdle()
+            // A new install opens at login: registered now that the switch shows it, once.
+            if NewInstallDefaults.takeLaunchAtLogin(from: .standard), !launchAtLogin {
+                launchAtLogin = true
+            }
+        case .tryIt:
+            loadSelectedModelIfIdle()
+        }
     }
 
-    /// The window closed by any means (Finish, Skip Setup or its close button). Closing it
-    /// without finishing on first launch keeps the flag unset, so it shows again next launch.
+    /// Clear the last test's text (Try Again on onboarding's Try it page).
+    func clearTestTranscription() {
+        testTranscription = nil
+    }
+
+    /// Finish Setup: remember onboarding as done, close the window, make sure a model loads,
+    /// then let the menu bar take over (`onOnboardingFinished`).
+    func completeOnboarding() {
+        OnboardingCompletion.finish(
+            defaults: .standard,
+            closeWindow: { onboardingWindow.close() },
+            loadModel: { loadSelectedModelIfIdle() },
+            handoff: onOnboardingFinished
+        )
+    }
+
+    /// The window closed by any means (Finish Setup or its close button). Closing it without
+    /// finishing on first launch keeps the flag unset, so it shows again next launch.
     private func onboardingWindowDidClose() {
         isOnboardingVisible = false
         capturesTestTranscription = false

@@ -239,8 +239,8 @@ final class OverlayWaveform {
     /// When the recording stopped, and the history at that moment (the sink's origin).
     private(set) var stoppedAt: Date?
     private(set) var historyAtStop = LevelHistory()
-    /// A frozen history (Settings preview): no timer, no glide.
-    let isStatic: Bool
+    /// A frozen history (Settings preview, onboarding's welcome once it stops): no timer, no glide.
+    private(set) var isStatic: Bool
 
     private var timer: Timer?
     private var levelCancellable: AnyCancellable?
@@ -294,6 +294,15 @@ final class OverlayWaveform {
         historyAtStop = history
         stop()
         stoppedAt = date
+    }
+
+    /// Stop updating and keep showing the bars as they are (or `history`), still: onboarding's
+    /// welcome recorder stops mid-sentence and stays.
+    func freeze(with history: LevelHistory? = nil) {
+        stop()
+        if let history { self.history = history }
+        stoppedAt = nil
+        isStatic = true
     }
 
     func stop() {

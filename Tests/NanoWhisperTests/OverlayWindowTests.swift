@@ -502,7 +502,7 @@ enum OverlayCapture {
     }
 
     /// The panel with a shadow like the design's (0 10 28 black 28 %).
-    private static func drawPanel(_ rep: NSBitmapImageRep, in rect: NSRect, shadowScale: CGFloat = 1) {
+    static func drawPanel(_ rep: NSBitmapImageRep, in rect: NSRect, shadowScale: CGFloat = 1) {
         NSGraphicsContext.saveGraphicsState()
         let shadow = NSShadow()
         shadow.shadowColor = NSColor(white: 0, alpha: 0.28)
@@ -514,7 +514,7 @@ enum OverlayCapture {
     }
 
     /// The design's wallpapers: soft color blobs on a light or a dark ground.
-    private static func drawWallpaper(_ wallpaper: Wallpaper, in rect: NSRect) {
+    static func drawWallpaper(_ wallpaper: Wallpaper, in rect: NSRect) {
         let blobs: [(x: CGFloat, y: CGFloat, color: UInt32, reach: CGFloat)]
         let ground: UInt32
         switch wallpaper {

@@ -412,36 +412,3 @@ struct MediaControllerTests {
         #expect(fake.calls == [.query, .pause, .resume])
     }
 }
-
-// MARK: - pauseMediaEnabled UserDefaults logic
-
-@Suite("pauseMediaEnabled Setting", .serialized)
-@MainActor
-struct PauseMediaEnabledTests {
-
-    private let key = "pauseMediaEnabled"
-
-    @Test("Defaults to false when key is absent from UserDefaults")
-    func defaultsToFalse() {
-        UserDefaults.standard.removeObject(forKey: key)
-        defer { UserDefaults.standard.removeObject(forKey: key) }
-
-        #expect(UserDefaults.standard.bool(forKey: key) == false)
-    }
-
-    @Test("Reads false correctly when explicitly stored")
-    func readsFalse() {
-        UserDefaults.standard.set(false, forKey: key)
-        defer { UserDefaults.standard.removeObject(forKey: key) }
-
-        #expect(UserDefaults.standard.bool(forKey: key) == false)
-    }
-
-    @Test("Reads true correctly when explicitly stored")
-    func readsTrue() {
-        UserDefaults.standard.set(true, forKey: key)
-        defer { UserDefaults.standard.removeObject(forKey: key) }
-
-        #expect(UserDefaults.standard.bool(forKey: key) == true)
-    }
-}

@@ -46,6 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.appState = appState
         let menuBar = MenuBarController(appState: appState)
         self.menuBar = menuBar
+        // Finish Setup: the menu bar takes over, with the "After setup" popover.
+        appState.onOnboardingFinished = { [weak menuBar] in menuBar?.showOnboardingHandoff() }
 
         // Debug builds: `--show-handoff` shows the end-of-onboarding popover without going
         // through onboarding.

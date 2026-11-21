@@ -3,6 +3,23 @@
 Dated entries, newest first. One entry per change to the project or to this wiki: what changed,
 why if not obvious, and the PR. Older history is summarized from `git log`.
 
+## 2026-11-21
+
+- **Onboarding redesign, direction "Icon"** (`feat/onboarding-icon`): one 580 × 640 pt window,
+  three pages. Welcome with the approved copy, the four facts and the real recorder view playing
+  a simulated dictation, frozen mid-sentence at 0:03 (staged fade-up entrance; Reduce Motion:
+  the frozen frame at once). Setup page: permissions with circles that become checks, the model
+  with a download ring and a hover/focus-only Change… opening the Settings Engine section in a
+  sheet, the shortcut row, four switches all on for a new install. Try it: instructions and
+  result in the window, the real recorder at its real place; the window opens below the centre
+  when the recorder's card would meet it (1440 × 900). Finish Setup calls the menu bar handoff
+  (#31). "Pause music and videos while recording" now defaults to on for new installs; "Open at
+  login" is turned on once when a new install's setup page shows it. Old onboarding views and
+  renders removed. English only (`OnboardingText`). Deviations from the design where the code
+  says otherwise: [onboarding-and-settings.md](onboarding-and-settings.md#onboarding). First
+  window captures of the debug app (`screencapture -l`, its windows only):
+  [testing-and-verification.md](testing-and-verification.md#techniques-that-work-without-a-screen).
+
 ## 2026-11-20
 
 - **End of onboarding: the menu bar takes over** (`feat/menu-bar-handoff`): the approved board's

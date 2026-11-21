@@ -12,8 +12,9 @@ production releases do not expose the feature. It stays in "NanoWhisper Debug" (
 - One source of truth: `BuildFlavor.supportsLiveTranscription` (true for debug only).
 - **Toggle:** `SettingsContext.offersLiveTranscription` is set from it, and
   the toggle and its caption show only when it is true: Settings › Recorder (`RecorderPane`,
-  "Show words in the recorder as you speak", since the Settings redesign) and onboarding's
-  "Shortcut and essentials" step (`GeneralSettingsSection`), the only two places.
+  "Show words in the recorder as you speak", since the Settings redesign), the only place since
+  the onboarding redesign (2026-11-20; its "Shortcut and essentials" step had it too). Onboarding's
+  Try it only words its "Listening…" note by it (words in the recorder, or not).
 - **Forced off at recording start:** `LiveTranscriptionSupport.startsSession(enabled:flavor:configuration:)`,
   called by `AppState.beginLiveTranscription()`, returns false in production even when
   `liveTranscriptionEnabled` is stored as true. The stored value is never rewritten (the
@@ -27,12 +28,12 @@ production releases do not expose the feature. It stays in "NanoWhisper Debug" (
 ## What it is
 
 An opt-in setting, "Live transcription (beta)" (`UserDefaults` key `liveTranscriptionEnabled`,
-off by default), in Settings › Recorder and in onboarding's essentials step (debug build only, see above). While the user speaks, the recording overlay shows the text
+off by default), in Settings › Recorder (debug build only, see above). While the user speaks, the recording overlay shows the text
 recognized so far. Nothing is typed during the recording.
 
 **The maintainer's rule: the overlay text and the delivered text must be identical.** At stop,
 the recording is transcribed exactly as with live off. The overlay then shows that final text,
-which is the string pasted and stored in history, or shown in onboarding's Try-it box for a test
+which is the string pasted and stored in history, or shown on onboarding's Try it page for a test
 recording (`DictationDestination.onboardingTest`: never pasted or saved).
 
 **Available with** Parakeet and Whisper Base (`LiveTranscriptionSupport`). For Whisper Small

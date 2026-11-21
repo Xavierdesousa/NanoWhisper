@@ -6,7 +6,11 @@ maintainer, and the code.
 ## What it is
 
 Setting "Pause media during recording" (`AppState.pauseMediaEnabled`, `UserDefaults` key
-`pauseMediaEnabled`, off by default). When on, media that is playing is paused while the user
+`pauseMediaEnabled`). **Default since the onboarding redesign (2026-11-20): on for a new
+install**, off for an install that ran before and never chose (the old default); the resolved
+value is stored at launch so it does not change once the install counts as existing
+(`NewInstallDefaults`, [onboarding-and-settings.md](onboarding-and-settings.md#onboarding)).
+When on, media that is playing is paused while the user
 dictates and resumed after the transcription is pasted. It acts on the system **Now Playing**
 session (what Control Center shows), so it covers native players and browser tabs. No
 permission is needed.

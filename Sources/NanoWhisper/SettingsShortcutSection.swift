@@ -1,35 +1,21 @@
 import SwiftUI
 import Carbon
 
-/// The record shortcut, shared by Settings and onboarding.
-struct ShortcutSettingsSection: View {
-    let context: SettingsContext
-
-    var body: some View {
-        Section {
-            ShortcutRecorderRow(shortcut: context.shortcut, onChange: context.setShortcut)
-        } header: {
-            Text("Shortcut")
-        } footer: {
-            Text("Press it anywhere to start recording, press it again to stop. The text is pasted where your cursor is.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-}
-
 /// The shortcut row: the keys as boxes (`ShortcutKeysView`) and Change…, which records a new
-/// combination (press it; Escape cancels). Shared by Settings › General and onboarding.
+/// combination (press it; Escape cancels). Shared by Settings › General and onboarding's setup
+/// page, which draws it compact.
 struct ShortcutRecorderRow: View {
     let shortcut: Shortcut
     let onChange: (Shortcut) -> Void
+    /// Onboarding's row, as drawn: the title, the keys and Change… only (no caption, no reset
+    /// button; Settings has both).
+    var isCompact = false
     @State private var isRecording: Bool
 
-    init(shortcut: Shortcut, onChange: @escaping (Shortcut) -> Void, isRecording: Bool = false) {
+    init(shortcut: Shortcut, onChange: @escaping (Shortcut) -> Void, isCompact: Bool = false, isRecording: Bool = false) {
         self.shortcut = shortcut
         self.onChange = onChange
+        self.isCompact = isCompact
         _isRecording = State(initialValue: isRecording)
     }
 
@@ -40,7 +26,9 @@ struct ShortcutRecorderRow: View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(Self.title)
-                if isRecording {
+                if isCompact {
+                    EmptyView()
+                } else if isRecording {
                     HStack(spacing: 4) {
                         Text("Press the keys you want, or")
                         KeyCapView(glyph: "esc", size: .small)
@@ -72,7 +60,7 @@ struct ShortcutRecorderRow: View {
                 Button("Cancel") { isRecording = false }
             } else {
                 ShortcutKeysView(shortcut: shortcut)
-                if shortcut != .default {
+                if shortcut != .default && !isCompact {
                     Button {
                         onChange(.default)
                     } label: {
