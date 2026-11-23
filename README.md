@@ -34,22 +34,15 @@
 Typing is the slow part when you are thinking: explaining a plan to an AI agent, brainstorming,
 reviewing a design, writing feedback. NanoWhisper is built for those long spoken thoughts. Talk
 for one minute or ten; when you stop, the text is in your editor, terminal or chat, a moment later.
-Five minutes of speech is transcribed in under a second.¹
+Five minutes of speech is transcribed in under a second.
 
 <table>
   <tr>
     <td align="center" width="33%"><h3>0.19 s</h3>median transcription time<br><sub>18 of 25 dictations under a quarter of a second</sub></td>
-    <td align="center" width="33%"><h3>126×</h3>faster than real time, typically<br><sub>median of 25 dictations; up to 327×</sub></td>
-    <td align="center" width="33%"><h3>1.8 s</h3>for 9½ minutes of speech<br><sub>one dictation of 960 words</sub></td>
+    <td align="center" width="33%"><h3>Up to 327×</h3>faster than real time<br><sub>the longer you speak, the bigger the gap</sub></td>
+    <td align="center" width="33%"><h3>~1.8 s</h3>for 9½ to 10 minutes of speech<br><sub>almost a thousand words</sub></td>
   </tr>
 </table>
-
-<sub>¹ Measured on 21 November 2026 on a MacBook Pro with M3 Pro (18 GB), macOS 27.2, with Parakeet Ultra
-and the 0.1.0 code, on the maintainer’s own dictations: 25 dictations (23.7 minutes of mostly French
-speech), plus one dictation of 9 min 31 s. Five minutes is interpolated from 4 min 30 s in 0.82 s
-and 9 min 31 s in 1.78 s. Times are the model’s transcription time only: they leave out the 0.3 s
-NanoWhisper keeps listening after you press stop, and the paste. Other Macs will differ.
-[Details](docs/wiki/transcription-engines.md#measured-speed-on-real-dictations-2026-11-21).</sub>
 
 ## How it works
 
@@ -57,10 +50,7 @@ NanoWhisper keeps listening after you press stop, and the paste. Other Macs will
 2. **Speak**, as long as you need. There is no time limit.
 3. **Press <kbd>⌥</kbd> <kbd>Space</kbd> again.** The text is pasted where your cursor is, and kept in your History.
 
-Transcription runs on your Mac with Core ML, using NVIDIA’s
-[Parakeet](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) (through
-[FluidAudio](https://github.com/FluidInference/FluidAudio)) or OpenAI’s Whisper (through
-[WhisperKit](https://github.com/argmaxinc/argmax-oss-swift)). Your voice never leaves the Mac.
+Transcription runs entirely on your Mac. Your voice never leaves it.
 
 ## Features
 
@@ -68,12 +58,6 @@ Transcription runs on your Mac with Core ML, using NVIDIA’s
 
 - **One shortcut.** <kbd>⌥</kbd> <kbd>Space</kbd> by default; choose your own in Settings. It works in any
   app you can paste into: editors, terminals, browsers, chats, AI agents.
-- **Your last word counts.** NanoWhisper keeps listening for 0.3 s after you press stop, so the word you
-  were finishing is not cut off.
-- **Keep going.** Start the next dictation while the previous one is still being transcribed; each
-  one is delivered, in order.
-- **Nothing lost.** If NanoWhisper stops unexpectedly during a recording, that recording is transcribed
-  at the next launch and appears in History (when History is on, within 7 days).
 
 ### The recorder
 
@@ -159,15 +143,6 @@ NanoWhisper asks for two permissions:
 > Or, in Terminal: `xattr -dr com.apple.quarantine /Applications/NanoWhisper.app`. Both allow this
 > app only; Gatekeeper’s settings are not changed.
 
-### First launch
-
-<img src="docs/images/onboarding-dark.png" width="760" alt="Setup: the setup page with the permissions, the model, the shortcut and four settings, and the Try it page showing a transcribed sentence">
-
-One window walks you through it: a short welcome, then a setup page where you allow the
-microphone and pasting while the speech model downloads (Parakeet Ultra, about 630 MB), check the
-shortcut and four settings, then **Try it**: one test dictation, shown in the window, never pasted
-or saved. After that, NanoWhisper lives in the menu bar.
-
 ## Usage
 
 | To | Do this |
@@ -182,53 +157,12 @@ theme), **Engine** (speech model, its download, Whisper language and vocabulary,
 models), **Recorder** (position, live transcription), **Permissions**, **Advanced** (updates,
 debug info in History).
 
-## Models
-
-<img src="docs/images/settings-engine-dark.png" width="520" alt="Settings, Engine pane: Parakeet and Whisper, the model picker, speed and accuracy bars and the key points of Parakeet Ultra">
-
-| Engine | Model | Download | Notes |
-|---|---|---|---|
-| **Parakeet** (NVIDIA), via FluidAudio | **Parakeet Ultra** · Recommended, the default | ~630 MB | 25 European languages, detected automatically. A post-trained v3 ([moondream/parakeet-ultra](https://huggingface.co/moondream/parakeet-ultra)): fewer errors, same speed. |
-| | Parakeet TDT 0.6B v3 | ~480 MB | NVIDIA’s original model. |
-| **Whisper** (OpenAI), via WhisperKit | Base | ~150 MB | 99 languages. Small and fast, noticeably less accurate. |
-| | Small | ~490 MB | Balanced size, speed and accuracy. |
-| | **Large v3 Turbo** · Recommended for Whisper | ~630 MB | Accuracy close to Large v3. Slow to load: 82–93 s at each launch in our tests. |
-
-Word error rates published by FluidAudio
-([benchmarks](https://github.com/FluidInference/FluidAudio/blob/main/Documentation/ASR/ParakeetUltra.md)):
-LibriSpeech test-clean 2.27 % (v3) → 2.13 % (Ultra); FLEURS, mean of 24 languages, 14.81 % → 11.67 %.
-
-With Whisper you can set the spoken language (more reliable on short clips) and give a
-**vocabulary hint**: names and technical terms it should expect.
-
-**Updates move you to the best model, without a gap.** Updating from 0.0.5 or earlier on
-Parakeet v3, NanoWhisper moves you to Parakeet Ultra once: you keep dictating with v3 while Ultra
-downloads, and it switches when Ultra is ready (offline, it tries again at the next launch). v3
-stays available in Settings. Whisper Tiny, Medium and Large v3 are no longer offered: a saved Tiny
-becomes Base, a saved Medium or Large v3 becomes Large v3 Turbo, and the old model keeps working
-until the new one is ready.
-
-**Disk space.** Models NanoWhisper no longer offers are deleted once their replacement is loaded.
-Models you can still choose are never deleted on their own: **Settings › Engine › Remove Unused
-Models…** lists them with their sizes and deletes them after you confirm. NanoWhisper only ever
-touches the folders it downloaded itself.
-
 ## Requirements
 
 - macOS 14 Sonoma or later
 - A Mac with Apple Silicon
 - About 1 GB of free disk space (Parakeet Ultra takes about 630 MB)
 - An internet connection for the first model download
-
-## Roadmap
-
-Planned, not built yet:
-
-- **0.1.1:** two release channels, **Stable** (the default) and **Beta** (opt-in, earlier features),
-  and updates that install on their own while NanoWhisper is idle, with a setting to turn that off.
-- **Notarization** with an Apple Developer ID, so the first launch needs no extra step.
-- **Onboarding in French.**
-- **Homebrew** installation.
 
 ## Build from source
 
