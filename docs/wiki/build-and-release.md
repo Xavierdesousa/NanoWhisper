@@ -104,8 +104,10 @@ Agents never push tags, create releases or run `make publish` unless asked.
 
 1. A PR bumps the version (`chore: bump version to X.Y.Z`): `CFBundleShortVersionString` and
    `CFBundleVersion` (+1) in `Resources/Info.plist`. CI must pass; the maintainer merges.
-2. Tag the merge commit on `main` and push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`
-   (only when the maintainer asks). The release workflow builds, signs, zips and publishes.
+2. Tag the merged bump on `main` explicitly, not the local checkout's HEAD:
+   `git fetch origin && git log -1 --oneline origin/main` (check it is the bump commit), then
+   `git tag vX.Y.Z origin/main && git push origin vX.Y.Z` (only when the maintainer asks). The
+   release workflow builds, signs, zips and publishes.
 3. Test: either a local production release candidate first (`make release` in a separate
    worktree, the production history backed up; the default for big changes), or — the
    maintainer's choice for 0.1.0 — the published GitHub release installed **as an update over the
@@ -131,9 +133,14 @@ Decision (maintainer, 2026-11-23): two channels, **Stable** (default, everyone) 
 - **Beta channel:** the updater lists `GET /repos/{owner}/{repo}/releases` and takes the newest
   release by version, pre-releases included (a stable release newer than the last beta wins too).
   Version comparison must follow SemVer: `0.1.1-beta.2` < `0.1.1` < `0.1.2-beta.1`.
+- **Version in the bundle:** `CFBundleShortVersionString` must stay three period-separated
+  integers (Apple's rule), so it holds `0.1.1` for every beta of 0.1.1 and the stable; the
+  pre-release part (`beta.1`) goes in a separate custom key (e.g. `NWPrereleaseLabel`, empty for
+  a stable). The zip name, the release-workflow check (`make -s release-zip-name` must equal
+  `NanoWhisper-<tag>.zip`) and the updater's comparison build the full version from both keys
+  (`0.1.1-beta.1`).
 - **Workflow:** `release.yml` marks the release as pre-release when the tag contains a `-`
-  (`gh release create … --prerelease`); `Info.plist`'s `CFBundleShortVersionString` carries the
-  same string (e.g. `0.1.1-beta.1`) so the zip name check keeps working.
+  (`gh release create … --prerelease`).
 - **Settings:** Advanced › "Update channel: Stable / Beta" (stored in defaults). Moving from Beta
   back to Stable does not downgrade; the user stays on the beta until a newer stable exists.
 - **Auto-update when idle (0.1.1):** download silently, install only when nothing is running
