@@ -397,9 +397,13 @@ enum WelcomeDictation {
     /// words and the waveform's syllables both follow it.
     static let wordsPerSecond: Double = 2.6
     /// The live text writes faster than the voice (maintainer, 2026-11-21: the waveform's pace is
-    /// right, but more text must show in the 4 s): the whole sentence is written by the end of the
-    /// recording. The waveform keeps `wordsPerSecond`.
-    static let textWordsPerSecond: Double = 7.2
+    /// right, but more text must show; then the 24-word sentence over 5 s): the whole sentence is
+    /// written by the end of the recording. The waveform keeps `wordsPerSecond`.
+    static let textWordsPerSecond: Double = 5.0
+    /// The text arrives in groups of one to three words, as the real live transcription delivers
+    /// it (each re-decode settles a few words at once), not word by word (maintainer,
+    /// 2026-11-21). Cycled over the sentence; a group shows when its last word has been said.
+    static let groupSizes = [2, 1, 3, 2, 1, 3, 2, 2, 1, 3]
     /// The first word starts a moment after the recording, as when someone starts speaking.
     static let speechLeadIn: TimeInterval = 0.2
     static var speechStarts: TimeInterval { recordingStarts + speechLeadIn }
@@ -448,16 +452,35 @@ enum WelcomeDictation {
 
     // MARK: Words
 
-    /// Words shown at `time`: one every 1 / `textWordsPerSecond`.
+    /// Words shown at `time`: whole groups (`groupSizes`), each once its last word is said.
     static func wordCount(at time: TimeInterval) -> Int {
         guard time >= speechStarts else { return 0 }
-        let said = ((time - speechStarts) * textWordsPerSecond - wordShowsAt + 1e-9).rounded(.down) + 1
-        return min(words.count, max(0, Int(said)))
+        var shown = 0
+        for last in groupLastWords where wordSaid(last) <= time + 1e-9 { shown = last + 1 }
+        return shown
     }
 
-    /// When word `index` (from 0) shows.
-    static func wordShows(_ index: Int) -> TimeInterval {
+    /// When word `index` (from 0) has been said, at `textWordsPerSecond`.
+    static func wordSaid(_ index: Int) -> TimeInterval {
         speechStarts + (Double(index) + wordShowsAt) / textWordsPerSecond
+    }
+
+    /// When word `index` (from 0) shows: with the rest of its group.
+    static func wordShows(_ index: Int) -> TimeInterval {
+        wordSaid(groupLastWords.first { $0 >= index } ?? index)
+    }
+
+    /// The index of each group's last word.
+    static var groupLastWords: [Int] {
+        var ends: [Int] = []
+        var next = 0
+        var size = 0
+        while next < words.count {
+            next = min(words.count, next + groupSizes[size % groupSizes.count])
+            ends.append(next - 1)
+            size += 1
+        }
+        return ends
     }
 
     /// The live text at `time`: the settled words, and the newest ones (dimmer) with their
@@ -470,7 +493,8 @@ enum WelcomeDictation {
         return (stable, tail.isEmpty ? "" : (stable.isEmpty ? tail : " " + tail))
     }
 
-    /// What is "pasted": the words said before the end, as a transcription writes them (a
+    /// What is "pasted": the words shown before the end (whole groups; a group not yet shown at
+    /// Stop is dropped, as the live text had not settled it), as a transcription writes them (a
     /// sentence cut by Stop ends with a full stop, not a comma).
     static func finalText(stoppedAt: TimeInterval? = nil) -> String {
         var text = words.prefix(wordCount(at: recordingEnd(stoppedAt: stoppedAt))).joined(separator: " ")

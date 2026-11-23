@@ -292,25 +292,29 @@ becomes a check, the fade-up, `InlineShortcutText`).
   | Step (`WelcomeDictation.Phase`) | From | What shows |
   |---|---|---|
   | `idle` | 0.25 s (fades up), arrived 0.7 s | 0:00, no text, flat still waveform, `isPaused` (capsule still at the dim end of its breath) |
-  | `recording` | 0.825 s (`idleWait` **125 ms** after it arrived) | pulse, timer 0:00 → 0:04, waveform at **2.6 words/s** (`wordsPerSecond`), text at **7.2 words/s** (`textWordsPerSecond`), the first 0.2 s in |
-  | `transcribing` | the end: 4.3 s later (`recordingDuration`), or at Stop | the real state (`.loading`): light capsule, "Transcribing…", bars sinking then the sweep, **0.8 s** |
-  | `pasted` | + 0.8 s | `.finished(.pasted)`: green check, "Pasted", the final text all settled, 0:04, **1.85 s** (0.35 s + 1.5 s, maintainer: Replay came too soon) |
+  | `recording` | 0.825 s (`idleWait` **125 ms** after it arrived) | pulse, timer 0:00 → 0:05, waveform at **2.6 words/s** (`wordsPerSecond`), text at **5 words/s** (`textWordsPerSecond`) in groups of 1–3 words (`groupSizes`), the first 0.2 s in |
+  | `transcribing` | the end: 5.3 s later (`recordingDuration`), or at Stop | the real state (`.loading`): light capsule, "Transcribing…", bars sinking then the sweep, **0.8 s** |
+  | `pasted` | + 0.8 s | `.finished(.pasted)`: green check, "Pasted", the final text all settled, 0:05, **1.85 s** (0.35 s + 1.5 s, maintainer: Replay came too soon) |
   | `ended` | + 1.85 s (7.775 s without Stop) | a grey veil over the card fades in (0.3 s) with **Replay** (`arrow.counterclockwise`, a standard push button) centred under the pasted line; the clock stops |
 
   - **Pace:** the maintainer's real dictations run about 1.7–2.2 words/s; at most 1.25 times
     that was asked for the voice, so the waveform runs at 2.6 (`wordsPerSecond`). After testing
-    (2026-11-21) the maintainer kept that waveform but wanted more text in the 4 s: the text
-    writes at 7.2 words/s (`textWordsPerSecond`) and the sentence is the former 29-word one
-    ("So the plan for this week is the payment flow, then the mobile release. Let’s split it in
-    two: first the API, then the checkout screens, and we’ll see", three lines), its last word
-    at about 4.2 s. A 10-word sentence at the voice's pace was tried and rejected as too little
+    (2026-11-21) the maintainer kept that waveform but wanted more text: the text writes at
+    5 words/s (`textWordsPerSecond`) over a 5 s recording (7.2 then 6 words/s over 4 s were tried
+    first; 7.2 was a touch too fast) with a 24-word sentence ("So the plan for this week is the
+    payment flow, then the mobile release. Let’s split it in two: API first, then the UI.",
+    three lines), its last word at about 4.96 s. The words arrive **in groups of one to three**
+    (`groupSizes`, cycled), each group when its last word is said, as the real live text
+    settles a few words per re-decode (the maintainer noticed word-by-word looked unlike the
+    real recorder). A 10-word sentence at the voice's pace was tried and rejected as too little
     text. The voice is still speaking when the recording ends.
   - **Waveform rhythm:** the levels follow the words (`WelcomeDictation.level(at:)`): room noise
     between words (a gap of 22 % of the slot, 45 % after punctuation), one bump per syllable
     (vowel groups, 1–3), each word a little louder or softer; about 2.6 bursts a second
     instead of the former fixed 12.3 rad/s sine (frantic at this pace).
-  - **Recording length:** 4.3 s, not 4.0: at exactly 4 s the transcribing state replaces the
-    timer with "Transcribing…", so 0:04 would never be seen while recording.
+  - **Recording length:** 5.3 s, not 5.0: at exactly 5 s the transcribing state replaces the
+    timer with "Transcribing…", so 0:05 would never be seen while recording (it was 4.3 s for
+    0:04 until the maintainer asked for 5 s, 2026-11-21).
   - **Stop:** as in the real overlay, the pointer anywhere over the card shows Stop: the view's
     own `onHover` on the whole card (the welcome's recorder had `allowsHitTesting(false)`
     before, so no hover where the content is). Clicking it (`stopRecording()`, also an
@@ -457,12 +461,12 @@ approved 2026-11-21). Implemented in `feat/opening-scene-light-overlay`. Files:
   | Title moment (after the sunrise starts) | icon 118 pt from 0.8 s over 0.9 s (88 → 100 %, blur 6 → 0); "NanoWhisper" 40 pt and the headline 16 pt (82 %) from 1.2 s over 1.2 s, rising 8 pt; Get Started from 1.2 s, spring 1.1 s bounce 0.17, from 90 %; group moved −10 pt; button white, 44 pt, ≥ 100 pt wide, 34 pt below the headline |
   | Press and travel | travel after 0.05 s, `.smooth` 0.75 s; title fades 0.25 s, button 0.2 s (dips to 97 → 94 %) |
   | After the press | aura "shrinks into the icon", settle 0.7 s (`.smooth`), ends a 330 pt halo at 35 % |
-  | Welcome arrives (after the press) | recorder 0.25 s, catch phrase 0.45 s, facts together 0.55 s, Continue 0.6 s; fade-ups 0.45 s, 10 pt, cubic-bezier(0.2, 0.7, 0.2, 1); recording 0.125 s after the recorder has arrived, 4.3 s (`recordingLength`; was 3 s, see the welcome's recorder above) |
+  | Welcome arrives (after the press) | recorder 0.25 s, catch phrase 0.45 s, facts together 0.55 s, Continue 0.6 s; fade-ups 0.45 s, 10 pt, cubic-bezier(0.2, 0.7, 0.2, 1); recording 0.125 s after the recorder has arrived, 5.3 s (`recordingLength`; was 3 s, see the welcome's recorder above) |
 
   Moments: the title moment is complete at **2.7 s** (then it breathes and waits); Return
   presses Get Started from 1.83 s (`buttonPressable`, the prototype's rule); after the press the
-  recorder records at 0.825 s until 5.125 s (`Times.recordingEnds`), then transcribes, pastes
-  and rests under the veil from 6.275 s; the scene's own motion ends at 1.4 s.
+  recorder records at 0.825 s until 6.125 s (`Times.recordingEnds`), then transcribes, pastes
+  and rests under the veil from 8.775 s; the scene's own motion ends at 1.4 s.
 - **How:** every frame is a pure function, `OpeningScene.frame(t:pt:dark:reduceMotion:)`, a
   port of the prototype's `renderVals` (same springs: ω = 2π / duration, damping 1 − bounce; same
   cubic-béziers), so the renders at any moment match the prototype (compared with the prototype
@@ -668,7 +672,7 @@ following the same logic.
   verified: unit tests (`WelcomeRecorderTests`: pace, timeline and timer, words and final
   text, Stop at any moment, the levels following the words, the demo's steps, Stop, Replay
   three times, Reduce Motion, still moments, wording); offscreen renders of the welcome
-  recording, with Stop under the pointer, at 0:04, transcribing, pasted and under the veil,
+  recording, with Stop under the pointer, at 0:05, transcribing, pasted and under the veil,
   light and dark (`ViewRender/welcomeDemo`), of the setup page and Settings › General with the
   new caption; the real window in a test process (`OnboardingWindowTests`: the whole flow to the
   veil, the recorder under the veil still for 1 s and 0 % CPU at rest; a synthesized click on
@@ -697,7 +701,7 @@ following the same logic.
 - Onboarding ("Icon", 2026-11-21), verified: unit tests (`OnboardingFlowTests`); offscreen renders
   of every page and state in the real window, light and dark (`ViewRender`, `onboarding-*.png`);
   the real window on screen in a test process (`OnboardingWindowTests`: the welcome's entrance
-  and dictation over 4 s, Try it with the real recorder panel at Top Center not overlapping the
+  and dictation over 5 s, Try it with the real recorder panel at Top Center not overlapping the
   window, on the real screen and composited on 1440 × 900); in the debug app (`make onboarding`,
   dark appearance), window captures of the welcome from launch to rest (the entrance, the words,
   the frozen card at 0:03) and of the setup page with both permissions allowed and the model
