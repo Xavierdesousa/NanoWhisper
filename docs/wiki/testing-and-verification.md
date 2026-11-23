@@ -129,7 +129,8 @@ Agents had **no screen capture** until 2026-11-21. These worked on 2026-11-19:
      Read the saved values from the prototype's `data-props` (each Tweak's `default`): the
      script's own `DEF` object and boards that import the component without `cfg` use older
      values.
-   - **CPU of an animation (2026-11-21):** `getrusage(RUSAGE_SELF)` before and after a phase in
+   - **CPU of an animation (2026-11-21):** (for the overlay panel alone, item 11 is closer to
+     the app) `getrusage(RUSAGE_SELF)` before and after a phase in
      an opt-in window test gives the test process's CPU (`OnboardingWindowTests/welcomeEntrance`
      prints it). Measure a release build: `swift build -c release --build-tests -Xswiftc
      -enable-testing`, then `swift test -c release -Xswiftc -enable-testing --skip-build
@@ -203,6 +204,31 @@ Agents had **no screen capture** until 2026-11-21. These worked on 2026-11-19:
     `pkill -x <harness name>`. **Traps:** virtual key codes are key positions, and the
     maintainer's Mac uses French AZERTY (`com.apple.keylayout.French`): ANSI Z (6) types "w" and
     ANSI W (13) types "z"; `log` in zsh is a builtin, call `/usr/bin/log`.
+
+11. **CPU of the real overlay panel, release build** (`perf/overlay-waveform-cpu`, 2026-11-23;
+    results in [architecture.md](architecture.md#recording-overlay), Waveform). A harness in the
+    scratchpad compiles `OverlayWaveform.swift`, `RecordingOverlayView.swift`,
+    `RecordingOverlay.swift`, `RecorderPosition.swift`, `LiveTranscript.swift` and
+    `DictationDestination.swift` (nothing else is needed) with a `main.swift`:
+    `swiftc -swift-version 6 -O -whole-module-optimization` (or `-Onone` for debug), about a
+    minute. The `main.swift` runs `NSApplication` as `.accessory`, shows a
+    `RecordingOverlayController`, feeds `show(audioLevelPublisher:)` from a background timer
+    like the tap (4–5 levels every 85 ms, speech-like, deterministic), calls
+    `updateTranscript(_:for:)` every second for live text and `transitionToLoading()` for
+    transcribing, and moves `controller.window` to a chosen screen (the controller places it
+    on the pointer's screen). CPU: `getrusage` after a warm-up, in the process; energy impact:
+    `top -l N -s 1 -pid <pid> -stats pid,cpu,power` (no sudo). Frames drawn: a counter added by
+    `perl` to the copied `Canvas { graphics, size in` closure (the repo is not changed). Cost
+    split: switch parts off from the harness (`viewModel.isPaused` stops the pulse,
+    `waveform.freeze()` the glide) and `sample <pid> 8`. What SwiftUI made of a view: dump the
+    panel's layer tree (`contentView.layer`, each sublayer's `presentation()` position, shadow,
+    filters) a frame apart; that showed `.offset` rounded to whole pixels and `.transformEffect`
+    kept fractional. Whether two ways of drawing give the same pixels: put both side by side in
+    one opaque borderless window on the screen to test, at fixed inputs, `screencapture -x -o
+    -l <id>`, compare with `NSBitmapImageRep.getPixel`. **Traps:** WindowServer's CPU (`ps -o
+    time=`) is too noisy to attribute while other apps draw; `pgrep -f` on a binary started as
+    `./name` does not match a path, use `$!`; a free-standing Swift file with top-level code must
+    be named `main.swift`.
 
 ## What agents cannot verify
 

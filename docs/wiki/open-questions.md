@@ -59,8 +59,13 @@ it, with the date, machine and macOS version.
   added.
 
 - Live transcription in production: offered from 0.1.0 as a beta, off by default (maintainer,
-  2026-11-21; [live-transcription.md](live-transcription.md#in-production-as-a-beta-off-by-default-since-010)). Open: CPU of the recorder's
-  waveform during long dictations, and when to drop the "beta" label.
+  2026-11-21; [live-transcription.md](live-transcription.md#in-production-as-a-beta-off-by-default-since-010)). Open: when to drop the
+  "beta" label.
+- Recorder CPU (measured 2026-11-23 in a release harness: 19 % of a core recording, 25–26 % with
+  live text, 13 % transcribing; [architecture.md](architecture.md#recording-overlay), Waveform,
+  CPU): left as is because no tried change kept the look identical. Open: whether any of the
+  listed options (the pulse in Core Animation, a cheaper live-text transition) is worth a visible
+  check side by side. Not measured: watts, 60 Hz displays, WindowServer's share.
 
 - Notarization with a Developer ID: planned "long term", not now. Note that the
   `mediaremote-adapter` option for media pause was rejected because the app is not notarized

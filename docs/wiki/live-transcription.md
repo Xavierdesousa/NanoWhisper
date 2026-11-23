@@ -13,9 +13,12 @@ there for whoever wants it ("In beta: off by default. Words can change while you
 switch to withdraw it again. Nothing is migrated: the stored `liveTranscriptionEnabled` is
 false unless the user turns it on (the maintainer's production defaults read 0 on
 2026-11-21; no release ever exposed the toggle). Not verified in a production bundle with a
-real voice. Watch CPU: the recorder's waveform costs about 80–100 % of a core in a debug test
-harness when the text rarely changes (measured with the welcome demo, PR #40; release build not
-measured).
+real voice. CPU of the recorder itself (measured 2026-11-23, release build of the real panel
+in a harness, M3 Pro, 120 Hz): 19 % of a core while recording, 25–26 % with live text updated
+every second (about 10 points of it are the text's cross-fade), 13 % while transcribing; on top
+of the transcription's own 23–33 % (below). The 80–100 % measured with the welcome demo (PR #40)
+was the onboarding window, not this panel. No change made; options and the reasons in
+[architecture.md](architecture.md#recording-overlay) (Waveform, CPU).
 
 ### History: debug build only (2026-11-20 → 0.1.0)
 

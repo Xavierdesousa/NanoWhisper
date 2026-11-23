@@ -343,6 +343,11 @@ becomes a check, the fade-up, `InlineShortcutText`).
     window's frames cheaper, the new one every 385 ms. So this is the cost of the real
     overlay's waveform with mostly still text, as the live recorder runs without live text;
     not changed here (the overlay is shared). Not measured in a release build.
+    **Correction (2026-11-23):** the same views in the real overlay panel, in their own
+    process, cost 19 % of a core while recording, in a release and in a debug build alike
+    ([architecture.md](architecture.md#recording-overlay), Waveform, CPU); so most of the 82–104 %
+    here comes from the recorder being inside the onboarding window, not from the waveform
+    itself. Not investigated further (the demo plays for 5 s).
   - Two traps (kept): a `repeatForever` pulse is not stopped by later non-animated changes, so
     the indicator gets a new identity when it pauses or resumes (`.id(isPaused)`); and
     `OverlayWaveform` is not observable, so the view takes its `revision` (bumped on start and
