@@ -26,10 +26,7 @@
 </p>
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.png">
-    <img src="docs/images/hero-light.png" width="460" alt="NanoWhisper's welcome window: the recorder shows a waveform and the sentence being dictated, above four points: on this Mac, private history, fast, pasted for you">
-  </picture>
+  <img src="docs/images/hero-dark.png" width="460" alt="NanoWhisper's welcome window: the recorder shows a waveform and the sentence being dictated, above four points: on this Mac, private history, fast, pasted for you">
 </p>
 
 ## Think out loud. The text is already there.
@@ -80,10 +77,7 @@ Transcription runs on your Mac with Core ML, using NVIDIA’s
 
 ### The recorder
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/recorder-dark.png">
-  <img src="docs/images/recorder-light.png" width="760" alt="The recorder: recording with a waveform and a timer, transcribing, pasted; on the right, the card that shows the words while you speak">
-</picture>
+<img src="docs/images/recorder-dark.png" width="760" alt="The recorder: recording with a waveform and a timer, transcribing, pasted; on the right, the card that shows the words while you speak">
 
 - A small capsule with a live waveform of your voice and a timer. Point at it to stop with the mouse.
   When you stop, a light sweeps across it while it transcribes, then it says “Pasted” (or “No speech
@@ -102,10 +96,7 @@ Parakeet and with Whisper Base.
 
 ### History
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/history-dark.png">
-  <img src="docs/images/history-light.png" width="760" alt="The History window: a list of dictations grouped by day on the left, the selected dictation in full on the right, Copy, Delete and Search in the toolbar">
-</picture>
+<img src="docs/images/history-dark.png" width="760" alt="The History window: a list of dictations grouped by day on the left, the selected dictation in full on the right, Copy, Delete and Search in the toolbar">
 
 - Every dictation in one window: a list by day and the full text, with search (ignoring case and
   accents), copy, and delete with <kbd>⌘</kbd> <kbd>Z</kbd> to bring it back.
@@ -115,10 +106,7 @@ Parakeet and with Whisper Base.
 
 ### Comfort
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/settings-general-dark.png">
-  <img src="docs/images/settings-general-light.png" width="520" alt="Settings, General pane: the shortcut, open at login, sounds, pausing music and videos, history, and the theme">
-</picture>
+<img src="docs/images/settings-general-dark.png" width="520" alt="Settings, General pane: the shortcut, open at login, sounds, pausing music and videos, history, and the theme">
 
 - **Pauses music and videos** while you dictate and resumes them afterwards (what Control Center shows
   as Now Playing, browser tabs included).
@@ -173,10 +161,7 @@ NanoWhisper asks for two permissions:
 
 ### First launch
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/onboarding-dark.png">
-  <img src="docs/images/onboarding-light.png" width="760" alt="Setup: the setup page with the permissions, the model, the shortcut and four settings, and the Try it page showing a transcribed sentence">
-</picture>
+<img src="docs/images/onboarding-dark.png" width="760" alt="Setup: the setup page with the permissions, the model, the shortcut and four settings, and the Try it page showing a transcribed sentence">
 
 One window walks you through it: a short welcome, then a setup page where you allow the
 microphone and pasting while the speech model downloads (Parakeet Ultra, about 630 MB), check the
@@ -199,10 +184,7 @@ debug info in History).
 
 ## Models
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/settings-engine-dark.png">
-  <img src="docs/images/settings-engine-light.png" width="520" alt="Settings, Engine pane: Parakeet and Whisper, the model picker, speed and accuracy bars and the key points of Parakeet Ultra">
-</picture>
+<img src="docs/images/settings-engine-dark.png" width="520" alt="Settings, Engine pane: Parakeet and Whisper, the model picker, speed and accuracy bars and the key points of Parakeet Ultra">
 
 | Engine | Model | Download | Notes |
 |---|---|---|---|
