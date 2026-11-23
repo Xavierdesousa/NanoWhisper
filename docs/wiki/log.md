@@ -5,6 +5,15 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-23
 
+- **README rewritten as a product page** (`docs/readme-0.1.0`): hero with a download link, the
+  measured speed (up to 327×, 0.19 s median, ~1.8 s for 10 minutes; source
+  [transcription-engines](transcription-engines.md#measured-speed-on-real-dictations-2026-11-21)),
+  features with **dark** screenshots only (maintainer's choice; `docs/images/`, from the
+  `ViewRender` renders at 2x, History with invented entries only), privacy and permissions, the
+  Gatekeeper note, usage, requirements. At the maintainer's review: no footnote, no engine names
+  in "How it works", no Models, Roadmap, First launch or Build from source sections (build
+  instructions live in `CLAUDE.md` and this wiki). How the images were made:
+  [testing](testing-and-verification.md#techniques-that-work-without-a-screen), item 1.
 - **Version 0.1.0** (`chore/release-0.1.0`): Info.plist bumped; the release flow, the planned Stable/Beta
   channels (GitHub pre-releases, `-beta.N` tags) and auto-update when idle written down in
   [build-and-release](build-and-release.md#release-channels-planned-for-011-not-built-yet); two opening-scene clock
