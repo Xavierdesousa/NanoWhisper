@@ -344,6 +344,55 @@ environment values forced in a test host).
     reaches the top", "soft and loud look the same"), and one level per tap buffer drew
     sentences as blocks. Silence floor 0.15 (−49 dBFS), lowered from 0.35 ("silence shows up
     too early"). An empty 50 ms slot still repeats the previous value up to 2 slots.
+  - **CPU (measured 2026-11-23, `perf/overlay-waveform-cpu`):** M3 Pro, macOS 27.2, on AC
+    power with other apps running; the real `RecordingOverlayController` panel compiled from the
+    app's sources in a standalone harness, fed synthetic levels (no microphone), 30 s per state
+    after a 4 s warm-up, CPU of that process in % of one core (method:
+    [testing](testing-and-verification.md#techniques-that-work-without-a-screen), item 11).
+
+    | State (release build, built-in 120 Hz display) | Dark | Light |
+    |---|---|---|
+    | App idle, no overlay ever shown | 0.0 % | 0.0 % |
+    | After a recording, overlay dismissed | 0.1 % | 0.1 % |
+    | Recording, no live text | 19.2 % | 18.6 % |
+    | Recording with live text (an update every second) | 25.2 % | 25.8 % |
+    | Transcribing (sink, then the sweep) | 13.0 % | 12.8 % |
+
+    `top`'s energy impact follows the CPU (18.7–19.3 recording). On the 144 Hz external display:
+    18.2 / 27.0 / 13.2 % (recording / live / transcribing, dark): the waveform's
+    `TimelineView(.animation)` drew 120 frames a second there too. A **debug** build of the same
+    harness costs the same (19.6 / 28.3 / 13.5 %): the time is spent in SwiftUI, RenderBox and
+    Core Animation, not in the app's code. So the 82–104 % measured with the welcome's recorder
+    ([onboarding](onboarding-and-settings.md#onboarding)) is not this panel's cost; the
+    difference comes from the onboarding window (not investigated). WindowServer's share could
+    not be separated: it moved between 47 and 56 % of a core with or without the overlay, from
+    other apps. Watts not measured (`powermetrics` needs sudo). 60 Hz not measured (no 60 Hz
+    display at hand).
+  - **Where it goes (recording, parts switched off in the harness, `sample`):** the waveform
+    about 8 points (its canvas re-rendered by RenderBox and submitted to Metal 120 times a
+    second; with an empty canvas and no pulse, the timeline's frames alone cost 5 %); the record capsule's pulse
+    5–10 points (SwiftUI maps its shadows to `CALayer` shadows and updates them every frame:
+    10 % alone with a still waveform; the two share their frames); live text 9–11 points at one
+    update a second (the `.contentTransition(.interpolate)` cross-fade is drawn by Core Graphics
+    on the CPU, 0.2 s at 120 Hz per update). The card's background (inner shadow) is not redrawn
+    per frame: removing it changed nothing.
+  - **Decision (2026-11-23): no change.** The maintainer's rule for this work: optimise only if
+    the look and motion stay identical. Tried, measured, rejected:
+    - The bars of one shade filled as one path (26 or 75 fills → at most 9): no gain (18.9 vs
+      18.7 %); the cost is the canvas layer's re-render, not the number of fills.
+    - Bars drawn only when a slot closes (20 Hz), the glide applied with `.offset`: 13.2 %
+      (−5 points), but SwiftUI rounds that layer's position to whole pixels (−3.0, −0.5, −1.0 pt
+      read from the layer tree), so the row would move in pixel steps instead of sliding.
+    - The same with `.transformEffect` (a fractional translation of the layer: −0.25, −0.92 pt):
+      13.9 % recording, 25.0 % live; but the moved bars are not the bars drawn at that offset.
+      On screen, side by side, 16 offsets × 3 widths, light and dark: up to 117/255 per pixel at
+      half-pixel offsets, identical only at whole-pixel offsets; the moved bars keep crisp edges
+      that jump a pixel instead of the anti-aliased slide.
+  - **Options left to the maintainer** (each changes how something is drawn, so it needs a
+    side-by-side look first): the capsule's pulse as Core Animation animations instead of
+    SwiftUI's per-frame updates (up to about 8 points; CA interpolates shadows and colours its
+    own way); a cheaper live-text transition (about 10 points with live text; a plain cross-fade
+    or none looks different); a lower frame rate for the glide (visible on 120 Hz displays).
 - **Result** (`OverlayResult`, from `DictationOutcome`): check + "Pasted" (delivered), "Done"
   (onboarding Try-it, or a test whose box is gone; the design has no state for these), warning +
   "No speech detected" (empty), "No audio recorded", "Transcription failed". Held 0.8 s, 1.2 s when

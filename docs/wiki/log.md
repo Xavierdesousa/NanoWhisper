@@ -3,6 +3,17 @@
 Dated entries, newest first. One entry per change to the project or to this wiki: what changed,
 why if not obvious, and the PR. Older history is summarized from `git log`.
 
+## 2026-11-23
+
+- **Recorder CPU measured in a release build; no change** (`perf/overlay-waveform-cpu`): the real
+  overlay panel in a release harness with synthetic levels (M3 Pro, 120 Hz): 19 % of a core
+  recording, 25–26 % with live text, 13 % transcribing, 0.1 % once dismissed; the same in debug
+  and on a 144 Hz display. Split: waveform canvas ~8 points, capsule pulse 5–10, live-text
+  cross-fade 9–11. Glide by `.offset` (pixel-rounded) or `.transformEffect` (different pixels,
+  up to 117/255) and grouped fills (no gain) rejected: no change keeps the look identical.
+  Options listed for the maintainer. Pages: architecture (Waveform, CPU), testing (item 11),
+  live-transcription, onboarding (correction of the 82–104 %), open-questions.
+
 ## 2026-11-21
 
 - **Welcome demo: 5 s, 5 words/s, words in groups** (`fix/welcome-demo-six-words`): 7.2 words/s was a touch
