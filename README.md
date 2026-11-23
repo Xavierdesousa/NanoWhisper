@@ -40,7 +40,7 @@ Five minutes of speech is transcribed in under a second.
   <tr>
     <td align="center" width="33%"><h3>0.19 s</h3>median transcription time<br><sub>18 of 25 dictations under a quarter of a second</sub></td>
     <td align="center" width="33%"><h3>Up to 327×</h3>faster than real time<br><sub>the longer you speak, the bigger the gap</sub></td>
-    <td align="center" width="33%"><h3>~1.8 s</h3>for 9½ to 10 minutes of speech<br><sub>almost a thousand words</sub></td>
+    <td align="center" width="33%"><h3>~1.8 s</h3>10 minutes of speech<br><sub>almost a thousand words</sub></td>
   </tr>
 </table>
 
@@ -163,46 +163,6 @@ debug info in History).
 - A Mac with Apple Silicon
 - About 1 GB of free disk space (Parakeet Ultra takes about 630 MB)
 - An internet connection for the first model download
-
-## Build from source
-
-Requires Xcode with Swift 6.2 or later (releases are built with Xcode 27.1 and the macOS 27 SDK).
-The package uses SwiftPM traits to build FluidAudio without its TTS and diarization modules.
-
-```bash
-git clone https://github.com/Xavierdesousa/NanoWhisper.git
-cd NanoWhisper
-make app
-```
-
-`make app` builds, signs and launches **NanoWhisper Debug**, a separate app that can run next to
-the released NanoWhisper:
-
-| | NanoWhisper (release) | NanoWhisper Debug (local builds) |
-|---|---|---|
-| Bundle | `NanoWhisper.app`, `com.moonji.nanowhisper` | `NanoWhisper Debug.app`, `com.moonji.nanowhisper.debug` |
-| Default shortcut | ⌥ Space | ⌃⌥ Space |
-| Settings, permissions, login item | own | own (granted separately) |
-| History | `~/Library/Application Support/NanoWhisper` | `~/Library/Application Support/NanoWhisper Debug` |
-| Auto-updater | on | off |
-| Markers | — | “DEBUG” banner on the icon, orange band across the menu bar icon, version and commit in the menu |
-
-Downloaded models are shared by both. `make app` only stops a running NanoWhisper Debug, never the
-release app.
-
-| Target | Builds | Notes |
-|---|---|---|
-| `make app` | Debug | Launches it |
-| `make onboarding` | Debug | Launches it with `--onboarding` (shows onboarding again; settings and models are kept) |
-| `make handoff` | Debug | Launches it with `--show-handoff` (the end-of-onboarding popover) |
-| `make run` | Debug | Runs the executable without a bundle |
-| `make ci` | Release | `NanoWhisper.app`, no launch (used by the release workflow) |
-| `make release` | Release | Also creates `NanoWhisper-v<version>.zip`; launches nothing |
-| `make notarize` | Release | Notarizes and staples (`NOTARY_PROFILE=<keychain profile>`) |
-| `make publish` | Release | Creates the GitHub release for tag `v<version>` with `gh` (fallback when CI can’t run); needs a clean tree and the tag pushed to `origin` at HEAD |
-| `make test`, `make clean` | | |
-
-Signing uses `SIGN_IDENTITY` (default `Moonji Dev`; set it empty for ad-hoc signing).
 
 ## Contributing
 
