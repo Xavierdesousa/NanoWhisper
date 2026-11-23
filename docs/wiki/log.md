@@ -5,6 +5,10 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-23
 
+- **Version 0.1.0** (`chore/release-0.1.0`): Info.plist bumped; the release flow, the planned Stable/Beta
+  channels (GitHub pre-releases, `-beta.N` tags) and auto-update when idle written down in
+  [build-and-release](build-and-release.md#release-channels-planned-for-011-not-built-yet); two opening-scene clock
+  tests poll instead of a fixed sleep (they flaked on CI).
 - **Recorder CPU measured in a release build; no change** (`perf/overlay-waveform-cpu`): the real
   overlay panel in a release harness with synthetic levels (M3 Pro, 120 Hz): 19 % of a core
   recording, 25–26 % with live text, 13 % transcribing, 0.1 % once dismissed; the same in debug
