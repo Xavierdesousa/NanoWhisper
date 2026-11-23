@@ -72,6 +72,15 @@ Agents had **no screen capture** until 2026-11-21. These worked on 2026-11-19:
    approach for the overlay, **and it missed two overlay bugs** that only exist in the real
    panel (window size not following the content, dot animation picking up layout): an offscreen
    render lays the view out once at its final size. For windows, capture the real window, below.
+   - **Scale follows the screen the window sits on** (2026-11-23, README screenshots): with the
+     maintainer's 1x external display as the main screen, the onboarding and History renders came
+     out at 1x (580 × 640 px) while the Settings renders were 2x (not investigated why). For 2x
+     images, move the never-shown window onto a Retina screen (`setFrame` into that screen's
+     `visibleFrame`) before caching. `.environment(\.controlActiveState, .key)` on the content
+     gives SwiftUI buttons their active look (Continue in the accent colour), not the AppKit-backed
+     switches. The README images in `docs/images/` were made this way, with a temporary,
+     uncommitted patch of the render helpers and a board of `OverlayOnScreen` recorder states,
+     then given rounded corners, a hairline edge and a shadow by a Core Graphics script.
 2. **Capturing a real window of your own:** show it (e.g. the real `RecordingOverlayController`
    panel), then `cacheDisplay` its frame view (`window.contentView!.superview`) into a bitmap.
    The window bounds clip it exactly as on screen; window alpha does not matter, so the window can
