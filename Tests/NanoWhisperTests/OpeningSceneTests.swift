@@ -195,7 +195,12 @@ struct OpeningSceneClockTests {
         #expect(clock.isWaiting && !clock.isAnimating)
         #expect(clock.press(reduceMotion: true))
         #expect(clock.isAnimating)
-        try await Task.sleep(nanoseconds: 500_000_000)
+        // It settles 0.35 s after the press; a busy CI runner may run the scheduled work late,
+        // so wait for it (up to 5 s) instead of a fixed sleep (flaked on main, 2026-11-23).
+        let deadline = Date().addingTimeInterval(5)
+        while !clock.isSettled && Date() < deadline {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
         #expect(clock.isSettled && !clock.isAnimating)
         #expect(clock.moment(at: Date()).pt == .infinity)
     }
@@ -205,7 +210,11 @@ struct OpeningSceneClockTests {
         let clock = OpeningSceneClock()
         let start = Date().addingTimeInterval(-OpeningScene.Times.titleMomentEnds + 0.05)
         clock.begin(reduceMotion: false, at: start)
-        try await Task.sleep(nanoseconds: 600_000_000)
+        // Waits 0.05 s later; poll (up to 5 s) rather than a fixed sleep, for busy CI runners.
+        let deadline = Date().addingTimeInterval(5)
+        while !clock.isWaiting && Date() < deadline {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
         #expect(clock.isWaiting && !clock.isAnimating)
         #expect(clock.moment(at: Date()) == .init(t: OpeningScene.Times.titleMomentEnds, pt: nil))
         #expect(clock.press(reduceMotion: false))
