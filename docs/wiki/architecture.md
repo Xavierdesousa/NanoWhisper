@@ -450,9 +450,11 @@ environment values forced in a test host).
   note, the menu's History… stays enabled (since 2026-11-21) and the window says "History can’t
   be read right now". (Before the extraction, deleting from an already-open History window could
   still overwrite an unreadable file; the store refuses every write while unavailable.)
-- **What it protects:** the file at rest (a copy, a backup, another Mac) and against casual
-  reading. Not against software running under the same user account: the hardware UUID is
-  readable by any process and the salt is public.
+- **What it protects:** the file on its own, against casual reading. Not against software running
+  under the same user account (the hardware UUID is readable by any process and the salt is
+  public), nor a full backup or copy of the home folder, where the UUID also appears (file names
+  in `~/Library/Preferences/ByHost`). The README said a backup could not be read until
+  2026-11-24; that was wrong.
 
 Why: the first version (2026-03-20) stored the key in the Keychain; the Data Protection
 Keychain needs entitlements that fail without a provisioning profile

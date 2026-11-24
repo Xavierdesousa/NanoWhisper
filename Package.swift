@@ -10,7 +10,7 @@ let package = Package(
         // (text-to-speech, speaker diarization, NeMo text normalization) — none are used here.
         .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.18.3", traits: []),
         // WhisperKit now ships from the Argmax Open-Source SDK repository (formerly argmaxinc/WhisperKit).
-        .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", from: "1.1.1"),
+        .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", exact: "1.1.1"),
     ],
     targets: [
         .executableTarget(
