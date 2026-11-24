@@ -454,8 +454,7 @@ environment values forced in a test host).
 - **What it protects:** the file on its own, against casual reading. Not against software running
   under the same user account (the hardware UUID is readable by any process and the salt is
   public), nor a full backup or copy of the home folder, where the UUID also appears (file names
-  in `~/Library/Preferences/ByHost`). The README said a backup could not be read until
-  2026-11-24; that was wrong.
+  in `~/Library/Preferences/ByHost`).
 
 Why: the first version (2026-03-20) stored the key in the Keychain; the Data Protection
 Keychain needs entitlements that fail without a provisioning profile

@@ -112,9 +112,9 @@ Parakeet and with Whisper Base.
 - **Recordings are not kept.** Each recording is a temporary file, overwritten and deleted once it is
   transcribed (on an SSD, overwriting cannot guarantee that no trace remains on the disk).
 - **History is encrypted** with AES-256-GCM, with a key derived from this Mac’s hardware UUID
-  (HKDF-SHA256). The file alone is unreadable. It is not protected from software running under your
-  user account, nor from someone who has your whole home folder (a full backup or a copy of the
-  disk), because the hardware UUID can be found there. If you want nothing kept, turn History off.
+  (HKDF-SHA256). A copy of the file, a backup, or the file on another Mac cannot be read. It does not
+  protect against other software running under your user account, which can read the same hardware
+  UUID. If you want nothing kept, turn History off.
 - **Open source** under the GPL v3: you can read and build every line.
 
 NanoWhisper asks for two permissions:
