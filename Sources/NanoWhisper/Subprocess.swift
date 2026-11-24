@@ -29,15 +29,18 @@ enum Subprocess {
     /// Starts `executable` and returns its first stdout line as soon as it is printed, leaving
     /// the process to finish in the background. The process is reaped when it exits and killed
     /// if it is still running after `killAfter`. `line` is `nil` when it cannot start or prints
-    /// no line within `lineTimeout` (it is then killed right away).
+    /// no line within `lineTimeout` (it is then killed right away). `input` is written to the
+    /// process's standard input, which is then closed; whether the process reads it or not
+    /// changes none of these delays.
     static func start(
         _ executable: URL,
         arguments: [String],
+        input: Data? = nil,
         lineTimeout: TimeInterval,
         killAfter: TimeInterval
     ) async -> (line: String?, process: BackgroundProcess?) {
         await onBackgroundQueue {
-            startBlocking(executable, arguments: arguments, lineTimeout: lineTimeout, killAfter: killAfter)
+            startBlocking(executable, arguments: arguments, input: input, lineTimeout: lineTimeout, killAfter: killAfter)
         }
     }
 
@@ -102,6 +105,7 @@ enum Subprocess {
     private static func startBlocking(
         _ executable: URL,
         arguments: [String],
+        input: Data?,
         lineTimeout: TimeInterval,
         killAfter: TimeInterval
     ) -> (line: String?, process: BackgroundProcess?) {
@@ -109,6 +113,8 @@ enum Subprocess {
         let stdoutPipe = Pipe()
         process.standardOutput = stdoutPipe
         process.standardError = FileHandle.nullDevice
+        let stdinPipe = input == nil ? nil : Pipe()
+        if let stdinPipe { process.standardInput = stdinPipe }
         let background = BackgroundProcess(process)
 
         do {
@@ -118,12 +124,30 @@ enum Subprocess {
             return (nil, nil)
         }
         background.killIfRunning(after: killAfter)
+        if let input, let stdinPipe { write(input, to: stdinPipe) }
         let reader = FirstLineReader(stdoutPipe.fileHandleForReading)
         guard let line = reader.wait(timeout: lineTimeout) else {
             background.killIfRunning(after: 0)
             return (nil, background)
         }
         return (line, background)
+    }
+
+    /// Writes `input` to a started process on a background queue (it may exceed the pipe's
+    /// buffer), then closes the pipe. If the process exits without reading, the write fails.
+    private static func write(_ input: Data, to pipe: Pipe) {
+        // Only the process must hold the reading end, or a write to a dead one would block.
+        try? pipe.fileHandleForReading.close()
+        let handle = pipe.fileHandleForWriting
+        // An error instead of SIGPIPE, which would end the app.
+        guard fcntl(handle.fileDescriptor, F_SETNOSIGPIPE, 1) == 0 else {
+            try? handle.close()
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            try? handle.write(contentsOf: input)
+            try? handle.close()
+        }
     }
 }
 

@@ -143,6 +143,123 @@ final class InterruptedRecordingsTests {
         #expect(!exists(url))
     }
 
+    // MARK: - Files that are not ours
+
+    private func symlink(to target: URL, name: String? = nil) throws -> URL {
+        let link = directory.appendingPathComponent(name ?? debug.temporaryAudioFileName())
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        return link
+    }
+
+    private func isSymlink(_ url: URL) -> Bool {
+        (try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)) != nil
+    }
+
+    @Test("Deleting a symbolic link removes the link and leaves its target intact")
+    func deleteSymlink() throws {
+        let target = directory.appendingPathComponent("target.txt")
+        try Data("precious".utf8).write(to: target)
+        let link = try symlink(to: target)
+        TemporaryRecordings.securelyDelete(at: link)
+        #expect(!isSymlink(link))
+        #expect(try Data(contentsOf: target) == Data("precious".utf8))
+    }
+
+    @Test("Deleting one name of a file that has another leaves the content intact")
+    func deleteHardLink() throws {
+        let target = directory.appendingPathComponent("target.txt")
+        try Data("precious".utf8).write(to: target)
+        let link = directory.appendingPathComponent(debug.temporaryAudioFileName())
+        try FileManager.default.linkItem(at: target, to: link)
+        TemporaryRecordings.securelyDelete(at: link)
+        #expect(!exists(link))
+        #expect(try Data(contentsOf: target) == Data("precious".utf8))
+    }
+
+    @Test("Deleting a directory does nothing; a named pipe is removed without waiting")
+    func deleteOtherKinds() throws {
+        let folder = directory.appendingPathComponent(debug.temporaryAudioFileName(), isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+        let inside = folder.appendingPathComponent("inside.txt")
+        try Data("precious".utf8).write(to: inside)
+        TemporaryRecordings.securelyDelete(at: folder)
+        #expect(try Data(contentsOf: inside) == Data("precious".utf8))
+
+        let pipe = directory.appendingPathComponent(debug.temporaryAudioFileName())
+        try #require(mkfifo(pipe.path, 0o600) == 0)
+        TemporaryRecordings.securelyDelete(at: pipe)
+        #expect(!exists(pipe))
+    }
+
+    @Test("The header repair does not follow a symbolic link")
+    func repairSymlink() throws {
+        let target = try recording(seconds: 1, crashed: true, name: "target.wav")
+        let before = try Data(contentsOf: target)
+        let link = try symlink(to: target)
+        #expect(WAVHeader.repair(at: link) == .invalid)
+        #expect(try Data(contentsOf: target) == before)
+        #expect(WAVHeader.repair(at: target) == .repaired, "the target itself was repairable")
+    }
+
+    @Test("Links, directories and pipes are ignored at launch, whatever their name and the history setting",
+          arguments: [true, false])
+    func collectIgnores(historyAvailable: Bool) throws {
+        let wav = try recording(seconds: 1, crashed: true, name: "target.wav")
+        let before = try Data(contentsOf: wav)
+        let links = [
+            try symlink(to: wav),
+            try symlink(to: wav, name: "nanowhisper-debug_x.attempted.wav"),
+            try symlink(to: directory.appendingPathComponent("missing")),
+        ]
+        let hardLink = directory.appendingPathComponent(debug.temporaryAudioFileName())
+        try FileManager.default.linkItem(at: wav, to: hardLink)
+        let folder = directory.appendingPathComponent("nanowhisper-debug_folder.wav", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+        let pipe = directory.appendingPathComponent(debug.temporaryAudioFileName())
+        try #require(mkfifo(pipe.path, 0o600) == 0)
+
+        let result = InterruptedRecordings.collect(in: directory, flavor: debug, historyAvailable: historyAvailable)
+        #expect(result == .init(ignored: 6))
+        #expect(links.allSatisfy(isSymlink))
+        #expect(exists(hardLink) && exists(folder) && exists(pipe))
+        #expect(try Data(contentsOf: wav) == before)
+    }
+
+    @Test("A recording replaced by a link while it waited is not transcribed, and the target stays intact")
+    func replacedWhileWaiting() async throws {
+        let url = try recording(seconds: 1, crashed: true)
+        let candidates = InterruptedRecordings.collect(in: directory, flavor: debug, historyAvailable: true).candidates
+        #expect(candidates.count == 1)
+        let target = directory.appendingPathComponent("target.txt")
+        try Data("precious".utf8).write(to: target)
+        try FileManager.default.removeItem(at: url)
+        try FileManager.default.createSymbolicLink(at: url, withDestinationURL: target)
+        var calls = 0
+        let summary = await recovery(transcribe: { _ in
+            calls += 1
+            return .init(text: "x", debugInfo: nil)
+        }, added: { _ in }).run(candidates)
+        #expect(calls == 0)
+        #expect(summary == .init(skipped: 1))
+        #expect(!isSymlink(url))
+        #expect(try Data(contentsOf: target) == Data("precious".utf8))
+    }
+
+    @Test("A file is zeroed over its whole length, in blocks, then deleted")
+    func zeroedInBlocks() throws {
+        let size = TemporaryRecordings.zeroBlockSize * 3 + 17
+        let url = directory.appendingPathComponent(debug.temporaryAudioFileName())
+        try Data(repeating: 0xAB, count: size).write(to: url)
+        // Kept open to look at the content after the deletion.
+        let handle = try FileHandle(forReadingFrom: url)
+        TemporaryRecordings.securelyDelete(at: url)
+        #expect(!exists(url))
+        let content = try #require(try handle.readToEnd())
+        #expect(content.count == size)
+        let allZero = content.allSatisfy { $0 == 0 }
+        #expect(allZero)
+    }
+
     // MARK: - Recovery
 
     private func recovery(

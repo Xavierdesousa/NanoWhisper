@@ -5,6 +5,17 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-24
 
+- **Local data handling** (`fix/local-data-hardening`): the dictated text is marked transient and
+  confidential on the clipboard, and everything the clipboard held comes back (all items and types,
+  bounded); temporary recordings are zeroed in blocks, and links are never followed when zeroing,
+  repairing or collecting them; a stored shortcut that the app could not have written gives the
+  default; live transcription errors and `osascript`'s stderr are private in the log; the title of
+  what is playing goes to `osascript` on standard input. Recordings keep their location (why:
+  [architecture](architecture.md#temporary-recordings)). Pages: architecture (new section
+  [Clipboard around a paste](architecture.md#clipboard-around-a-paste)), media-pause, testing,
+  open-questions.
+- **README history sentence restored** (`docs/readme-history-sentence`), at the maintainer's request: it
+  describes the key bound to this Mac being built in `feat/history-key-secure-enclave`.
 - **Verify the update before installing** (`fix/updater-hardening`, PR #49): the updater checks the
   running app's and the new app's signature against pinned requirements, the identifier, the version
   (equal to the tag's, newer than the running one), the asset's name, address, size and SHA-256, and

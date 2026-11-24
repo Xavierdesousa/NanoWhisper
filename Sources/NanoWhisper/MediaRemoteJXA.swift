@@ -12,9 +12,10 @@ import os
 ///
 /// - `get` prints one JSON line on stdout: `null` (no app owns Now Playing) or
 ///   `{"processIdentifier","bundleIdentifier","title","uniqueIdentifier","playing"}`.
-/// - `send 0|1 PID TITLE ID` sends play (0) or pause (1) only if app PID still owns Now Playing,
-///   still shows the item with that title and unique identifier (each `none` or `some:BASE64`),
-///   and is in the opposite state; it then prints `sent`, otherwise `skipped`. Checking inside
+/// - `send 0|1 PID` sends play (0) or pause (1) only if app PID still owns Now Playing, still
+///   shows the item whose title and unique identifier are the two lines of standard input
+///   (each `none` or `some:BASE64`; what is playing is kept out of the process list), and is
+///   in the opposite state; it then prints `sent`, otherwise `skipped`. Checking inside
 ///   the same process shrinks the window in which another item could take over between our
 ///   read and the command (and a play with no Now Playing app launches Music).
 /// - Anything unexpected (a missing class, selector or symbol on another macOS version, a
@@ -63,9 +64,14 @@ actor MediaRemoteJXA: NowPlayingSource {
         }
         let reading = Self.parse(output)
         if reading == .failed {
-            Self.logger.error("get failed: status \(output.status), stderr: \(output.stderrText, privacy: .public)")
+            Self.logReadFailure(output)
         }
         return reading
+    }
+
+    /// The exit status is public; stderr is private, as it could quote what is playing.
+    static func logReadFailure(_ output: SubprocessOutput) {
+        logger.error("get failed: status \(output.status, privacy: .public), stderr: \(output.stderrText, privacy: .private)")
     }
 
     /// Must only run while holding `gate`.
@@ -74,6 +80,7 @@ actor MediaRemoteJXA: NowPlayingSource {
         let (line, process) = await Subprocess.start(
             Self.osascriptURL,
             arguments: Self.sendArguments(command, to: session),
+            input: Self.sendInput(for: session),
             lineTimeout: timeout,
             killAfter: timeout
         )
@@ -103,14 +110,17 @@ actor MediaRemoteJXA: NowPlayingSource {
     }
 
     static func sendArguments(_ command: NowPlayingCommand, to session: NowPlayingSession) -> [String] {
-        arguments("send", String(command.rawValue), String(session.processIdentifier),
-                  identityArgument(session.title), identityArgument(session.uniqueIdentifier))
+        arguments("send", String(command.rawValue), String(session.processIdentifier))
+    }
+
+    /// Standard input of `send`: two lines, the title and the unique identifier.
+    static func sendInput(for session: NowPlayingSession) -> Data {
+        Data((identityLine(session.title) + "\n" + identityLine(session.uniqueIdentifier) + "\n").utf8)
     }
 
     /// `none`, or `some:` followed by the value's UTF-8 in base64, so that no title can pass
-    /// for "no title". Base64 because `Process` hands arguments over decomposed (NFD, measured
-    /// on macOS 27.2): a title with an accent would otherwise never match the one read back.
-    static func identityArgument(_ value: String?) -> String {
+    /// for "no title" or span two lines.
+    static func identityLine(_ value: String?) -> String {
         value.map { "some:" + Data($0.utf8).base64EncodedString() } ?? "none"
     }
 
@@ -141,8 +151,41 @@ actor MediaRemoteJXA: NowPlayingSource {
         ))
     }
 
-    static let script = #"""
+    /// The part of the script that reads `sendInput(for:)`. It stops at the end of the second
+    /// line, without waiting for the end of the input.
+    static let identityReader = #"""
     ObjC.import('Foundation');
+
+    // `none` -> null, `some:BASE64` -> the UTF-8 string it encodes.
+    function identity(text) {
+        if (text === 'none') return null;
+        if (!text.startsWith('some:')) throw new Error('unsupported input');
+        const data = $.NSData.alloc.initWithBase64EncodedStringOptions($(text.slice(5)), 0);
+        if (data.isNil()) throw new Error('unsupported input');
+        const string = $.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding);
+        if (string.isNil()) throw new Error('unsupported input');
+        return ObjC.unwrap(string);
+    }
+
+    // { title, uniqueIdentifier } from the two lines of standard input, each a string or null.
+    function readIdentity() {
+        const input = $.NSFileHandle.fileHandleWithStandardInput;
+        let text = '';
+        let lines = [''];
+        while (lines.length < 3) {
+            const data = input.availableData; // waits for some; empty at the end of the input
+            if (Number(data.length) === 0) throw new Error('missing input');
+            const part = $.NSString.alloc.initWithDataEncoding(data, $.NSASCIIStringEncoding);
+            if (part.isNil()) throw new Error('unsupported input');
+            text += ObjC.unwrap(part);
+            lines = text.split('\n');
+        }
+        return { title: identity(lines[0]), uniqueIdentifier: identity(lines[1]) };
+    }
+
+    """#
+
+    static let script = identityReader + #"""
     ObjC.import('AppKit');
 
     // JXA returns undefined for a selector that does not exist: fail instead of guessing.
@@ -186,17 +229,6 @@ actor MediaRemoteJXA: NowPlayingSource {
         return result;
     }
 
-    // `none` -> null, `some:BASE64` -> the UTF-8 string it encodes.
-    function identityArgument(text) {
-        if (text === 'none') return null;
-        if (!text.startsWith('some:')) throw new Error('unsupported arguments');
-        const data = $.NSData.alloc.initWithBase64EncodedStringOptions($(text.slice(5)), 0);
-        if (data.isNil()) throw new Error('unsupported arguments');
-        const string = $.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding);
-        if (string.isNil()) throw new Error('unsupported arguments');
-        return ObjC.unwrap(string);
-    }
-
     function run(argv) {
         const bundle = $.NSBundle.bundleWithPath('/System/Library/PrivateFrameworks/MediaRemote.framework');
         if (bundle.isNil() || bundle.load !== true) throw new Error('MediaRemote not loaded');
@@ -216,14 +248,13 @@ actor MediaRemoteJXA: NowPlayingSource {
             return;
         }
 
-        if (argv.length === 5 && argv[0] === 'send' && (argv[1] === '0' || argv[1] === '1') && /^[1-9][0-9]*$/.test(argv[2])) {
+        if (argv.length === 3 && argv[0] === 'send' && (argv[1] === '0' || argv[1] === '1') && /^[1-9][0-9]*$/.test(argv[2])) {
             const play = argv[1] === '0'; // kMRPlay = 0, kMRPause = 1; never the toggle (2)
-            const expectedTitle = identityArgument(argv[3]);
-            const expectedIdentifier = identityArgument(argv[4]);
+            const expected = readIdentity();
             const state = nowPlaying(request);
             const item = currentItem(request);
             if (state.pid !== Number(argv[2]) || state.playing === play
-                || item.title !== expectedTitle || item.uniqueIdentifier !== expectedIdentifier) {
+                || item.title !== expected.title || item.uniqueIdentifier !== expected.uniqueIdentifier) {
                 out('skipped');
                 return;
             }
