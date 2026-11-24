@@ -602,7 +602,8 @@ class AppState: ObservableObject {
             // The overlay shows exactly the text delivered (pasted, or the Try-it box's).
             showFinalLiveText(result.text, for: live)
             isTranscribing = false
-            recordingOverlay.dismiss(showing: OverlayResult(outcome))
+            // Saved and pasted first: the overlay says "Pasted" only for what was.
+            recordingOverlay.dismiss(showing: OverlayResult(outcome) { deliver(result) })
             if obsoleteModelCleanupDeferred {
                 removeObsoleteModelsInBackground()
             }
@@ -610,30 +611,31 @@ class AppState: ObservableObject {
             switch outcome {
             case .showTestResult(let text):
                 testTranscription = text
-                return
-            case .discard:
-                return
+            case .discard, .deliver:
+                break
             case .noResult:
                 lastError = "Empty transcription"
                 sound.playNoResult()
-                return
             case .failed(let failure):
                 if destination == .onboardingTest { testTranscription = nil } // no stale result
                 lastError = failure.message
                 sound.playNoResult()
-                return
-            case .deliver:
-                break
             }
-
-            if historyEnabled && !historyUnavailable {
-                historyStore.add(
-                    HistoryEntry(text: result.text, debugInfo: result.debugInfo),
-                    keepingAtMost: maxHistoryCount
-                )
-            }
-            pasteManager.pasteText(result.text)
         }
+    }
+
+    /// Saves a dictation to history, if on, and pastes it.
+    private func deliver(_ result: Transcriber.TranscriptionResult) -> OverlayResult {
+        let save: () -> Bool = { [self] in
+            historyStore.add(
+                HistoryEntry(text: result.text, debugInfo: result.debugInfo),
+                keepingAtMost: maxHistoryCount
+            )
+        }
+        return OverlayResult.delivering(
+            saveToHistory: historyEnabled && !historyUnavailable ? save : nil,
+            paste: { pasteManager.pasteText(result.text) }
+        )
     }
 
     // MARK: - Recordings interrupted by a crash
@@ -647,10 +649,10 @@ class AppState: ObservableObject {
         let collection = InterruptedRecordings.collect(historyAvailable: historyAvailable)
         let found = collection.candidates.count + collection.deletedAttempted + collection.deletedTooShort
             + collection.deletedTooOld + collection.deletedUnreadable + collection.deletedHistoryOff
-            + collection.ignored
+            + collection.deletedCopies + collection.ignored
         if found > 0 {
             InterruptedRecordings.logger.notice(
-                "Interrupted recordings at launch: \(collection.candidates.count, privacy: .public) to transcribe (\(collection.repairedHeaders, privacy: .public) headers repaired); deleted \(collection.deletedAttempted, privacy: .public) already attempted, \(collection.deletedTooShort, privacy: .public) too short, \(collection.deletedTooOld, privacy: .public) too old, \(collection.deletedUnreadable, privacy: .public) unreadable, \(collection.deletedHistoryOff, privacy: .public) with history off; ignored \(collection.ignored, privacy: .public)"
+                "Interrupted recordings at launch: \(collection.candidates.count, privacy: .public) to transcribe (\(collection.repairedHeaders, privacy: .public) headers repaired); deleted \(collection.deletedAttempted, privacy: .public) already attempted, \(collection.deletedTooShort, privacy: .public) too short, \(collection.deletedTooOld, privacy: .public) too old, \(collection.deletedUnreadable, privacy: .public) unreadable, \(collection.deletedHistoryOff, privacy: .public) with history off, \(collection.deletedCopies, privacy: .public) copies; ignored \(collection.ignored, privacy: .public)"
             )
         }
         guard !collection.candidates.isEmpty else { return }

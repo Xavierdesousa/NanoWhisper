@@ -251,6 +251,12 @@ struct RecordingOverlayView: View {
                 trailing {
                     if result.isSuccess {
                         timerText(color: colors.timerStopped)
+                    } else if let detail = result.detail {
+                        Text(detail)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(colors.timerStopped)
+                            .lineLimit(1)
+                            .fixedSize()
                     }
                 }
             case .idle, .recording, .loading:

@@ -58,6 +58,27 @@ struct OverlayWindowTests {
         await Self.waitUntilHidden(controller)
     }
 
+    @Test("The capsule grows from its pinned edges for a result with a detail", arguments: RecorderPosition.allCases)
+    func panelFitsDetail(position: RecorderPosition) async throws {
+        let controller = RecordingOverlayController()
+        controller.show(audioLevelPublisher: PassthroughSubject<Float, Never>(), position: position)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let window = try #require(controller.window)
+        let compact = window.frame
+        controller.transitionToLoading()
+        controller.dismiss(showing: .notPasted(savedInHistory: true))
+        try await Task.sleep(nanoseconds: 300_000_000)
+        #expect(window.frame.size == window.contentView?.fittingSize)
+        #expect(window.frame.width > compact.width && window.frame.height == compact.height)
+        #expect(window.frame.minY == compact.minY)
+        switch position.horizontalAnchor {
+        case .left: #expect(window.frame.minX == compact.minX)
+        case .center: #expect(abs(window.frame.midX - compact.midX) <= 0.5)
+        case .right: #expect(window.frame.maxX == compact.maxX)
+        }
+        await Self.waitUntilHidden(controller)
+    }
+
     @Test("The drop shadows: a click-through child window around the card, following it as it grows and when dragged")
     func shadowWindowFollows() async throws {
         let (controller, levels) = (RecordingOverlayController(), PassthroughSubject<Float, Never>())

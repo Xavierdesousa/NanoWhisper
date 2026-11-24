@@ -145,14 +145,15 @@ Behavior and wording: [onboarding-and-settings.md](onboarding-and-settings.md#en
    then in a `Task`:
    - `transcriber.transcribe(audioURL:)` (queued, see
      [transcription-engines.md](transcription-engines.md#concurrency-model));
-   - the overlay shows the final text (live preview, debug build) and is dismissed, whatever
-     the outcome;
+   - the overlay shows the final text (live preview);
    - `DictationOutcome.resolve(...)`: test result shown in onboarding, discarded, "Empty
      transcription" (engine ran, nothing recognized; no-result sound), failed (engine error or
      no engine: `TranscriptionFailure.message` in the menu's error line, same sound; the
      error is in the log, category `Transcriber`: its type public, its description private
      since it could quote the vocabulary hint or text), or delivered;
    - delivered text is added to history (`HistoryStore.add(_:keepingAtMost:)`, if enabled) and pasted;
+   - the overlay is dismissed, whatever the outcome, with what became of the text (see
+     [Pasted or not](#pasted-or-not));
    - `defer`: the WAV is overwritten with zeros and deleted (`TemporaryRecordings.securelyDelete(at:)`), and the
      media session is ended (media resumes only when no other session is open).
 
@@ -394,10 +395,12 @@ environment values forced in a test host).
     SwiftUI's per-frame updates (up to about 8 points; CA interpolates shadows and colours its
     own way); a cheaper live-text transition (about 10 points with live text; a plain cross-fade
     or none looks different); a lower frame rate for the glide (visible on 120 Hz displays).
-- **Result** (`OverlayResult`, from `DictationOutcome`): check + "Pasted" (delivered), "Done"
+- **Result** (`OverlayResult`, from `DictationOutcome`): check + "Pasted", warning + "Not pasted"
+  (see [Pasted or not](#pasted-or-not)), check + "Done"
   (onboarding Try-it, or a test whose box is gone; the design has no state for these), warning +
   "No speech detected" (empty), "No audio recorded", "Transcription failed". Held 0.8 s, 1.2 s when
-  final text is shown, then a 0.25 s fade. The title is also posted as a VoiceOver announcement.
+  final text or a detail is shown, then a 0.25 s fade. The title (and the detail) is also posted as
+  a VoiceOver announcement.
   `AppState.stopRecording()` now resolves the outcome before dismissing the overlay.
 - **Motion:** appear = window alpha 0.15 s + content scale 0.96 → 1 from the pinned edge (spring
   0.3/0.85; none with Reduce Motion); the card's text fades in 0.12 s; the result badge scales in
@@ -590,6 +593,27 @@ approved 2026-11-21 with the maintainer's answers). Built in `feat/history-redes
   VoiceOver (row labels, key boxes, announcements), the toolbar's glass and scroll edge as the
   window server draws them, macOS 14 and 15.
 
+## Pasted or not
+
+Since 2026-11-24 the recorder says "Pasted" only when the ⌘V was sent (`PasteManager.pasteText`
+returns a `PasteResult`; its result was ignored before):
+
+- `.noTarget` (NanoWhisper itself, or no app, in front: nothing is sent, as before) and
+  `.notPermitted` (Accessibility off: macOS drops the ⌘V) show the warning sign and "Not pasted".
+  Without Accessibility the rest is as before (text on the clipboard for 3 s, ⌘V posted).
+- "Saved in History" follows, in the timer's place and style, only if the entry was written
+  (`HistoryStore.add` returns it; false with history off, unavailable or a failed write). The compact
+  capsule grows from its pinned edges (184 → 223 pt). VoiceOver: "Not pasted. Saved in History".
+- The text is saved, pasted, then the overlay is dismissed (`OverlayResult.delivering`), all in one
+  main-actor turn; before, the overlay was dismissed first. Nothing is drawn in between.
+- With history off, a text that was not pasted is lost, as before (it stays on the clipboard for
+  3 s when only Accessibility is missing). Rejected here: leaving it on the clipboard, which would
+  change what the clipboard holds after a dictation.
+- "Pasted" means that the keys were sent: whether the app in front took the text cannot be known.
+  They are posted 50 ms after the check, to whatever is in front then, as before.
+- **Not verified:** the real app without Accessibility or with one of its windows in front,
+  VoiceOver.
+
 ## Clipboard around a paste
 
 `PasteManager` borrows the clipboard for 3 s (`BorrowedClipboard`, 2026-11-24).
@@ -651,6 +675,17 @@ approved 2026-11-21 with the maintainer's answers). Built in `feat/history-redes
   was considered and rejected: it adds nothing against software of the same user, and leftovers of
   earlier versions must be looked for in `$TMPDIR` anyway. The file format and names are
   unchanged, so leftovers of earlier versions are recovered.
+- **No second copy** since 2026-11-24: FluidAudio no longer writes the recording to a
+  `fluidaudio-streaming-<UUID>.raw` file
+  ([transcription-engines](transcription-engines.md#parakeet-reads-a-recording-into-memory-2026-11-24)).
+  Copies left by a crash of an earlier version (`RecordingCopies`, at launch, before the rest of
+  `collect`): neither their name nor their attributes say which app made them (the only one is
+  `com.apple.provenance`, an undocumented opaque value), and other apps use FluidAudio. The only proof is the content: the copy holds exactly the WAV's samples (checked on 18
+  files). So a copy is zeroed and deleted only if it is an `OwnedFile` whose size and bytes are those
+  of one of this build's recordings (over 30 s, also `….attempted.wav`) still in the directory.
+  Anything else stays, unopened when its size matches no recording. **Not deleted, therefore:** a
+  copy whose recording is gone (the usual case: the earlier version was launched again after the
+  crash and recovered it) and one cut short by the crash. Nothing else in the app removes those.
 - Prefix `nanowhisper_` (production) or `nanowhisper-debug_` (debug), from
   `BuildFlavor.temporaryAudioFilePrefix`.
 - A leftover at launch is a recording whose app crashed before it was transcribed; its header
@@ -697,7 +732,7 @@ approved 2026-11-21 with the maintainer's answers). Built in `feat/history-redes
 
 ## Known limits
 
-- `PasteManager.pasteText` does nothing when NanoWhisper itself is frontmost.
+- `PasteManager.pasteText` sends nothing when NanoWhisper itself is frontmost ("Not pasted").
 - The clipboard saved around a paste is bounded: see
   [Clipboard around a paste](#clipboard-around-a-paste).
 - Apple Silicon only (README); not tested on Intel.

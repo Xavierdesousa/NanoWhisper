@@ -14,7 +14,8 @@ Swift Testing (`@Suite`, `@Test`) in `Tests/NanoWhisperTests/`. CI runs `swift t
 | `TranscriberConcurrencyTests.swift` | FIFO queue, configuration captured at submission, stale initializations |
 | `MediaControllerTests.swift` | Media session state machine against a fake controller, `pauseMediaEnabled` |
 | `NowPlayingTests.swift` | JXA output parsing (real macOS 27.2 outputs), resume rule, `NowPlayingPlaybackController`, `Subprocess` (standard input included); the part of the script that reads standard input, in the real `osascript` (no MediaRemote) |
-| `PasteboardSnapshotTests.swift` | Clipboard around a paste, on private pasteboards (never the general one): markers, everything restored, change count, overlapping dictations, bounds, promised data |
+| `PasteboardSnapshotTests.swift` | Clipboard around a paste, on private pasteboards (never the general one): markers, everything restored, change count, overlapping dictations, bounds, promised data; what `PasteManager` reports (pasted, no target, no Accessibility) |
+| `RecordingCopyTests.swift` | Parakeet's configuration is FluidAudio's default without the copy on disk. Opt-in (`NANOWHISPER_PARAKEET_ULTRA=<clone of the model folder>`): the real model on `say` speech, same text as the defaults and no copy in the temp directory |
 | `ShortcutStorageTests.swift` | Reading the stored shortcut: round trip, out-of-range values, no modifier (a throwaway defaults domain) |
 | `LogCapture.swift` | Helper: this process's log entries through `OSLogStore`, where private values read `<private>`. Reading takes 1–2 s, so it runs off the main actor; entry dates can precede a `Date()` taken just before logging, hence a 1 s margin |
 | `OnboardingSettingsTests.swift` | Launch options, permission status, Model section logic, dictation destination |

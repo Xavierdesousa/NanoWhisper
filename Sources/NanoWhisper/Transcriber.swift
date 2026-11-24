@@ -208,12 +208,19 @@ class Transcriber {
 
     // MARK: - Initialization
 
+    /// FluidAudio's defaults, except that a recording is read into memory. With
+    /// `streamingEnabled` (its default), a file over about 30 s is first copied, as plain samples,
+    /// to `fluidaudio-streaming-<UUID>.raw` in the temp directory, deleted without being
+    /// overwritten and left there by a crash. The samples, and so the text, are the same; the
+    /// recording takes 3.8 MB a minute while it is transcribed (wiki: transcription-engines).
+    nonisolated static let asrConfig = ASRConfig(streamingEnabled: false)
+
     /// Load Parakeet models into a new `AsrManager` and install it.
     /// - Returns: `false` when a newer initialization (or a model switch) superseded this one
     ///   while the models were loading; the result is then discarded and nothing changes.
     func initializeParakeet(models: AsrModels, variant: ParakeetVariant? = nil) async throws -> Bool {
         let installed = try await installParakeet(model: variant.map(SpeechModel.parakeet)) {
-            let manager = AsrManager(config: .default)
+            let manager = AsrManager(config: Self.asrConfig)
             try await manager.loadModels(models)
             return manager
         }
@@ -250,7 +257,7 @@ class Transcriber {
     /// keeps working meanwhile.
     func prepareParakeet(models: AsrModels, variant: ParakeetVariant? = nil) async throws -> PreparedParakeet {
         var prepared = try await prepareParakeet(models: models) {
-            let manager = AsrManager(config: .default)
+            let manager = AsrManager(config: Self.asrConfig)
             try await manager.loadModels(models)
             return manager
         }
@@ -515,7 +522,7 @@ class Transcriber {
         switch currentConfiguration.engine {
         case .parakeet:
             guard let models = parakeetModels else { return nil }
-            let manager = AsrManager(config: .default, models: models)
+            let manager = AsrManager(config: Self.asrConfig, models: models)
             return PreviewDecoder { samples in
                 var decoderState = TdtDecoderState.make(decoderLayers: await manager.decoderLayerCount)
                 let result = try await manager.transcribe(samples, decoderState: &decoderState)

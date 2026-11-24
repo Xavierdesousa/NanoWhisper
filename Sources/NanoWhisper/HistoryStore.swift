@@ -90,10 +90,12 @@ final class HistoryStore: ObservableObject {
     }
 
     /// Add a new transcription at the top, keeping at most `maxCount` entries.
-    func add(_ entry: HistoryEntry, keepingAtMost maxCount: Int) {
-        guard !isUnavailable else { return }
+    /// - Returns: whether it is in the history file.
+    @discardableResult
+    func add(_ entry: HistoryEntry, keepingAtMost maxCount: Int) -> Bool {
+        guard !isUnavailable else { return false }
         entries = Array(([entry] + entries).prefix(max(0, maxCount)))
-        save()
+        return save() && maxCount > 0
     }
 
     /// Insert an entry at its place by date (the list is newest first), keeping at most
@@ -157,19 +159,22 @@ final class HistoryStore: ObservableObject {
         }
     }
 
-    private func save() {
-        guard let json = try? JSONEncoder().encode(entries) else { return }
+    @discardableResult
+    private func save() -> Bool {
+        guard let json = try? JSONEncoder().encode(entries) else { return false }
         guard let key = key(), let sealed = HistoryCrypto.seal(json, using: key) else {
             // Never write plain text.
             Self.logger.error("History could not be encrypted; nothing was written")
             isUnavailable = true
-            return
+            return false
         }
         do {
             // Atomic: an interrupted save never leaves a partial (undecryptable) file.
             try sealed.write(to: fileURL, options: .atomic)
+            return true
         } catch {
             Self.logger.error("History could not be written: \(String(describing: error), privacy: .public)")
+            return false
         }
     }
 }

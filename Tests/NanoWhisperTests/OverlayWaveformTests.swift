@@ -239,13 +239,44 @@ struct OverlayWaveformTests {
 struct OverlayResultTests {
     @Test("Each dictation outcome maps to what the overlay shows")
     func mapping() {
-        #expect(OverlayResult(.deliver("Hello")) == .pasted)
-        #expect(OverlayResult(.showTestResult("Hello")) == .done)
-        #expect(OverlayResult(.showTestResult("")) == .noSpeech)
-        #expect(OverlayResult(.discard) == .done)
-        #expect(OverlayResult(.noResult) == .noSpeech)
-        #expect(OverlayResult(.failed(.engineError)) == .failed)
-        #expect(OverlayResult(.failed(.noEngine)) == .failed)
+        for result in [OverlayResult.pasted, .notPasted(savedInHistory: true), .notPasted(savedInHistory: false)] {
+            #expect(OverlayResult(.deliver("Hello")) { result } == result)
+        }
+        let others: [(DictationOutcome, OverlayResult)] = [
+            (.showTestResult("Hello"), .done), (.showTestResult(""), .noSpeech), (.discard, .done), (.noResult, .noSpeech),
+            (.failed(.engineError), .failed), (.failed(.noEngine), .failed),
+        ]
+        for (outcome, expected) in others {
+            let result = OverlayResult(outcome) {
+                Issue.record("Nothing to paste: \(outcome)")
+                return .pasted
+            }
+            #expect(result == expected)
+        }
+    }
+
+    @Test("Saved first, then pasted; \"Pasted\" only when it was, \"Saved in History\" only when it was",
+          arguments: [PasteResult.pasted, .noTarget, .notPermitted], [true, false, nil])
+    func delivering(paste: PasteResult, saved: Bool?) {
+        var steps: [String] = []
+        let save: (() -> Bool)? = saved.map { saved in { steps.append("save"); return saved } }
+        let result = OverlayResult.delivering(saveToHistory: save) {
+            steps.append("paste")
+            return paste
+        }
+        #expect(steps == (saved == nil ? ["paste"] : ["save", "paste"]))
+        #expect(result == (paste == .pasted ? .pasted : .notPasted(savedInHistory: saved == true)))
+    }
+
+    @Test("Not pasted: a warning, with where the text is only if it was saved")
+    func notPasted() {
+        let saved = OverlayResult.notPasted(savedInHistory: true)
+        let lost = OverlayResult.notPasted(savedInHistory: false)
+        #expect(saved.title == "Not pasted" && saved.detail == "Saved in History")
+        #expect(saved.announcement == "Not pasted. Saved in History")
+        #expect(lost.title == "Not pasted" && lost.detail == nil && lost.announcement == "Not pasted")
+        #expect(!saved.isSuccess && !lost.isSuccess)
+        #expect(OverlayResult.pasted.detail == nil && OverlayResult.pasted.announcement == "Pasted")
     }
 
     @Test("Titles and kinds")

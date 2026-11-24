@@ -36,6 +36,8 @@ enum InterruptedRecordings {
         var deletedUnreadable = 0
         var deletedHistoryOff = 0
         var repairedHeaders = 0
+        /// Copies of the recordings left by an earlier version (`RecordingCopies`).
+        var deletedCopies = 0
         /// Not files this app can have written (`OwnedFile`): left alone.
         var ignored = 0
     }
@@ -45,6 +47,8 @@ enum InterruptedRecordings {
     /// The others get their WAV header repaired if the crash left it incomplete, and are
     /// returned oldest first. Other builds' files are never touched, nor is anything that is not
     /// a file this app can have written (a link, a directory, another user's file).
+    /// Before that, the copies of these recordings left by an earlier version are deleted
+    /// (`RecordingCopies`).
     static func collect(
         in directory: URL = FileManager.default.temporaryDirectory,
         flavor: BuildFlavor = .current,
@@ -57,7 +61,11 @@ enum InterruptedRecordings {
             at: directory, includingPropertiesForKeys: [.creationDateKey, .contentModificationDateKey]
         ) else { return result }
 
-        for url in contents where flavor.ownsTemporaryAudioFile(named: url.lastPathComponent) {
+        // First: a copy is only known by the recording it copies.
+        let recordings = contents.filter { flavor.ownsTemporaryAudioFile(named: $0.lastPathComponent) }
+        result.deletedCopies = RecordingCopies.remove(of: recordings, among: contents)
+
+        for url in recordings {
             guard OwnedFile.exists(at: url) else {
                 result.ignored += 1
                 continue

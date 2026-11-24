@@ -52,6 +52,16 @@ final class HistoryStoreTests {
         #expect((try? JSONSerialization.jsonObject(with: bytes)) == nil)
     }
 
+    @Test("Adding says whether the entry is in the file")
+    func addReportsSaving() throws {
+        #expect(store().add(HistoryEntry(text: "kept"), keepingAtMost: 10))
+        let noKey = HistoryStore(fileURL: directory.appendingPathComponent("no-key.json"), key: { nil })
+        #expect(!noKey.add(HistoryEntry(text: "x"), keepingAtMost: 10), "not encrypted: nothing written")
+        #expect(!noKey.add(HistoryEntry(text: "x"), keepingAtMost: 10), "unavailable from then on")
+        let nowhere = HistoryStore(fileURL: directory.appendingPathComponent("missing/history.json"), key: { Self.key })
+        #expect(!nowhere.add(HistoryEntry(text: "x"), keepingAtMost: 10), "not written")
+    }
+
     @Test("Adding keeps at most the limit, newest first; trimming drops the oldest")
     func trimming() {
         let store = store()
