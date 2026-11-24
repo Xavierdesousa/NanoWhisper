@@ -16,6 +16,12 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
   open-questions.
 - **README history sentence restored** (`docs/readme-history-sentence`), at the maintainer's request: it
   describes the key bound to this Mac being built in `feat/history-key-secure-enclave`.
+- **Whisper is downloaded once and starts offline** (`fix/whisper-load-from-disk`, stacked on
+  `fix/model-download-hardening`): `WhisperModelFiles` (now its own file) checks that a model and its
+  tokenizer are complete on disk, by file and by the digest recorded at download, and loads them
+  without any request; only missing or damaged files are downloaded. Found on the way: Core ML
+  crashes, rather than fails, on several kinds of damaged compiled model. Pages:
+  [transcription-engines](transcription-engines.md#download-modeldownloadswift), open-questions, testing.
 - **Verify the update before installing** (`fix/updater-hardening`, PR #49): the updater checks the
   running app's and the new app's signature against pinned requirements, the identifier, the version
   (equal to the tag's, newer than the running one), the asset's name, address, size and SHA-256, and

@@ -9,12 +9,12 @@ import os
 /// environment and FluidAudio's server address are global.
 @Suite("Model download", .serialized)
 struct ModelDownloadTests {
-    private let fm = FileManager.default
+    let fm = FileManager.default
 
-    private static let serverVariables = ["REGISTRY_URL", "MODEL_REGISTRY_URL", "HF_ENDPOINT"]
+    static let serverVariables = ["REGISTRY_URL", "MODEL_REGISTRY_URL", "HF_ENDPOINT"]
     private static let tokenVariables = ["HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "HUGGINGFACEHUB_API_TOKEN"]
 
-    private func setVariables(server: String) {
+    func setVariables(server: String) {
         for name in Self.serverVariables { setenv(name, server, 1) }
         for name in Self.tokenVariables { setenv(name, "hf_test_token", 1) }
     }
@@ -24,7 +24,7 @@ struct ModelDownloadTests {
     }
 
     /// A temporary directory, checked whole after a download, with the cache inside it.
-    private func withRoot(_ body: (_ root: URL, _ cache: URL) async throws -> Void) async throws {
+    func withRoot(_ body: (_ root: URL, _ cache: URL) async throws -> Void) async throws {
         let root = fm.temporaryDirectory.appendingPathComponent("NanoWhisperDownloadTests-\(UUID().uuidString)", isDirectory: true)
         let cache = root.appendingPathComponent("a/b/cache", isDirectory: true)
         try fm.createDirectory(at: cache, withIntermediateDirectories: true)
@@ -36,7 +36,7 @@ struct ModelDownloadTests {
     }
 
     /// Regular files under `root`, relative to it.
-    private func files(under root: URL) -> Set<String> {
+    func files(under root: URL) -> Set<String> {
         guard let enumerator = fm.enumerator(atPath: root.path) else { return [] }
         var found: Set<String> = []
         for case let path as String in enumerator

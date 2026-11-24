@@ -1,6 +1,7 @@
 # Transcription engines and models
 
 Last verified against the code: 2026-11-24 (`fix/model-download-hardening`: download, loading, lock;
+`fix/whisper-load-from-disk`: Whisper on disk;
 the rest 2026-11-20, `feat/model-migration-and-cleanup`). Source: PR #13, the model migration PR and
 the code.
 
@@ -42,8 +43,8 @@ User-facing model descriptions and published error rates are in the [README](../
 
 - `SetupManager.runSetup(modelType:parakeetVariant:whisperSettings:)` downloads and loads the
   model. Parakeet: `ParakeetModelFiles.load(_:progressHandler:)`. Whisper:
-  `WhisperEngine(model:)` (`WhisperModelFiles.download`, then prewarm and load). See
-  [Download](#download-modeldownloadswift).
+  `WhisperEngine(_:localOnly:)` (`WhisperModelFiles.load`: download what is missing, then prewarm and
+  load). See [Download](#download-modeldownloadswift).
   - `setupGeneration` drops results and progress of a download that a newer request replaced.
   - `loadedParakeetVariant` / `loadedWhisperModelSize` record what is in memory, so
     `AppState.switchModel(to:parakeetVariant:)` reuses a model that is already loaded.
@@ -87,10 +88,57 @@ Consequence: a mirror of the model server set with these variables is no longer 
     harness, M3 Pro, 2026-11-24): same text, 0.050–0.067 s on a 5 s clip for both, load 0.08–0.12 s
     once compiled. It skips the "encoder ladder" (multifunction encoders); Ultra's and v3's encoders
     have one function, so it was empty with `load` too. **Re-check at a FluidAudio bump.**
-- Whisper: `HubApiWrapper.getFilenames`, the rule, then `HubApiWrapper.snapshot` with the accepted
-  names as patterns. `snapshot` lists the repository again, but an exact name matches only itself.
-  Then WhisperKit loads the folder with `download: false`. WhisperKit downloads the tokenizer itself
-  when it is missing (fixed names).
+- Whisper (`WhisperModelFiles.swift`): `HubApiWrapper.getFilenames`, the rule, then
+  `HubApiWrapper.snapshot` with the accepted names as patterns. `snapshot` lists the repository again,
+  but an exact name matches only itself. Then WhisperKit loads the folder with `download: false`. The
+  tokenizer's three files are downloaded the same way, by the app.
+
+**Once per model: Whisper is loaded from disk without a request** (`WhisperModelFiles.load`, since
+2026-11-24, `fix/whisper-load-from-disk`; before, every load listed the server's files, so Whisper
+could not start offline). Parakeet already worked this way (`AsrModels.modelsExist`). Checked at
+each load, off the main actor:
+
+1. *Every expected file is there*, a file and not empty: for each of `AudioEncoder`, `MelSpectrogram`
+   and `TextDecoder` (`.mlmodelc`): `analytics/coremldata.bin`, `coremldata.bin`, `metadata.json`,
+   `model.mil`, `weights/weight.bin`; plus `config.json` and `generation_config.json`
+   (`WhisperModelFiles.expectedFiles`, 17 files). These are the files common to the published listings
+   of all six sizes (checked 2026-11-24; turbo has exactly these, base and small also a
+   `model.mlmodel` in two bundles, medium some `mlcomputeplan.json`: nothing loads them). Last changed
+   upstream in January 2025, before the app's first Whisper release. WhisperKit 1.1.1 itself loads
+   the three bundles and the tokenizer, and reads neither of the two JSON files; they are expected
+   because their absence means the download was interrupted.
+2. *Each file is what was downloaded*, when that is known: WhisperKit's Hub client writes a sidecar
+   per file (`.cache/huggingface/download/<file>.metadata`: commit, ETag, date), and the ETag is the
+   file's digest, SHA-256 for a large file and git blob SHA-1 for the others. A mismatch is a damaged
+   file. No sidecar (or another kind of value): the file counts as present. Cost measured (Tiny, 76 MB,
+   M3 Pro, debug build, files cached): 0.035–0.042 s, so roughly 0.3 s for Turbo (extrapolated).
+3. *The tokenizer*: the folder WhisperKit will use (`tokenizerFolder(for:downloadBase:)`, same search
+   order) has the three files, with the same check; without a sidecar, they must parse as JSON. If one
+   did not parse, WhisperKit would go to the network by itself.
+
+Missing or damaged: the server is listed, then the unusable files are removed (never before the server
+answered) and only those are downloaded; transfers interrupted halfway resume. There is no marker file:
+downloads of earlier versions (WhisperKit 0.17.0 and 1.1.1 use the same folders and sidecars) are
+recognised as they are. On the maintainer's Mac, the sidecars left by the downloads of 2026-11-19 (Base,
+Turbo and their tokenizers, 42 files) equal today's published digests.
+
+**A damaged compiled model crashes Core ML instead of failing** (measured 2026-11-24, macOS 27.2, M3
+Pro, Whisper Tiny, one process per case). Neural Engine: `model.mil` missing, empty, truncated or
+overwritten → SIGSEGV in `MLModel(contentsOf:)`, also `weights/weight.bin` missing; an encoder whose
+weights are all zeros → SIGSEGV, on the CPU too. Truncated weights, or either `coremldata.bin` missing
+or damaged → an error. Weights with 500 random bytes → **loads**. `metadata.json` is not needed. So the
+check runs *before* Core ML sees the files; a repair after a failed load could not catch these cases.
+Repair after a failed load remains for files that had no digest to be checked against
+(`unreadableFiles`: bundles that Core ML cannot load on the CPU), once per load. A bundle that is
+verified and still does not load is not downloaded again: it would not change.
+
+A digest that does not match what the server sends (if the meaning of ETag changed) must not cause a
+download at each launch: the sidecar of a file that was just replaced and still differs is removed, so
+the file then counts as present.
+
+Consequences: an updated file on the server is not noticed once the model is complete (as with
+Parakeet). Settings and the menu say "Optimizing…" instead of "Downloading…" while a Whisper model that
+is on disk loads.
 
 Tests: `ModelDownloadTests`, against `FakeModelServer` (an HTTP server on 127.0.0.1), in temporary
 directories. Checked once against the real server (2026-11-24, temporary directories, with
@@ -110,8 +158,6 @@ downloaded, loaded and transcribed.
   `WhisperKitConfig(modelFolder:download: false)`, `tokenizerFolder`), so no fork is needed. Existing
   caches would be checked in place, file by file, and only files that differ downloaded again, with
   the smooth switchover while that happens.
-- *Whisper without a request when it is complete on disk.* Today Whisper contacts the server at each
-  load (as before), and cannot start offline.
 
 ## Model migrations (`ModelMigrations.swift`)
 
@@ -165,10 +211,13 @@ tested with fakes), driven by `SetupManager.runSetup(...previousModel:)`:
 | Selected on disk | Previous on disk | Plan |
 |---|---|---|
 | yes | any | load the selected model |
-| no | yes | `.startOnPrevious`: load the previous model (Parakeet: `ParakeetModelFiles.load`, which skips the download when complete; Whisper: `WhisperEngine(model:localFolder:)`, local only) → engine ready, dictation works offline → download the selected model in the background (`SetupManager.upgrade`, progress in the menu and the Model section: "Downloading the improved model (~630 MB)… 42%") → `onUpgradeLoaded` |
+| no | yes | `.startOnPrevious`: load the previous model (Parakeet: `ParakeetModelFiles.load`, which skips the download when complete; Whisper: `WhisperEngine(_:localOnly:)`, which never downloads the model) → engine ready, dictation works offline → download the selected model in the background (`SetupManager.upgrade`, progress in the menu and the Model section: "Downloading the improved model (~630 MB)… 42%") → `onUpgradeLoaded` |
 | no | no | normal download of the selected model |
 
-- Previous model fails to load: the selected one downloads in the foreground instead.
+- "On disk" for Whisper means every expected file is there (`ModelStore.isWhisperModelOnDisk`; until
+  2026-11-24, that the three bundles' folders existed). An interrupted download of the selected
+  model therefore resumes in the background while the previous one is used.
+- Previous model fails to load (or is damaged): the selected one downloads in the foreground instead.
 - Background download fails or offline: `upgrade.status = .deferred`, logged, nothing alarming
   (Settings: "<old> is in use. <new> will download at next launch."; the menu shows nothing).
   The pending move persists, so the next launch retries; so does the Retry action
@@ -354,8 +403,8 @@ are text in under a quarter of a second", "9½ minutes of speech, text in 1.8 s"
   design (the maintainer's installed app depends on them). Verified by unit tests in temporary
   directories (`ModelMigrationTests`, `ModelSwitchoverTests`, `EngineHandoverTests`,
   `ModelStoreTests`) and offscreen renders. Not verified: a real background Ultra download while
-  dictating on v3; the engine swap in the running app; `WhisperEngine(model:localFolder:)`
-  loading an obsolete Whisper model offline (WhisperKit may still fetch the tokenizer); the
+  dictating on v3; the engine swap in the running app; `WhisperEngine(_:localOnly:)`
+  loading an obsolete Whisper model offline (Tiny loads offline since 2026-11-24, below); the
   Documents prompt and "access denied" path with real TCC (tested with `chmod 000`); reading the
   other flavor's preferences with `UserDefaults(suiteName:)` from the real app; deleting a
   model folder while another process has it loaded.
@@ -363,6 +412,15 @@ are text in under a quarter of a second", "9½ minutes of speech, text in 1.8 s"
   `ModelAvailability.parakeetIsOnDisk(.v3)` accepts only if FluidAudio 0.18 considers it
   complete; otherwise the plan is a foreground Ultra download instead of starting on v3. Not
   checked against a real 0.0.4 cache.
+- Whisper from disk (2026-11-24), checked with the real Tiny model in temporary directories, through
+  `WhisperEngine`: downloaded from the real server with its tokenizer, then loaded and a `say` clip
+  transcribed with outbound network denied (`sandbox-exec`) and no request to a local server set as
+  `HF_ENDPOINT`; same for a copy without sidecars; a copy with a truncated `model.mil` was repaired
+  (one file) and transcribed. Not checked with Base, Small or Turbo (size), nor in the app; the
+  time the check takes on Turbo is extrapolated.
+- Not checked: `AsrModels.modelsExist` only looks for `coremldata.bin` in each Parakeet bundle (and for
+  `*.partial` files), so a Parakeet bundle without `model.mil` or weights counts as complete; whether
+  it then crashes like Whisper's was not tried.
 - Download changes of 2026-11-24: not run in the app itself; a clean first download of a whole
   model in the app, and a load repaired by a second download with a real model, not checked; a
   proxy set with `https_proxy` not checked.

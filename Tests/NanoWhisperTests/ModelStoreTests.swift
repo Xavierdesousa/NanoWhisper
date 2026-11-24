@@ -130,18 +130,20 @@ struct ModelStoreTests {
         #expect(exists(store.whisperKitDirectory.appendingPathComponent("openai_whisper-medium")))
     }
 
-    @Test("Whisper on-disk check needs the three Core ML bundles")
+    @Test("Whisper on-disk check needs every file of the model")
     func whisperOnDisk() throws {
         let (store, root) = try makeStore()
         defer { cleanup(root) }
-        let folder = store.whisperKitDirectory.appendingPathComponent("openai_whisper-medium")
-        for bundle in ["MelSpectrogram", "AudioEncoder"] {
-            try fm.createDirectory(at: folder.appendingPathComponent("\(bundle).mlmodelc"), withIntermediateDirectories: true)
+        for size in WhisperModelSize.allCases {
+            let folder = try #require(store.url(of: .whisper(size)))
+            for name in WhisperModelFiles.expectedFiles {
+                #expect(!store.isWhisperModelOnDisk(size))
+                let file = folder.appendingPathComponent(name)
+                try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try Data("x".utf8).write(to: file)
+            }
+            #expect(store.isWhisperModelOnDisk(size))
         }
-        #expect(!store.isWhisperModelOnDisk(.medium))
-        try fm.createDirectory(at: folder.appendingPathComponent("TextDecoder.mlmodelc"), withIntermediateDirectories: true)
-        #expect(store.isWhisperModelOnDisk(.medium))
-        #expect(!store.isWhisperModelOnDisk(.largev3Turbo))
     }
 
     // MARK: - Automatic cleanup

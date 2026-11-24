@@ -1,7 +1,6 @@
 import CoreML
 import FluidAudio
 import Foundation
-import WhisperKit
 import os
 
 // MARK: - Server
@@ -46,6 +45,8 @@ enum ModelServer {
 enum ModelDownloadError: Error, Equatable {
     /// The server lists no file of the model.
     case noFiles(model: String)
+    /// Files are missing or damaged, and were not downloaded.
+    case incomplete(model: String)
 }
 
 /// Which files of a model repository the app downloads: plain relative paths in the model's
@@ -183,43 +184,5 @@ enum ParakeetModelFiles {
         guard let data = try? Data(contentsOf: url),
               let tokens = try? JSONDecoder().decode([String: String].self, from: data) else { return false }
         return (0..<version.blankId).allSatisfy { tokens[String($0)] != nil }
-    }
-}
-
-// MARK: - Whisper
-
-/// Downloads a Whisper model: lists its files, keeps the names `ModelFileRule` accepts, and
-/// asks WhisperKit for exactly those (each is a pattern that matches only itself, whatever
-/// WhisperKit's own listing holds). Same cache folder as `WhisperKit.download`.
-enum WhisperModelFiles {
-    static let repository = HubApiWrapper.Repo(id: "argmaxinc/whisperkit-coreml")
-
-    private static let logger = Logger(subsystem: BuildFlavor.current.logSubsystem, category: "ModelDownload")
-
-    /// Download the missing or changed files of a model; returns its folder.
-    /// - Parameters:
-    ///   - downloadBase: another cache root, in tests.
-    ///   - server: another server, in tests.
-    static func download(
-        _ model: String,
-        downloadBase: URL? = nil,
-        server: String = ModelServer.address
-    ) async throws -> URL {
-        ModelServer.configure()
-        // An empty token: none is sent.
-        let hub = HubApiWrapper(downloadBase: downloadBase, hfToken: "", endpoint: server)
-        let listed = try await hub.getFilenames(from: repository, matching: ["\(model)/*"])
-        let names = accepted(listed, of: model)
-        if names.count < listed.count {
-            logger.error("Ignored \(listed.count - names.count) unexpected file name(s) listed for \(model, privacy: .public)")
-        }
-        guard !names.isEmpty else { throw ModelDownloadError.noFiles(model: model) }
-        let root = try await hub.snapshot(from: repository, matching: names)
-        return root.appending(path: model)
-    }
-
-    static func accepted(_ names: [String], of model: String) -> [String] {
-        let rule = ModelFileRule(folders: [model])
-        return names.filter(rule.accepts).sorted()
     }
 }
