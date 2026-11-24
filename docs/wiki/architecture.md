@@ -597,8 +597,9 @@ approved 2026-11-21 with the maintainer's answers). Built in `feat/history-redes
   (<https://nspasteboard.org>), which clipboard managers honor by not recording it, and
   `.currentHostOnly`, so Universal Clipboard does not offer it to other devices (the markers alone
   do not control that). History's Copy is a user action and is not marked.
-- **What was there** (`PasteboardSnapshot`) comes back whole: every item, every type with its
-  bytes, in order, markers included. Before, only plain text came back, without its markers.
+- **What was there** (`PasteboardSnapshot`) comes back as it was, within the bounds below and
+  except for file promises and remote content: every item, every type with its bytes, in order,
+  markers included. Before, only plain text came back, without its markers.
   Content marked transient or confidential is put back with `.currentHostOnly` too: whether its
   owner had set it cannot be read.
 - **Only if unchanged:** nothing is restored when the change count moved after our write. A

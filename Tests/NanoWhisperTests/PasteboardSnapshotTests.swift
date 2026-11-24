@@ -146,6 +146,15 @@ final class PasteboardSnapshotTests {
         #expect(snapshot.droppedTypes == 1)
     }
 
+    @Test("Plain text over the bound is not kept either; after the time bound, text and markers are")
+    func fallbackBounds() {
+        write([[(.string, Data(repeating: 0x61, count: 5000)), (.nspasteboardConcealed, Data())]])
+        #expect(PasteboardSnapshot(of: pasteboard, limits: .init(maximumBytes: 1000)).items.isEmpty)
+        let late = PasteboardSnapshot(of: pasteboard, limits: .init(maximumDuration: 0))
+        #expect(late.items.map { $0.map(\.type) } == [[.string, .nspasteboardConcealed]])
+        #expect(late.items.first?.first?.data.count == 5000)
+    }
+
     /// Delivers promised data when asked, after a delay.
     private final class Provider: NSObject, NSPasteboardItemDataProvider {
         let delay: TimeInterval

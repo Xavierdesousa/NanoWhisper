@@ -372,7 +372,9 @@ private actor DecodeProbe {
     }
 }
 
-private enum LiveTestError: Error { case boom, quoting(String) }
+private enum LiveTestError: Error { case boom }
+/// Thrown by one test only: its name identifies that test's log entry.
+private struct LiveQuotingError: Error { let text: String }
 
 @MainActor
 private final class PendingFlag {
@@ -528,14 +530,14 @@ struct LiveTranscriptionSessionTests {
     func failureLog() async throws {
         let start = Date()
         let secret = "secret-words-\(UUID().uuidString)"
-        let decoder = Transcriber.PreviewDecoder { _ in throw LiveTestError.quoting(secret) }
+        let decoder = Transcriber.PreviewDecoder { _ in throw LiveQuotingError(text: secret) }
         let session = LiveTranscriptionSession(decoder: decoder, schedule: schedule)
         session.start()
         for _ in 0..<3 { session.sampleSink(sound) }
         await waitUntil("the failure") { session.failure != nil }
         await session.waitUntilStopped()
-        let messages = try await LogCapture.messages(category: "LiveTranscription", since: start, until: "LiveTestError")
-        #expect(messages.contains { $0.contains("LiveTestError") })
+        let messages = try await LogCapture.messages(category: "LiveTranscription", since: start, until: "LiveQuotingError")
+        #expect(messages.contains { $0.contains("LiveQuotingError") })
         #expect(!messages.contains { $0.contains(secret) })
     }
 

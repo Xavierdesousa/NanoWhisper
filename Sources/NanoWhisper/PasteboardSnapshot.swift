@@ -46,8 +46,8 @@ struct PasteboardSnapshot: Equatable, Sendable {
         // Markers have no content (some apps declare them without any data).
         for (index, types) in sourceTypes.enumerated() {
             for type in types where type.isNSPasteboardMarker {
-                let data = sources[index].data(forType: type) ?? Data()
-                // The marker itself is always kept.
+                // The marker itself is always kept, even when its data is not.
+                let data = ContinuousClock.now < deadline ? sources[index].data(forType: type) ?? Data() : Data()
                 let fits = bytes + data.count <= limits.maximumBytes
                 kept[index][type] = fits ? data : Data()
                 bytes += fits ? data.count : 0
@@ -85,7 +85,7 @@ struct PasteboardSnapshot: Equatable, Sendable {
         guard lostItem else { return }
 
         var fallback: [TypedData] = []
-        if let text {
+        if let text, text.utf8.count <= limits.maximumBytes {
             fallback.append(TypedData(type: .string, data: Data(text.utf8)))
             for entry in items.joined() where entry.type.isNSPasteboardMarker
                 && !fallback.contains(where: { $0.type == entry.type }) {
