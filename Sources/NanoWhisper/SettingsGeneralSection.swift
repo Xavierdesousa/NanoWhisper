@@ -8,7 +8,7 @@ enum SettingsText {
     static let keepHistory = "Keep a history of what you dictate"
     /// Also says where History opens: people did not find it (maintainer, 2026-11-21).
     static let keepHistoryCaption = "Encrypted, stays on this Mac. Open it from the menu bar icon."
-    static let historyUnavailable = "History is unavailable: the encryption key could not be accessed."
+    static let historyUnavailable = "History can’t be read right now. Turning it off deletes it."
     static let keepLast = "Keep the last"
 
     static func historyLimit(_ count: Int) -> String {
@@ -91,7 +91,6 @@ struct HistorySettingsRows: View {
             title: SettingsText.keepHistory, caption: SettingsText.keepHistoryCaption,
             isOn: context.historyEnabled
         )
-        .disabled(context.historyUnavailable)
         .settingsRow()
         if context.historyUnavailable {
             GroupedRowDivider()

@@ -59,10 +59,16 @@ struct ViewRenderHistoryTests {
             try render("history-off\(suffix)", HistoryFixtures.model(
                 store: HistoryFixtures.store([]), settings: HistoryFixtures.settings(isEnabled: false)), dark: dark)
             try render("history-unavailable\(suffix)", HistoryFixtures.model(store: HistoryFixtures.unavailableStore()), dark: dark)
+            let olderFile = HistoryFixtures.olderFormatStore()
+            try render("history-older-format\(suffix)", HistoryFixtures.model(store: olderFile.store), dark: dark)
+            try render("history-unavailable-narrow\(suffix)", HistoryFixtures.model(store: HistoryFixtures.unavailableStore()),
+                       dark: dark, size: HistoryWindow.minimumContentSize)
             try render("history-narrow\(suffix)", HistoryFixtures.model(), dark: dark, size: HistoryWindow.minimumContentSize)
 
             try renderAlert("history-alert-clear-all\(suffix)", HistoryAlerts.clearAllAlert(count: 10), dark: dark)
             try renderAlert("history-alert-turn-off\(suffix)", HistoryAlerts.turnOffAlert(count: 10), dark: dark)
+            try renderAlert("history-alert-turn-off-unreadable\(suffix)", HistoryAlerts.turnOffAlert(count: 0), dark: dark)
+            try renderAlert("history-alert-use-older-failed\(suffix)", HistoryAlerts.useOlderFailedAlert(), dark: dark)
         }
     }
 

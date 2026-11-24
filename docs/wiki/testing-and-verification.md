@@ -25,6 +25,8 @@ Swift Testing (`@Suite`, `@Test`) in `Tests/NanoWhisperTests/`. CI runs `swift t
 | `TranscriptionFailureTests.swift` | Engine error and missing engine reported as a failure, not as empty text; `DictationOutcome` with a failure |
 | `InterruptedRecordingsTests.swift` | Recordings left by a crash: header repair of the crash state (copied from an open `RecordingWriter` file), what is kept or deleted (too short, too old, unreadable, already attempted, history off; the other build's files untouched), the silent recovery to History at the recording's date, exactly once (a crash during the attempt is not retried), the user's dictation first (a real `Transcriber` queue with its test handler), `HistoryStore.insert` order |
 | `HistoryStoreTests.swift` | Encrypted round trip (no plain text on disk), trimming, unreadable file ⇒ unavailable and never overwritten, plain-text file never read, pinned key derivation |
+| `HistoryKeyTests.swift`, `HistoryKeyFixtures.swift` | The key bound to this Mac with a software enclave (`FakeEnclave`: one instance is one Mac) in temporary folders (`HistoryFolder`): both formats byte by byte (every damaged byte refused, and the enclave never asked), new history, no enclave, key missing / damaged / from another Mac / of another history (files untouched whatever the app does), late and silent enclave, saving while it refuses, key file disappearing or replaced while running, deletions and the key, another `HistoryKeyStorage` with the same file, modes 0600 and 0700. `HistoryEnclaveLive`: opt-in (`NANOWHISPER_ENCLAVE_TEST=1`), the real enclave with invented entries |
+| `HistoryMigrationTests.swift` | Migration of a format 1 file: content kept byte for byte, the folder copied at each step then launched again (the [crash table](architecture.md#the-key-bound-to-this-mac)), failure at each step, a bad read-back, a read-only folder, another process writing meanwhile, an older file refused then used, restored backups, what 0.1.0 does with a bound file, other files and hard links untouched |
 | `HistorySettingsTests.swift` | Default kept count 25 (a stored one kept); the one-time cleanup (history off: file deleted once, never again; history on: nothing deleted, done for good; an unreadable file deleted too); `deleteAll`; turning history off (alert only with dictations kept, Cancel keeps everything, confirm deletes then turns off, turning on never asks); the alerts' wording; entries saved without model or language still load (a sealed file in the old format) |
 | `HistoryWindowTests.swift`, `HistoryFixtures.swift` | History window model with invented entries (`HistoryFixtures`: a temporary store, a test key, a private pasteboard): search ranges and highlight, search selection and its restore, copy only to the pasteboard, delete / undo / redo and the selection after each, Clear All, states and subtitles, day sections, wording (titles, dates, debug rows), `HistoryKeyRouting`, and the real `HistoryWindow` handling ⌘C, ⌫, ⌘Z, ⌘F itself; the toolbar's order and tooltips |
 | `ViewRenderHistoryTests.swift` | With `NANOWHISPER_RENDER_DIR` (`--filter ViewRender` runs it too): the real History window in every state, light and dark, invented entries; the two alerts' windows |
@@ -40,7 +42,7 @@ Swift Testing (`@Suite`, `@Test`) in `Tests/NanoWhisperTests/`. CI runs `swift t
 
 Seams used by tests: `Transcriber.transcriptionHandler`, `Transcriber.installParakeet(_:)`,
 `MediaPlaybackController` and `NowPlayingSource` fakes, `SetupManager.migrateLegacyParakeetV3Cache(currentDirectory:)`,
-`SettingsContext` fixtures (`Fixtures` in `ViewRenderTests.swift`), `HistoryStore(fileURL:key:)`, `BuildFlavor(bundleIdentifier:)`, `AutoUpdater(isEnabled:installer:relaunch:)`, `UpdateInstaller`'s properties.
+`SettingsContext` fixtures (`Fixtures` in `ViewRenderTests.swift`), `HistoryStore(fileURL:key:keyring:defaults:)` (with `HistoryEnclave`, `HistoryKeyStorage` and the migration checkpoint), `BuildFlavor(bundleIdentifier:)`, `AutoUpdater(isEnabled:installer:relaunch:)`, `UpdateInstaller`'s properties.
 
 ## Techniques that work without a screen
 
@@ -245,6 +247,12 @@ Agents had **no screen capture** until 2026-11-21. These worked on 2026-11-19:
     and `sample` the `swiftpm-testing-helper` process if it stops: the stack names the blocked call.
     `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1` (one thread) is not the same: it showed nothing here, and
     `ModelStoreTests.cleanupWaitsForLock` needs two threads.
+
+13. **The Secure Enclave from a test process** (2026-11-24). It works in `swift test` and in ad hoc
+    signed command-line binaries, with nothing to clean up (a key is only its blob). **Trap:** do not
+    feed it damaged or random blobs, not even to see what happens: they crash the user's `ctkd`, and
+    launchd then delays its restart for minutes ([architecture](architecture.md#the-key-bound-to-this-mac)).
+    Damage records in tests against `FakeEnclave`.
 
 ## What agents cannot verify
 

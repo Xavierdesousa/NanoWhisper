@@ -59,7 +59,6 @@ struct SetupPage: View {
                         captionIsProblem: context.historyUnavailable,
                         isOn: context.historyEnabled
                     )
-                    .disabled(context.historyUnavailable)
                     OnboardingRowDivider()
                     toggleRow(SettingsText.sounds, isOn: context.soundEnabled)
                 }

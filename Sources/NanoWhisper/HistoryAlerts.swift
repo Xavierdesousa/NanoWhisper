@@ -1,13 +1,13 @@
 import AppKit
 
-/// Turning history off deletes it (maintainer's decision, 2026-11-21): with dictations kept
-/// the user confirms first; with nothing kept it is off at once.
+/// Turning history off deletes it (maintainer's decision, 2026-11-21): with dictations kept, or
+/// a history that cannot be read, the user confirms first; with nothing kept it is off at once.
 @MainActor
 enum HistoryTurnOff {
     /// - Parameters:
     ///   - apply: stores the new value of the switch.
-    ///   - confirm: asks "Turn off history and delete it?" for `count` dictations and calls
-    ///     back with `true` for Turn Off and Delete.
+    ///   - confirm: asks "Turn off history and delete it?" for `count` dictations (0: a history
+    ///     that cannot be read) and calls back with `true` for Turn Off and Delete.
     static func setEnabled(
         _ isOn: Bool, current: Bool, store: HistoryStore, defaults: UserDefaults = .standard,
         apply: @escaping (Bool) -> Void,
@@ -18,7 +18,7 @@ enum HistoryTurnOff {
             return
         }
         let count = store.entries.count
-        guard count > 0 else {
+        guard count > 0 || (store.isUnavailable && store.hasFile) else {
             // Nothing kept: no alert. An empty file left on disk goes too.
             if !store.deleteAll() { HistorySettings.retryOffCleanup(defaults: defaults) }
             apply(false)
@@ -37,11 +37,16 @@ enum HistoryTurnOff {
 /// The alerts about deleting history, as drawn on the History boards.
 @MainActor
 enum HistoryAlerts {
+    /// - Parameter count: 0 for a history that cannot be read.
     static func turnOffAlert(count: Int) -> NSAlert {
         let alert = NSAlert()
         alert.messageText = "Turn off history and delete it?"
-        let kept = count == 1 ? "The 1 dictation kept on this Mac is deleted" : "The \(count) dictations kept on this Mac are deleted"
-        alert.informativeText = "\(kept), and new ones won’t be kept. You can’t undo this."
+        let kept = switch count {
+        case 0: "The history on this Mac, which can’t be read right now, is deleted, and new dictations"
+        case 1: "The 1 dictation kept on this Mac is deleted, and new ones"
+        default: "The \(count) dictations kept on this Mac are deleted, and new ones"
+        }
+        alert.informativeText = "\(kept) won’t be kept. You can’t undo this."
         let delete = alert.addButton(withTitle: "Turn Off and Delete")
         delete.hasDestructiveAction = true
         // Return must not delete: only a click (or Space on the focused button) does.
@@ -70,6 +75,15 @@ enum HistoryAlerts {
         delete.hasDestructiveAction = true
         delete.keyEquivalent = ""
         alert.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
+        return alert
+    }
+
+    /// Use This History did not work (the Secure Enclave did not answer, the disk is full…).
+    static func useOlderFailedAlert() -> NSAlert {
+        let alert = NSAlert()
+        alert.messageText = "This history could not be used"
+        alert.informativeText = "The file was left as it is. Quit \(BuildFlavor.current.displayName), open it and try again."
+        alert.addButton(withTitle: "OK")
         return alert
     }
 

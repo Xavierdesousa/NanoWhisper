@@ -182,6 +182,8 @@ final class HistorySettingsTests {
         #expect(turnOff.buttons.map(\.title) == ["Turn Off and Delete", "Cancel"])
         #expect(turnOff.buttons[0].hasDestructiveAction)
         #expect(HistoryAlerts.turnOffAlert(count: 1).informativeText.hasPrefix("The 1 dictation kept on this Mac is deleted"))
+        #expect(HistoryAlerts.turnOffAlert(count: 0).informativeText
+            == "The history on this Mac, which can’t be read right now, is deleted, and new dictations won’t be kept. You can’t undo this.")
         let clear = HistoryAlerts.clearAllAlert(count: 10)
         #expect(clear.messageText == "Delete all 10 dictations?")
         #expect(clear.buttons.map(\.title) == ["Delete All", "Cancel"])

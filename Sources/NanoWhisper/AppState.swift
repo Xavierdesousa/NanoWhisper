@@ -12,8 +12,8 @@ class AppState: ObservableObject {
 
     /// Encrypted history, loaded at launch (see `HistoryStore`). The History window edits it
     /// through `HistoryWindowModel`.
-    let historyStore = HistoryStore()
-    /// The history file could not be decrypted (or encrypted): history is off until relaunch.
+    let historyStore = HistoryStore.forThisBuild()
+    /// The history file could not be decrypted (or encrypted): nothing is kept for now.
     var historyUnavailable: Bool { historyStore.isUnavailable }
 
     private static let historyEnabledKey = HistorySettings.enabledKey

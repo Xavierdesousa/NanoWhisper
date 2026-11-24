@@ -159,21 +159,21 @@ struct HistoryWindowTests {
         let store = HistoryFixtures.store()
         let model = HistoryFixtures.model(store: store)
         model.selection = entries[0].id
-        model.deleteSelection()
-        endEvent() // each key press is its own undo step
-        model.deleteSelection()
-        endEvent()
+        // Each key press is its own undo step: the run loop's groups in the app
+        // (`groupsByEvent`), explicit ones here. Spinning the run loop does not always close a
+        // group when other main-actor tests run inside it.
+        model.undoManager.groupsByEvent = false
+        for _ in 0..<2 {
+            model.undoManager.beginUndoGrouping()
+            model.deleteSelection()
+            model.undoManager.endUndoGrouping()
+        }
         #expect(store.entries.first?.id == entries[2].id)
         model.undo()
         #expect(store.entries.first?.id == entries[1].id)
         model.undo()
         #expect(store.entries.map(\.id) == entries.map(\.id))
         #expect(model.selection == entries[0].id)
-    }
-
-    /// Lets the run loop close the undo group of the current event (`groupsByEvent`).
-    private func endEvent() {
-        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
     }
 
     @Test("Turning history off drops the undo of a delete, even once it is on again")
@@ -227,6 +227,38 @@ struct HistoryWindowTests {
         #expect(unavailable.subtitle == "Unavailable")
         #expect(HistoryText.subtitle(state: .entries, total: 1, matches: nil) == "1 dictation")
         #expect(HistoryText.subtitle(state: .entries, total: 10, matches: 1) == "1 of 10 matches")
+    }
+
+    @Test("A file in the older format: Use This History shows it; a failure says so and changes nothing")
+    func olderFormat() {
+        let enclave = FakeEnclave()
+        let (folder, store) = HistoryFixtures.olderFormatStore(enclave: enclave)
+        let model = HistoryFixtures.model(store: store)
+        var failures = 0
+        model.showUseOlderFailed = { failures += 1 }
+        #expect(model.state == .unavailable)
+        #expect(model.unavailableReason == .olderFormat)
+        #expect(model.subtitle == "Unavailable")
+
+        enclave.update { $0.refusesToOpen = true }
+        model.useOlderFile()
+        #expect(failures == 1)
+        #expect(model.unavailableReason == .olderFormat)
+
+        enclave.update { $0.refusesToOpen = false }
+        model.useOlderFile()
+        #expect(failures == 1)
+        #expect(model.state == .entries)
+        #expect(model.entries == HistoryFixtures.entries)
+        #expect(model.selection == HistoryFixtures.entries[0].id)
+        #expect(folder.isBound)
+
+        // Only for an older file.
+        let unreadable = HistoryFixtures.model(store: HistoryFixtures.unavailableStore())
+        unreadable.showUseOlderFailed = { failures += 1 }
+        unreadable.useOlderFile()
+        #expect(failures == 1)
+        #expect(unreadable.state == .unavailable)
     }
 
     @Test("The newest is selected when the window opens")

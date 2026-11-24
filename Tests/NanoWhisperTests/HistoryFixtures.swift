@@ -81,6 +81,15 @@ enum HistoryFixtures {
         return HistoryStore(fileURL: url, key: { key })
     }
 
+    /// A bound history whose file was replaced by one in the older format (a backup): not read
+    /// until the user says so. The folder is deleted with the returned `HistoryFolder`.
+    static func olderFormatStore(enclave: FakeEnclave = FakeEnclave()) -> (folder: HistoryFolder, store: HistoryStore) {
+        let folder = HistoryFolder()
+        folder.writeBoundFile(enclave, Array(entries.prefix(1)))
+        folder.writeOldFile()
+        return (folder, folder.store(enclave))
+    }
+
     static func temporaryDirectory() -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("NanoWhisperHistoryTests-\(UUID().uuidString)", isDirectory: true)

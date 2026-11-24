@@ -5,6 +5,14 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-24
 
+- **The history key is bound to this Mac** (`feat/history-key-secure-enclave`, PR #53): a random key wrapped by
+  the Secure Enclave in `history.key`, history format 2, crash-safe migration of older files, modes
+  0600/0700, an older file put back is only used on request, the history switch works while the
+  history cannot be read (it asks first). Found: damaged enclave blobs trap in CryptoKit and crash
+  `ctkd`, enclave calls (`isAvailable` too) can hang, so records are checksummed and calls timed. A
+  history file that exists but cannot be read was taken for a missing one and overwritten by the
+  next save: fixed. Pages: [architecture](architecture.md#the-key-bound-to-this-mac), testing (item 13),
+  onboarding-and-settings, open-questions, index.
 - **README history sentence restored** (`docs/readme-history-sentence`), at the maintainer's request: it
   describes the key bound to this Mac being built in `feat/history-key-secure-enclave`.
 - **Verify the update before installing** (`fix/updater-hardening`, PR #49): the updater checks the

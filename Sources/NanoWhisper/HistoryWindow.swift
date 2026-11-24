@@ -421,6 +421,9 @@ final class HistoryWindowController {
         let model = HistoryWindowModel(store: appState.historyStore, settings: Self.settings(of: appState))
         model.turnOn = { [weak appState] in appState?.setHistoryEnabled(true) }
         model.openSettings = { [weak appState] in appState?.showSettings(pane: .general) }
+        model.showUseOlderFailed = { [weak self] in
+            HistoryAlerts.present(HistoryAlerts.useOlderFailedAlert(), on: self?.window) { _ in }
+        }
         let window = HistoryWindow(model: model)
         // Size and place kept between launches (and where it was left within one); the first
         // time, centered on the screen with the pointer.
