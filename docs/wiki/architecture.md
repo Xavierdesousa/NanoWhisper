@@ -610,6 +610,7 @@ returns a `PasteResult`; its result was ignored before):
   3 s when only Accessibility is missing). Rejected here: leaving it on the clipboard, which would
   change what the clipboard holds after a dictation.
 - "Pasted" means that the keys were sent: whether the app in front took the text cannot be known.
+  They are posted 50 ms after the check, to whatever is in front then, as before.
 - **Not verified:** the real app without Accessibility or with one of its windows in front,
   VoiceOver.
 

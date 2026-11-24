@@ -8,7 +8,7 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 - **No copy of the recording, and "Not pasted"** (`fix/recording-copy-and-paste-state`): Parakeet reads
   a recording into memory instead of FluidAudio's plain copy in the temp directory (same text,
   measured); a leftover copy that is byte for byte one of our recordings is deleted at launch, the
-  others cannot be told apart and stay. The recorder says "Pasted" only when the text was pasted,
+  others cannot be told apart and stay. The recorder says "Pasted" only when the ⌘V was sent,
   else "Not pasted" (and "Saved in History" when it is). Pages:
   [transcription-engines](transcription-engines.md#parakeet-reads-a-recording-into-memory-2026-11-24),
   [architecture](architecture.md#pasted-or-not), testing, open-questions.

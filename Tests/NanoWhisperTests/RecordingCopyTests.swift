@@ -85,6 +85,7 @@ final class RecordingCopyTests {
             }
             return seen
         }
+        defer { watcher.cancel() } // also when `work` throws
         let result = try await work()
         watcher.cancel()
         return (result, await watcher.value.subtracting(before))
