@@ -152,30 +152,33 @@ struct MediaRemoteJXAOutputTests {
         #expect(!MediaRemoteJXA.isSent(nil))
     }
 
-    @Test("Arguments: inline script, explicit play (0) / pause (1), and the target item")
+    @Test("Arguments: inline script, explicit play (0) / pause (1), the process; the item is on standard input")
     func arguments() {
         #expect(MediaRemoteJXA.arguments("get") == ["-l", "JavaScript", "-e", MediaRemoteJXA.script, "get"])
-        #expect(MediaRemoteJXA.sendArguments(.pause, to: .vlc).suffix(5) == ["send", "1", "41313", "some:cXVpZXQud2F2", "none"])
+        let arguments = ["-l", "JavaScript", "-e", MediaRemoteJXA.script]
+        #expect(MediaRemoteJXA.sendArguments(.pause, to: .vlc) == arguments + ["send", "1", "41313"])
+        #expect(MediaRemoteJXA.sendInput(for: .vlc) == Data("some:cXVpZXQud2F2\nnone\n".utf8))
         let identified = NowPlayingSession.vlc.with(title: nil).with(uniqueIdentifier: "42")
-        #expect(MediaRemoteJXA.sendArguments(.play, to: identified).suffix(5) == ["send", "0", "41313", "none", "some:NDI="])
+        #expect(MediaRemoteJXA.sendArguments(.play, to: identified) == arguments + ["send", "0", "41313"])
+        #expect(MediaRemoteJXA.sendInput(for: identified) == Data("none\nsome:NDI=\n".utf8))
         #expect(NowPlayingCommand.play.rawValue == 0)
         #expect(NowPlayingCommand.pause.rawValue == 1)
     }
 
-    @Test("Identity arguments: no title and a title reading \"none\" stay distinct")
-    func identityArguments() {
-        #expect(MediaRemoteJXA.identityArgument(nil) == "none")
-        #expect(MediaRemoteJXA.identityArgument("none") == "some:bm9uZQ==")
-        #expect(MediaRemoteJXA.identityArgument("") == "some:")
+    @Test("Identity lines: no title and a title reading \"none\" stay distinct")
+    func identityLines() {
+        #expect(MediaRemoteJXA.identityLine(nil) == "none")
+        #expect(MediaRemoteJXA.identityLine("none") == "some:bm9uZQ==")
+        #expect(MediaRemoteJXA.identityLine("") == "some:")
     }
 
-    @Test("Identity arguments carry the exact UTF-8 (Process would hand over NFD)")
-    func identityArgumentsExactBytes() throws {
+    @Test("Identity lines carry the exact UTF-8 on one ASCII line")
+    func identityLinesExactBytes() throws {
         let title = "Ça \"quoted\" it's $HOME; `x` \\n — none" // precomposed Ç
-        let argument = MediaRemoteJXA.identityArgument(title)
-        let isASCII = argument.unicodeScalars.allSatisfy { $0.isASCII }
+        let line = MediaRemoteJXA.identityLine(title)
+        let isASCII = line.unicodeScalars.allSatisfy { $0.isASCII }
         #expect(isASCII)
-        let encoded = try #require(argument.split(separator: ":", maxSplits: 1).last)
+        let encoded = try #require(line.split(separator: ":", maxSplits: 1).last)
         let bytes = try #require(Data(base64Encoded: String(encoded)))
         #expect(bytes == Data(title.utf8))
         #expect(bytes.prefix(2) == Data([0xC3, 0x87])) // Ç stays U+00C7, not C + U+0327
@@ -186,8 +189,94 @@ struct MediaRemoteJXAOutputTests {
         let script = MediaRemoteJXA.script
         #expect(script.contains("(argv[1] === '0' || argv[1] === '1')"))
         #expect(script.contains("state.pid !== Number(argv[2]) || state.playing === play"))
-        #expect(script.contains("item.title !== expectedTitle || item.uniqueIdentifier !== expectedIdentifier"))
+        #expect(script.contains("item.title !== expected.title || item.uniqueIdentifier !== expected.uniqueIdentifier"))
         #expect(!script.contains("'2'"))
+    }
+
+    @Test("The script reads the expected item before the state it checks")
+    func scriptReadsInputFirst() throws {
+        let send = try #require(MediaRemoteJXA.script.range(of: "argv[0] === 'send'")).upperBound
+        let body = MediaRemoteJXA.script[send...]
+        let input = try #require(body.range(of: "readIdentity()"))
+        let state = try #require(body.range(of: "nowPlaying(request)"))
+        #expect(input.upperBound < state.lowerBound)
+    }
+
+    @Test("A failed read logs its status; stderr, which could quote the title, is private")
+    func readFailureLog() async throws {
+        let start = Date()
+        let secret = "secret-title-\(UUID().uuidString)"
+        MediaRemoteJXA.logReadFailure(output("", stderr: secret, status: 173))
+        let messages = try await LogCapture.messages(category: "NowPlaying", since: start, until: "status 173")
+        #expect(messages.contains { $0.contains("status 173") }, "\(messages)")
+        #expect(!messages.contains { $0.contains(secret) })
+    }
+}
+
+// MARK: - Script input
+
+/// Runs the part of the script that reads standard input in the real `osascript`: no
+/// MediaRemote, no player.
+@Suite("JXA script input")
+struct MediaRemoteJXAInputTests {
+    private static let script = MediaRemoteJXA.identityReader + """
+    function run(argv) {
+        const text = JSON.stringify(readIdentity()) + '\\n';
+        $.NSFileHandle.fileHandleWithStandardOutput.writeData($(text).dataUsingEncoding($.NSUTF8StringEncoding));
+    }
+    """
+
+    private struct Identity: Decodable, Equatable {
+        var title: String?
+        var uniqueIdentifier: String?
+    }
+
+    private func read(_ input: Data, executable: URL = MediaRemoteJXA.osascriptURL, arguments: [String]? = nil) async throws -> Identity? {
+        let (line, process) = await Subprocess.start(
+            executable, arguments: arguments ?? ["-l", "JavaScript", "-e", Self.script],
+            input: input, lineTimeout: 20, killAfter: 20
+        )
+        _ = await process?.waitForExit(timeout: 20)
+        return try line.map { try JSONDecoder().decode(Identity.self, from: Data($0.utf8)) }
+    }
+
+    @Test("osascript reads back exactly what was written", arguments: [
+        (nil, nil), ("", ""), ("none", nil), (nil, "42"),
+        ("Ça \"quoted\" it's $HOME; `x` \\n — none", "8143521470562135962"),
+        ("two\nlines\u{0301} 🎧", "some:none"),
+    ] as [(String?, String?)])
+    func roundTrip(title: String?, identifier: String?) async throws {
+        let session = NowPlayingSession.vlc.with(title: title).with(uniqueIdentifier: identifier)
+        let result = try #require(try await read(MediaRemoteJXA.sendInput(for: session)))
+        // Compared by scalar: the composition of accents must not change.
+        #expect(result.title.map { Array($0.unicodeScalars) } == title.map { Array($0.unicodeScalars) })
+        #expect(result.uniqueIdentifier.map { Array($0.unicodeScalars) } == identifier.map { Array($0.unicodeScalars) })
+    }
+
+    @Test("A title larger than a pipe's buffer is read whole")
+    func longTitle() async throws {
+        let title = String(repeating: "é", count: 200_000)
+        let session = NowPlayingSession.vlc.with(title: title)
+        let result = try #require(try await read(MediaRemoteJXA.sendInput(for: session)))
+        #expect(result.title == title)
+        #expect(result.uniqueIdentifier == nil)
+    }
+
+    @Test("Input arriving in pieces, then left open, is enough")
+    func pieces() async throws {
+        // The input stays open longer than the line is waited for.
+        let feed = #"{ printf 'some:QQ='; sleep 0.2; printf '=\nnone\n'; sleep 20; } | /usr/bin/osascript -l JavaScript -e "$1""#
+        let (line, _) = await Subprocess.start(
+            URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", feed, "sh", Self.script], lineTimeout: 15, killAfter: 16
+        )
+        #expect(line == #"{"title":"A","uniqueIdentifier":null}"#)
+    }
+
+    @Test("Missing or malformed input: the script fails, nothing is printed", arguments: [
+        "", "none\n", "none\nnone", "other\nnone\n", "some:***\nnone\n", "\n\n", "some:é\nnone\n",
+    ])
+    func malformed(input: String) async throws {
+        #expect(try await read(Data(input.utf8)) == nil)
     }
 }
 
@@ -491,6 +580,39 @@ struct SubprocessTests {
         let running = try #require(process)
         #expect(await running.waitForExit(timeout: 3))
         #expect(Self.isGone(running.processIdentifier))
+    }
+
+    @Test("Standard input is delivered, then closed")
+    func standardInput() async throws {
+        // `cat` ends only at the end of its input; the line then proves it.
+        let script = "text=$(cat); echo \"got $text\""
+        let (line, process) = await Subprocess.start(Self.sh, arguments: ["-c", script], input: Data("hello".utf8), lineTimeout: 30, killAfter: 30)
+        #expect(line == "got hello")
+        #expect(await (try #require(process)).waitForExit(timeout: 30))
+    }
+
+    @Test("A process that exits without reading a large input neither blocks nor ends the app")
+    func unreadInput() async throws {
+        let (line, process) = await Subprocess.start(Self.sh, arguments: ["-c", "echo sent"], input: Data(count: 5_000_000), lineTimeout: 30, killAfter: 30)
+        #expect(line == "sent")
+        #expect(await (try #require(process)).waitForExit(timeout: 30))
+        // Time for a write to the dead process to fail (SIGPIPE would end the tests here).
+        try await Task.sleep(for: .milliseconds(200))
+    }
+
+    @Test("A process that never reads its input is still killed after the line timeout")
+    func hungOnInput() async throws {
+        let start = Date()
+        let (line, process) = await Subprocess.start(Self.sh, arguments: ["-c", "exec sleep 30"], input: Data(count: 5_000_000), lineTimeout: 0.2, killAfter: 30)
+        #expect(line == nil)
+        #expect(Date().timeIntervalSince(start) < 5)
+        #expect(await (try #require(process)).waitForExit(timeout: 3))
+    }
+
+    @Test("Without input, standard input is empty")
+    func noInput() async {
+        let (line, _) = await Subprocess.start(Self.sh, arguments: ["-c", "cat; echo end"], lineTimeout: 30, killAfter: 30)
+        #expect(line == "end")
     }
 
     @Test("Exit without output gives nil")

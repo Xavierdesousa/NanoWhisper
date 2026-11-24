@@ -36,12 +36,15 @@ enum InterruptedRecordings {
         var deletedUnreadable = 0
         var deletedHistoryOff = 0
         var repairedHeaders = 0
+        /// Not files this app can have written (`OwnedFile`): left alone.
+        var ignored = 0
     }
 
     /// At launch: this build's leftovers in `directory`. Already attempted, too short, too old
     /// or unreadable recordings are deleted (zeroed first); with history off, all are deleted.
     /// The others get their WAV header repaired if the crash left it incomplete, and are
-    /// returned oldest first. Other builds' files are never touched.
+    /// returned oldest first. Other builds' files are never touched, nor is anything that is not
+    /// a file this app can have written (a link, a directory, another user's file).
     static func collect(
         in directory: URL = FileManager.default.temporaryDirectory,
         flavor: BuildFlavor = .current,
@@ -55,6 +58,10 @@ enum InterruptedRecordings {
         ) else { return result }
 
         for url in contents where flavor.ownsTemporaryAudioFile(named: url.lastPathComponent) {
+            guard OwnedFile.exists(at: url) else {
+                result.ignored += 1
+                continue
+            }
             if url.lastPathComponent.hasSuffix(attemptedSuffix) {
                 TemporaryRecordings.securelyDelete(at: url)
                 result.deletedAttempted += 1
@@ -98,8 +105,10 @@ enum InterruptedRecordings {
     }
 
     /// Rename `x.wav` to `x.attempted.wav` before transcribing it, so a crash during the
-    /// attempt is never retried. Returns the new location.
+    /// attempt is never retried. Returns the new location. The file is checked again, since a
+    /// recording may have waited for the engine after it was collected.
     static func markAttempted(_ url: URL) throws -> URL {
+        guard OwnedFile.exists(at: url) else { throw CocoaError(.fileReadUnknown) }
         let name = url.deletingPathExtension().lastPathComponent + attemptedSuffix
         let attempted = url.deletingLastPathComponent().appendingPathComponent(name)
         try FileManager.default.moveItem(at: url, to: attempted)
@@ -123,7 +132,8 @@ enum WAVHeader {
     /// Rewrites the RIFF size, the `data` size (to the whole bytes after its header, in whole
     /// frames) and the `fact` frame count when they do not match the file's length.
     static func repair(at url: URL) -> Repair {
-        guard let handle = try? FileHandle(forUpdating: url) else { return .invalid }
+        guard let file = OwnedFile.open(url, O_RDWR) else { return .invalid }
+        let handle = FileHandle(fileDescriptor: file.descriptor, closeOnDealloc: true)
         defer { try? handle.close() }
         guard let fileLength = try? handle.seekToEnd(), fileLength >= 12,
               (try? handle.seek(toOffset: 0)) != nil,
