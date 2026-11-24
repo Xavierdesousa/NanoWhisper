@@ -13,6 +13,10 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
   `UpdateRelease.swift`, `UpdateSignature.swift`, `UpdateInstaller.swift`; `Subprocess.run` gained
   `stopWhen`. How to change the signing certificate (bridge release) is written down. Pages:
   [build-and-release](build-and-release.md#auto-updater), testing, architecture, open-questions.
+- **README and release workflow tightened** (`chore/release-and-readme-hardening`): the README no longer
+  says a backup of the history cannot be read, nor suggests `xattr`; the workflows pin actions by
+  commit; a release must be tagged on `main`; the build keychain is removed at the end of the job;
+  argmax-oss-swift is pinned `exact:`. Updated [architecture](architecture.md).
 
 ## 2026-11-23
 

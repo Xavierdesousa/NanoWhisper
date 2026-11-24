@@ -65,7 +65,7 @@ endef
 MIN_MACOS = 14.0
 SDK_VERSION := $(shell xcrun --sdk macosx --show-sdk-version)
 build:
-	swift build -c release -Xlinker -platform_version -Xlinker macos -Xlinker $(MIN_MACOS) -Xlinker $(SDK_VERSION)
+	swift build -c release --only-use-versions-from-resolved-file -Xlinker -platform_version -Xlinker macos -Xlinker $(MIN_MACOS) -Xlinker $(SDK_VERSION)
 	@otool -l "$(BUILD_DIR)/$(PRODUCT)" | grep -A4 LC_BUILD_VERSION | grep -q "sdk $(SDK_VERSION)" \
 		|| { echo "error: $(BUILD_DIR)/$(PRODUCT) does not record SDK $(SDK_VERSION)"; exit 1; }
 
