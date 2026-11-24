@@ -9,6 +9,12 @@ import Foundation
 enum HistoryText {
     static let windowTitle = "History"
 
+    static let unreadableTitle = "History can’t be read right now"
+    static let unreadable = "It is encrypted with a key from this Mac, and the key could not be read. Nothing was deleted. \(BuildFlavor.current.displayName) tries again the next time it opens; until then, new dictations are not kept."
+    static let unreadableForGood = "A history from another Mac, or from before this Mac was erased, can’t be read again. To start a new one, turn History off in Settings, which deletes it, then on."
+    static let olderFormatTitle = "This history is from an older version"
+    static let olderFormat = "The history file was put back from a backup or saved by an older version of \(BuildFlavor.current.displayName). It was left as it is, and new dictations are not kept. Use it only if you expected it."
+
     /// The first sentence (up to its `.`, `?`, `!` or `:` followed by a space or the end), and
     /// what follows it. Without such an end, the first 60 characters cut at a space.
     static func titleAndPreview(of text: String) -> (title: String, preview: String) {
@@ -180,7 +186,8 @@ enum HistorySearch {
 
 /// Which body the window shows.
 enum HistoryWindowState: Equatable {
-    /// The file could not be decrypted (or encrypted): no list, no actions.
+    /// The file could not be decrypted (or encrypted), or is an older one: no list
+    /// (`HistoryWindowModel.unavailableReason`).
     case unavailable
     /// History is turned off (it then keeps nothing).
     case off
@@ -209,7 +216,8 @@ struct HistoryDaySection: Identifiable, Equatable {
 @MainActor
 final class HistoryWindowModel: ObservableObject {
     @Published private(set) var entries: [HistoryEntry]
-    @Published private(set) var isUnavailable: Bool
+    @Published private(set) var unavailableReason: HistoryUnavailableReason?
+    var isUnavailable: Bool { unavailableReason != nil }
     @Published var settings: HistorySettingsSnapshot {
         didSet {
             // Turning history off deletes it: nothing deleted before may come back by undo or
@@ -239,6 +247,8 @@ final class HistoryWindowModel: ObservableObject {
     /// Turn On (history off), and Change… (opens Settings on the pane that sets the count).
     var turnOn: () -> Void = {}
     var openSettings: () -> Void = {}
+    /// Use This History could not: the window says so.
+    var showUseOlderFailed: () -> Void = {}
     /// Asks before Clear All; calls back with `true` to delete.
     var confirmClearAll: (_ count: Int, _ done: @escaping (Bool) -> Void) -> Void = { _, done in done(false) }
     /// Asks before deleting one dictation (Delete key, toolbar, context menu); calls back with
@@ -259,7 +269,7 @@ final class HistoryWindowModel: ObservableObject {
     ) {
         self.store = store
         self.entries = store.entries
-        self.isUnavailable = store.isUnavailable
+        self.unavailableReason = store.unavailableReason
         self.settings = settings
         self.undoManager = undoManager
         self.pasteboard = pasteboard
@@ -267,7 +277,7 @@ final class HistoryWindowModel: ObservableObject {
         self.calendar = calendar
         // `@Published` emits before the store's property changes: take the new value.
         store.$entries.dropFirst().sink { [weak self] in self?.entriesDidChange($0) }.store(in: &cancellables)
-        store.$isUnavailable.dropFirst().sink { [weak self] in self?.isUnavailable = $0 }.store(in: &cancellables)
+        store.$unavailableReason.dropFirst().sink { [weak self] in self?.unavailableReason = $0 }.store(in: &cancellables)
         selection = entries.first?.id
     }
 
@@ -459,6 +469,15 @@ final class HistoryWindowModel: ObservableObject {
     private func hideUndoToast() {
         toastReset?.cancel()
         showsUndoToast = false
+    }
+
+    // MARK: A file in the older format
+
+    /// Use This History: the file put back from a backup becomes the history again.
+    func useOlderFile() {
+        guard unavailableReason == .olderFormat else { return }
+        guard store.useOlderFile() else { return showUseOlderFailed() }
+        selection = entries.first?.id
     }
 
     // MARK: Clear All

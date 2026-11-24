@@ -378,8 +378,9 @@ becomes a check, the fade-up, `InlineShortcutText`).
   - *Dictation*: `ShortcutRecorderRow(isCompact: true)`: the title, the key caps and Change… (the
     "Press a shortcut…" field and Cancel while recording).
   - *Settings*: Open at login; Pause music and videos while recording; Keep a history of what you
-    dictate ("Encrypted, stays on this Mac. Open it from the menu bar icon."; disabled with the
-    red note when history is unavailable); Play a sound when recording starts and stops. Small
+    dictate ("Encrypted, stays on this Mac. Open it from the menu bar icon."; with the red note
+    "History can’t be read right now. Turning it off deletes it." when history is unavailable, and
+    no longer disabled then since 2026-11-24, as in Settings); Play a sound when recording starts and stops. Small
     switches, system accent. The caption says where History opens since 2026-11-21 (maintainer:
     users never learned where to find it); it is `SettingsText.keepHistoryCaption`, so Settings ›
     General's history row says the same, on one line in both. Not in the end-of-onboarding

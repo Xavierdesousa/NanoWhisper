@@ -349,9 +349,13 @@ struct HistoryMessageView: View {
         VStack(spacing: 0) {
             VStack(spacing: 0) {
                 switch model.state {
+                case .unavailable where model.unavailableReason == .olderFormat:
+                    message(symbol: "lock.open", title: HistoryText.olderFormatTitle, text: HistoryText.olderFormat)
+                    Button("Use This History", action: model.useOlderFile)
+                        .padding(.top, 16)
                 case .unavailable:
-                    message(symbol: "lock", title: "History can’t be read right now",
-                            text: "It is encrypted with a key from this Mac, and the key could not be read. Nothing was deleted. \(BuildFlavor.current.displayName) tries again the next time it opens; until then, new dictations are not kept.")
+                    message(symbol: "lock", title: HistoryText.unreadableTitle, text: HistoryText.unreadable)
+                    message(HistoryText.unreadableForGood)
                 case .off:
                     message(symbol: "pause.circle", title: "History is off",
                             text: "Dictations are pasted but not kept. Turn it on to find them here later, encrypted on this Mac.")
@@ -407,6 +411,10 @@ struct HistoryMessageView: View {
         Text(title)
             .font(.system(size: 17, weight: .semibold))
             .multilineTextAlignment(.center)
+        message(text)
+    }
+
+    private func message(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 13))
             .foregroundStyle(.secondary)

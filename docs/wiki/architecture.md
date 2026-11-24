@@ -6,7 +6,8 @@ Recording overlay section on 2026-11-20 against `feat/voice-note-overlay` (on `m
 and again against `feat/redesign-feedback` (on `main` at d6320b5);
 the recorder (Recording pipeline, Stopping the recorder) on 2026-11-20 against
 `fix/stop-recording-crash` (on `main` at b15be20); History (window, storage, debug info) on
-2026-11-21 against `feat/history-redesign` (on `main` at aaac406).
+2026-11-21 against `feat/history-redesign` (on `main` at aaac406); History storage on 2026-11-24
+against `feat/history-key-secure-enclave` (on `main` at c1ca985).
 
 ## What it is
 
@@ -28,7 +29,7 @@ There is no Xcode project and no app sandbox; the bundle is assembled and signed
 | Overlay | `RecordingOverlayController` (`RecordingOverlay.swift`) | Floating panel ("Voice note" design): record capsule, scrolling waveform, timer, result; placed by `RecorderPosition`; follows display changes. See [Recording overlay](#recording-overlay) below. |
 | Model setup | `SetupManager` (`SetupManager.swift`) | Downloads and loads the selected model. See [transcription-engines.md](transcription-engines.md). |
 | Transcription | `Transcriber` (`Transcriber.swift`) | Serial queue of transcriptions over the installed engine. An engine error is logged and returned as `TranscriptionResult.failure`, never as empty text. |
-| History | `HistoryStore`, `HistorySettings` (`HistoryStore.swift`) | Encrypted history file: entries, load/save, max-count trimming, unavailable state, deleting everything; the stored settings and the one-time cleanup of a file kept while history was off. See below. |
+| History | `HistoryStore`, `HistorySettings` (`HistoryStore.swift`), `HistoryKey` (`HistoryKey.swift`), `HistoryKeyFile`, `PrivateFile` (`HistoryFiles.swift`), `HistoryMigration` | Encrypted history file, its key bound to this Mac, the migration of older files: entries, load/save, max-count trimming, unavailable state, deleting everything; the stored settings and the one-time cleanup of a file kept while history was off. See below. |
 | Temp recordings | `TemporaryRecordings` (`TemporaryRecordings.swift`) | Zero-then-delete of a WAV; removal of this build's leftovers at launch. |
 | Paste | `PasteManager` (`PasteManager.swift`) | Puts text on the pasteboard, posts ⌘V with `CGEvent`, restores the previous clipboard after 3 s if untouched. Needs Accessibility. |
 | Media pause | `MediaController` (`MediaController.swift`) | See [media-pause.md](media-pause.md). |
@@ -434,33 +435,152 @@ environment values forced in a test host).
 - `HistoryStore` (`HistoryStore.swift`, `@MainActor`, `ObservableObject`) owns it: `entries`
   (newest first), `isUnavailable`, `add(_:keepingAtMost:)`, `insert(_:keepingAtMost:)` (at its
   place by date), `trim(to:)`, `replaceEntries(_:)`, `deleteAll()`, `hasFile`. It loads in its
-  initializer and writes the whole file (atomically) after each change.
+  initializer and writes the whole file (in one rename) after each change.
   `AppState.historyUnavailable` forwards to it (its `objectWillChange` is forwarded too); the
-  History window edits it through `HistoryWindowModel` (`AppState.history` was removed). The file
-  URL and key are injectable for tests.
+  History window edits it through `HistoryWindowModel` (`AppState.history` was removed). File URL,
+  keys, enclave, key storage and settings are injected; only `HistoryStore.forThisBuild()` names the
+  real ones (tests never call it).
 - **`deleteAll()`** (2026-11-21): empties the entries and deletes the file, overwritten with
-  zeros first (`TemporaryRecordings.securelyDelete`, best effort on APFS/SSD). Used by Clear All,
-  by turning history off, and by the one-time cleanup below. It also deletes a file that could
-  not be read (the history is then available again: nothing unreadable is left to protect).
-- Encrypted with AES-256-GCM (`HistoryCrypto`). The key is derived with HKDF-SHA256 from the
-  machine's `IOPlatformUUID` and the constant salt `com.moonji.nanowhisper.history.v1`
-  (pinned by a test).
-- If the file cannot be decrypted or decoded (wrong key, damage, plain text), or encryption
-  fails, the history is **unavailable**: nothing is read as plain text, nothing is written, and
-  the unreadable file is left untouched until relaunch; the Settings toggle is disabled with a red
-  note, the menu's History… stays enabled (since 2026-11-21) and the window says "History can’t
-  be read right now". (Before the extraction, deleting from an already-open History window could
-  still overwrite an unreadable file; the store refuses every write while unavailable.)
-- **What it protects:** the file on its own, against casual reading. Not against software running
-  under the same user account (the hardware UUID is readable by any process and the salt is
-  public), nor a full backup or copy of the home folder, where the UUID also appears (file names
-  in `~/Library/Preferences/ByHost`).
+  zeros first (`TemporaryRecordings.securelyDelete`, best effort on APFS/SSD; not when another hard
+  link points to it), then its key. Used by Clear All, by turning history off, and by the one-time
+  cleanup below. It also deletes a file that could not be read (the history is then available again:
+  nothing unreadable is left to protect).
+- If the file cannot be read, decrypted or decoded (wrong or missing key, damage, plain text), or
+  encryption fails, the history is **unavailable** (`HistoryStore.unavailableReason`): nothing is
+  read as plain text, nothing is written, and the file is left untouched until relaunch. A file that
+  exists but cannot be read (permissions, I/O) is not taken for a missing one since 2026-11-24. The
+  menu's History… stays enabled and the window explains. (Before the extraction, deleting from an
+  already-open History window could still overwrite an unreadable file; the store refuses every
+  write while unavailable.)
 
-Why: the first version (2026-03-20) stored the key in the Keychain; the Data Protection
+### The key, bound to this Mac
+
+Since `feat/history-key-secure-enclave` (2026-11-24). Goal: **a copy of the history file, a full
+backup of the home folder, or the files on another Mac cannot be decrypted.** Types: `HistoryKey.swift`,
+`HistoryFiles.swift`, `HistoryMigration.swift`.
+
+- A random 256-bit key encrypts the history (AES-256-GCM). It is wrapped for a P-256 key made in the
+  Secure Enclave (`MacSecureEnclave`, CryptoKit, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`
+  + `.privateKeyUsage`): ephemeral ECDH, HKDF-SHA256, AES-GCM. No keychain, no entitlement, no
+  prompt. The enclave key only exists as its blob, which only this Mac's enclave can use.
+- The key is unwrapped once per launch and kept in memory: saving works while the screen is locked.
+  Before each save the store checks that the key record is still kept as it was
+  (`HistoryKeyring.keepRecord`): put back if it disappeared, save refused if it is another one, so
+  nothing is ever sealed with a key that will not be there next time.
+- **Files** (both 0600, kept across saves, which write `<name>.writing-<UUID>` next to the file, sync
+  it and rename it; the folder is made 0700 at launch, it only holds the history):
+
+  | File | Content |
+  |---|---|
+  | `history.json` | Format 2: `NWHISTORY`, version byte `2`, key id (16 bytes), then nonce + AES-GCM ciphertext + tag of the JSON. The 26-byte header is authenticated. |
+  | `history.key` | `NWHISTKEY`, version byte `1`, key id (16), blob length (2, big endian), enclave blob (324 bytes today), ephemeral public key (64, raw), wrapped key (12 + 32 + 16), SHA-256 of all before (32): 508 bytes. Everything before the wrapped key is authenticated with it. |
+
+  Format 1 (up to 0.1.0) is a bare AES-GCM box without header, under a key derived with HKDF-SHA256
+  from `IOPlatformUUID` and the constant salt `com.moonji.nanowhisper.history.v1` (`HistoryCrypto`,
+  pinned by a test). The name stays `history.json` so that 0.1.0 finds a file it cannot open
+  instead of none. A newer version byte in either file: unavailable, untouched.
+- **`historyBoundToThisMac`** (`UserDefaults`) is set once a bound history is on disk. From then on a
+  format 1 file is not read silently (it could have been planted).
+- **Key storage** is behind `HistoryKeyStorage` (`HistoryKeyFile` today). A record is never replaced:
+  `create` fails if there is one (`renamex_np` with `RENAME_EXCL`), `remove` only runs once no
+  history file is left, and a key still needed by a copy in the folder (or by something in it that
+  cannot be read), or unusable when the user takes an older file back, is set aside as
+  `history.key.unused-<UUID>`: to read that copy again, put both files back under their names.
+- **Cost** (M3 Pro, macOS 27.2, 2026-11-24, real enclave from a debug test process, ten entries, two runs): migration
+  54 and 86 ms once, launch 6 and 21 ms, save 1 and 3 ms. In an optimized harness: make 5–7 ms, load 0.1 ms, agree 5 ms.
+- **Enclave calls can hang, so they are timed.** They are synchronous XPC to `ctkd`, `SecureEnclave.isAvailable`
+  included. Three seconds at most per operation (`HistoryStore.enclaveTimeout`), on their own thread (`TimedCall`): a bound
+  history that is still locked then shows as unavailable and appears when the enclave answers, if
+  its file has not changed; a migration or a new key waits for the next launch. `isAvailable == false`
+  can be temporary, so it never makes a bound store fall back to the old key.
+- **Never give the enclave a damaged blob.** Found while testing (2026-11-24, macOS 27.2): flipping a
+  byte of the blob's DER structure can trap inside CryptoKit (`SEP_P256.swift:273`, a `try!`) and
+  crashes the user's `ctkd`; after repeated crashes launchd delays its restart and every enclave call
+  on the Mac waits (39 s seen). Hence the checksum in the key record, verified first. Damaged
+  ciphertext bytes, what another Mac's enclave would see, gave an ordinary error.
+
+**Migration of a format 1 file**, at launch, when the enclave answers (`HistoryMigration`): key made
+and kept (it is unwrapped once before), the decrypted JSON sealed as it is (no re-encoding), written
+next to the old file and flushed (`F_FULLFSYNC`), read back from the disk through the key record and
+the enclave, compared byte for byte and entry by entry, the old file checked to be still the one that
+was read, one `rename`, the new file read again, the folder flushed, the setting recorded, then the
+old bytes overwritten with zeros through a descriptor kept open (best effort; skipped when another
+hard link points to them). Any failure keeps the old file and its key for this launch, and it is
+tried again at the next one.
+
+| Crash (`HistoryMigration.Step`) | On disk | Next launch | Test |
+|---|---|---|---|
+| Before the key is kept | format 1; maybe half a `history.key.writing-…` | starts again | `crashBeforeKey` |
+| `keyStored` | format 1, key | same key, migrates | `crash(at:)` |
+| While the new file is written | format 1, key, half a `history.json.writing-…` | removes it unread, same key, migrates | `crashWhileWriting` |
+| `staged`, `verified` | format 1, key, whole `history.json.writing-…` | the same | `crash(at:)` |
+| `replaced` | format 2, key, setting not set | opens it, sets the setting | `crash(at:)` |
+| `recorded`, `erased` | format 2, key, setting | opens it | `crash(at:)` |
+| New history: key kept, no history yet | key | empty; the first save uses that key | `crashBeforeFirstHistory` |
+| New history: written, setting not set | format 2, key | opens it, sets the setting | `crashBeforeRecording` |
+| A later save | previous file, maybe half a `history.json.writing-…` | removes it unread | `crashDuringSave` |
+| Deleting: history gone, key not yet | key | empty; that key is reused, or deleted by the next deletion | `crashBetweenDeletions` |
+
+`crash(at:)` copies the folder and the setting at each step and launches on the copy. A crash after
+the rename and before the zeros leaves the old blocks on the disk, without a name.
+
+**What happens when…**
+
+- *The key file is missing, damaged, from another Mac or of another history:* unavailable; neither
+  file is touched. Settings' switch is enabled in that state since this change (it was disabled, so a
+  history that could never be read again could not be got rid of): turning it off asks first, deletes
+  both files, and turning it on starts a new history with a new key.
+- *A format 1 file is put back after the migration* (an old backup): not read, not overwritten; the
+  window says "This history is from an older version" with **Use This History**
+  (`HistoryStore.useOlderFile`), which migrates it. Put back with the settings of that time (a whole
+  home folder from before): migrated like the first time.
+- *A bound `history.json` is put back on the same Mac:* read, if `history.key` is the one of that time
+  (put both back; Clear All and turning history off end a key).
+- *No Secure Enclave (virtual machine), or no answer:* format 1 keeps working, logged, tried again at
+  each launch. A bound store is then unavailable, never downgraded; after the user deletes it, a new
+  one may use format 1 if there is still no enclave.
+- *Downgrade to 0.1.0:* its `HistoryStore.load` fails to open format 2, marks the history unavailable and
+  every write is refused (checked in the v0.1.0 source: `add`, `insert`, `replaceEntries` return, `trim`
+  sees no entries, the Settings and onboarding switches are disabled, Clear All needs entries; only
+  its one-time cleanup with history off deletes, and history off keeps nothing here either).
+- *Two instances at once:* one key for both, and neither replaces a bound file by a format 1 one. As
+  before there is no lock: the last save wins. A file put in place by something else in the instant
+  between the migration's last check and its rename would be replaced. A 0.1.0 still running beside
+  this version would write its entries in format 1 at its next dictation: Use This History at the
+  next launch.
+- *Other files of the folder* (`history.json.backup-…`): never read (but for their key id when a key
+  is deleted), changed or deleted.
+
+**What it does not protect, and what is lost**
+
+- **Software in the same user session.** Until the key is in the keychain (below), another program
+  running in the same session can read both files and use the enclave key, as the app does.
+- Copies from before the migration: Time Machine backups, APFS snapshots and copies in format 1 can
+  still be decrypted by someone who also has the home folder. So can the old blocks on the disk.
+- Macs without a Secure Enclave, and an install until its first launch with this version.
+- **The history is lost** (it stays on disk, unreadable) when the Mac is erased or its logic board
+  replaced, on a new Mac (Migration Assistant, a restored backup), and with `history.key` deleted and
+  no backup of it. Expected, not tested, also when macOS makes a new keybag for the account, for
+  example a login password reset without the old one (the blob names the account's keybag), and
+  under another account of the same Mac.
+
+**Later, with a Developer ID** (planned, not built): the key record moves to the Data Protection
+Keychain, readable by this app only, with no new history format. A keychain type implements
+`HistoryKeyStorage`; at launch, when the keychain has no record and `history.key` exists: store the
+record in the keychain (`ThisDeviceOnly`, the app's access group), read it back, open the history with it, then
+delete the file. Copies of the file made earlier (backups, another program) would still work on this
+Mac, so that build should then encrypt with a new key. It needs the entitlement that failed before
+(below), so a provisioned build.
+
+Why not before: the first version (2026-03-20) stored the key in the Keychain; the Data Protection
 Keychain needs entitlements that fail without a provisioning profile
-(`errSecMissingEntitlement -34018`), so commit 240f784 switched to a derived key: no storage,
-no prompt, tied to the machine (but readable by any local process, see above). The salt is a crypto constant, not an identifier: changing it
-makes existing history unreadable. Both flavors keep it.
+(`errSecMissingEntitlement -34018`), so commit 240f784 switched to a key derived from the hardware
+UUID: no storage, no prompt, but the UUID is readable by any local process and is also in a copy of
+the home folder (file names in `~/Library/Preferences/ByHost`), and the salt is public. CryptoKit's
+enclave keys need neither keychain nor entitlement (checked with ad hoc signed binaries, with the
+hardened runtime, and reused from a differently signed one, 2026-11-24). Rejected: one file holding
+the wrapped key and the history (no key file to lose, but the key could not move to the keychain
+later without a new format).
 
 **Settings** (`HistorySettings`, `UserDefaults`): `historyEnabled` (on unless turned off) and
 `maxHistoryCount`, whose default is **25** since 2026-11-21 (the maintainer's decision; the code's
@@ -470,7 +590,7 @@ fallback was 15). A stored value is kept. Settings offers 5, 10, 15, 25, 50, 100
 stopped adding entries and kept the file. Now:
 - Turning it off (Settings › General, or onboarding's switch: both go through
   `SettingsContext.historyEnabled` → `AppState.setHistoryEnabled(_:)` → `HistoryTurnOff`) with
-  dictations kept shows "Turn off history and delete it?" (`HistoryAlerts.turnOffAlert`, a sheet on
+  dictations kept, or a history that cannot be read (since 2026-11-24), shows "Turn off history and delete it?" (`HistoryAlerts.turnOffAlert`, a sheet on
   the key window; Turn Off and Delete / Cancel; Return does nothing). Confirmed: `deleteAll()`,
   then `historyEnabled = false`. Cancel: nothing changes, the switch shows on again. Nothing kept:
   off at once, no alert (an empty file left on disk is deleted too).
@@ -557,7 +677,8 @@ approved 2026-11-21 with the maintainer's answers). Built in `feat/history-redes
   50 % light / 36 % dark; white 28 % on an accent-selected row), selects the first match; "No
   Results" in the list; Esc (the field's own) clears it and brings back the selection from before.
 - **States** (`HistoryWindowModel.state`): unavailable (lock, "History can’t be read right now",
-  no search, no actions), off ("History is off", Turn On), empty ("No dictations yet", "Press ⌥
+  no search, no actions; since 2026-11-24 also how to start a new one, and, for a file in the older
+  format, "This history is from an older version" with Use This History; not on the boards), off ("History is off", Turn On), empty ("No dictations yet", "Press ⌥
   Space in any app to start." with the user's shortcut in key boxes, the footer with Change…),
   entries.
 - **Keys without a menu bar.** The app is an accessory: no menu bar shows, so nothing relies on

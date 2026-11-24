@@ -58,35 +58,102 @@ struct HistoryEntry: Codable, Identifiable, Equatable, Sendable {
 
 // MARK: - Store
 
+/// Why the history cannot be read or written. Its file is then left as it is (never overwritten,
+/// never replaced by plain text).
+enum HistoryUnavailableReason: Equatable, Sendable {
+    /// The key cannot be used (missing, damaged, from another Mac, or not now), the file is
+    /// damaged, or encryption failed.
+    case unreadable
+    /// The file is in the format used up to 0.1.0, although this history was already bound to
+    /// this Mac: put back from a backup, or not written by the app. Read only if the user says
+    /// so (`HistoryStore.useOlderFile`).
+    case olderFormat
+}
+
 /// The transcription history, newest first, kept in one AES-GCM encrypted file
 /// (`history.json` in the build's Application Support folder). It is never written in plain
-/// text: when the key cannot be derived or the file cannot be decrypted, the history is
+/// text: when the key cannot be used or the file cannot be decrypted, the history is
 /// unavailable and nothing is read or written until the next launch.
+///
+/// The key is bound to this Mac by its Secure Enclave (`HistoryKey`). Without one, or until the
+/// migration of an older file succeeds, the file keeps the key derived from the hardware UUID.
 @MainActor
 final class HistoryStore: ObservableObject {
     private static let logger = Logger(subsystem: BuildFlavor.current.logSubsystem, category: "HistoryStore")
 
+    /// How long the enclave may hold up the app (it normally answers in a few milliseconds).
+    nonisolated static let enclaveTimeout: TimeInterval = 3
+
     @Published private(set) var entries: [HistoryEntry] = []
-    /// The file exists but could not be decrypted or decoded, or encryption failed. The file
-    /// is then left as it is (never overwritten, never replaced by plain text).
-    @Published private(set) var isUnavailable = false
+    /// Set when the file exists but could not be decrypted or decoded, or encryption failed.
+    @Published private(set) var unavailableReason: HistoryUnavailableReason?
+    var isUnavailable: Bool { unavailableReason != nil }
+
+    /// How the file on disk is encrypted, and so how the next save is.
+    private enum Protection {
+        /// No file yet: the first save decides.
+        case undecided
+        /// Key derived from the hardware UUID (the format up to 0.1.0).
+        case hardwareUUID
+        /// Key bound to this Mac.
+        case bound(HistoryKey)
+    }
 
     private let fileURL: URL
-    private let key: () -> SymmetricKey?
+    private let oldKey: () -> SymmetricKey?
+    /// `nil`: never any Secure Enclave (tests and the sample window).
+    private let keyring: HistoryKeyring?
+    private let defaults: UserDefaults?
+    private let timeout: TimeInterval
+    private let migrationCheckpoint: (HistoryMigration.Step) throws -> Void
+    private var protection = Protection.undecided
+    /// The load whose key the enclave has not given yet.
+    private var pendingLoad: UUID?
+
+    /// `keyring`, if its enclave answers, for one operation: within `timeout` in all.
+    private var availableKeyring: HistoryKeyring? {
+        guard let keyring else { return nil }
+        let enclave = TimeLimitedEnclave(base: keyring.enclave, deadline: Date().addingTimeInterval(timeout))
+        return enclave.isAvailable ? HistoryKeyring(enclave: enclave, storage: keyring.storage) : nil
+    }
+
+    /// Whether there is no enclave: not just one that does not answer in time.
+    private var hasNoEnclave: Bool {
+        guard let keyring else { return true }
+        return TimeLimitedEnclave(base: keyring.enclave, deadline: Date().addingTimeInterval(timeout)).availability == false
+    }
 
     /// Loads the history at `fileURL`. A missing file is an empty, available history.
-    init(fileURL: URL = HistoryStore.defaultFileURL(), key: @escaping () -> SymmetricKey? = HistoryCrypto.machineKey) {
+    ///
+    /// - Parameters:
+    ///   - key: the key derived from the hardware UUID, for the old format.
+    ///   - keyring: the Secure Enclave, and where the key record is kept.
+    ///   - defaults: remembers that this history was bound to this Mac.
+    init(
+        fileURL: URL, key: @escaping () -> SymmetricKey?, keyring: HistoryKeyring? = nil, defaults: UserDefaults? = nil,
+        enclaveTimeout: TimeInterval = HistoryStore.enclaveTimeout,
+        migrationCheckpoint: @escaping (HistoryMigration.Step) throws -> Void = { _ in }
+    ) {
         self.fileURL = fileURL
-        self.key = key
+        self.oldKey = key
+        self.keyring = keyring
+        self.defaults = defaults
+        self.timeout = enclaveTimeout
+        self.migrationCheckpoint = migrationCheckpoint
         load()
     }
 
-    /// `history.json` in this build's Application Support folder (created if needed).
-    nonisolated static func defaultFileURL() -> URL {
+    /// This build's history, on this Mac. The only place that names the real file.
+    static func forThisBuild() -> HistoryStore {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = BuildFlavor.current.supportDirectory(in: appSupport)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("history.json")
+        let folder = BuildFlavor.current.supportDirectory(in: appSupport)
+        PrivateFile.makeFolderPrivate(folder)
+        let fileURL = folder.appendingPathComponent("history.json")
+        return HistoryStore(
+            fileURL: fileURL, key: HistoryCrypto.machineKey,
+            keyring: HistoryKeyring(enclave: MacSecureEnclave(), storage: HistoryKeyFile(besideHistoryAt: fileURL)),
+            defaults: .standard
+        )
     }
 
     /// Add a new transcription at the top, keeping at most `maxCount` entries.
@@ -121,56 +188,254 @@ final class HistoryStore: ObservableObject {
         save()
     }
 
+    // MARK: Deleting
+
     /// Whether the history file is on disk (read or not).
     var hasFile: Bool { FileManager.default.fileExists(atPath: fileURL.path) }
 
-    /// Delete everything: the entries, and the file itself, overwritten with zeros first
-    /// (`TemporaryRecordings.securelyDelete`, best effort on APFS). Used by Clear All, by
-    /// turning history off, and by the one-time cleanup of a file kept while history was off.
-    /// Also removes a file that could not be read: once it is gone there is nothing left to
-    /// protect, so the history is available again (a missing key makes the next save fail
-    /// and mark it unavailable again).
-    /// - Returns: whether the file is gone (also when there was none).
+    /// Whether anything of the history is on disk: the file, what an interrupted save left, or
+    /// the key record.
+    var hasAnyFile: Bool { hasFile || hasLeftovers || (keyring?.storage.hasRecord ?? false) }
+
+    private var hasLeftovers: Bool { !PrivateFile.leftovers(of: fileURL).isEmpty }
+
+    /// Delete everything: the entries, the file itself, overwritten with zeros first
+    /// (`TemporaryRecordings.securelyDelete`, best effort on APFS), then, once no history is
+    /// left, its key. Used by Clear All, by turning history off, and by the one-time cleanup of a
+    /// file kept while history was off. Also removes a file that could not be read: once it is
+    /// gone there is nothing left to protect, so the history is available again, with a new key
+    /// (a key that cannot be made makes the next save fail and mark it unavailable again).
+    /// - Returns: whether everything is gone (also when there was nothing).
     @discardableResult
     func deleteAll() -> Bool {
+        pendingLoad = nil
         entries = []
-        guard hasFile else { return true }
-        TemporaryRecordings.securelyDelete(at: fileURL)
-        guard !hasFile else {
+        PrivateFile.removeLeftovers(of: fileURL)
+        if hasFile { TemporaryRecordings.securelyDelete(at: fileURL) }
+        guard !hasFile, !hasLeftovers else {
+            // The key stays as long as anything encrypted with it does.
             Self.logger.error("History file could not be deleted")
             return false
         }
-        isUnavailable = false
+        protection = .undecided
+        unavailableReason = nil
+        // No enclave (settings moved to a virtual machine, for example): the next history, if
+        // any, starts like on such a Mac. Only here, where the user deleted the bound one.
+        if isRecordedBound, hasNoEnclave { defaults?.removeObject(forKey: HistorySettings.boundKey) }
+        return deleteKey()
+    }
+
+    /// The key of a history that is gone. A copy of that history kept in the folder by the user
+    /// is not the app's: its key is then set aside, not deleted.
+    private func deleteKey() -> Bool {
+        guard let keyring, keyring.storage.hasRecord else { return true }
+        do {
+            if let record = try? keyring.record(),
+               BoundHistoryFile.folder(fileURL.deletingLastPathComponent(), mayHoldFileSealedWith: record.id) {
+                try keyring.storage.setAside()
+                Self.logger.notice("A copy of the history may be in its folder: its key was set aside, not deleted")
+            } else if !keyring.storage.remove() {
+                throw HistoryKeyError.recordExists
+            }
+            return true
+        } catch {
+            Self.logger.error("History key could not be deleted: \(String(describing: error), privacy: .public)")
+            return false
+        }
+    }
+
+    // MARK: Loading
+
+    private func load() {
+        let data: Data
+        do {
+            guard let found = try PrivateFile.read(fileURL) else { return }
+            data = found
+        } catch {
+            // There is a file: never treat it as missing, the next save would replace it.
+            Self.logger.error("History file could not be read: \(String(describing: error), privacy: .public)")
+            unavailableReason = .unreadable
+            return
+        }
+        if BoundHistoryFile.isBound(data) {
+            loadBound(data)
+        } else {
+            loadOldFormat(data)
+        }
+    }
+
+    private func loadBound(_ data: Data) {
+        // Set first: whatever happens below, the file is not overwritten.
+        unavailableReason = .unreadable
+        guard let keyring else {
+            Self.logger.error("The history is bound to a Secure Enclave and there is none; history is unavailable")
+            return
+        }
+        let record: HistoryKeyRecord
+        do {
+            guard let found = try keyring.record() else { throw HistoryKeyError.noRecord }
+            record = found
+        } catch {
+            Self.logger.error("History key could not be read; history is unavailable: \(String(describing: error), privacy: .public)")
+            return
+        }
+        let enclave = keyring.enclave
+        let loading = UUID()
+        pendingLoad = loading
+        let result = TimedCall.run(timeout: timeout, late: { [weak self] result in
+            Task { @MainActor in self?.finishLoading(data, result, loading: loading, isLate: true) }
+        }, {
+            try HistoryKey(unwrapping: record, with: enclave)
+        })
+        if let result {
+            finishLoading(data, result, loading: loading, isLate: false)
+        } else {
+            Self.logger.error("The Secure Enclave has not answered yet; history is unavailable until it does")
+        }
+    }
+
+    private func finishLoading(_ data: Data, _ result: Result<HistoryKey, any Error>, loading: UUID, isLate: Bool) {
+        guard pendingLoad == loading else { return }
+        pendingLoad = nil
+        do {
+            let key = try result.get()
+            // Late: only if the file is still the one that was read.
+            if isLate, try PrivateFile.read(fileURL) != data { throw HistoryKeyError.fileChanged }
+            entries = try JSONDecoder().decode([HistoryEntry].self, from: key.open(data))
+            protection = .bound(key)
+            unavailableReason = nil
+            recordBound()
+            PrivateFile.removeLeftovers(of: fileURL)
+        } catch {
+            // Another Mac's key, a damaged file... Never fall back to another scheme.
+            Self.logger.error("History file could not be decrypted; history is unavailable: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    private func loadOldFormat(_ data: Data) {
+        guard let old = openOldFormat(data) else {
+            // Wrong or missing key, or a damaged file. Never fall back to reading plain text.
+            Self.logger.error("History file could not be decrypted; history is unavailable")
+            unavailableReason = .unreadable
+            return
+        }
+        guard !isRecordedBound else {
+            Self.logger.error("The history file is in the older format although this history is bound to this Mac; not read")
+            unavailableReason = .olderFormat
+            return
+        }
+        entries = old.entries
+        protection = .hardwareUUID
+        PrivateFile.removeLeftovers(of: fileURL)
+        migrate(data, old)
+    }
+
+    private func openOldFormat(_ data: Data) -> (json: Data, entries: [HistoryEntry])? {
+        guard let key = oldKey(), let json = HistoryCrypto.open(data, using: key),
+              let decoded = try? JSONDecoder().decode([HistoryEntry].self, from: json) else { return nil }
+        return (json, decoded)
+    }
+
+    /// Bind an older file to this Mac. A failure leaves it as it was, to be tried again at the
+    /// next launch.
+    @discardableResult
+    private func migrate(
+        _ data: Data, _ old: (json: Data, entries: [HistoryEntry]), settingUnusableKeyAside: Bool = false
+    ) -> Bool {
+        guard let keyring = availableKeyring else {
+            Self.logger.notice("No Secure Enclave: the history keeps the key derived from the hardware UUID")
+            return false
+        }
+        let migration = HistoryMigration(
+            fileURL: fileURL, keyring: keyring, recordBound: { [weak self] in self?.recordBound() },
+            setsUnusableKeyAside: settingUnusableKeyAside, checkpoint: migrationCheckpoint
+        )
+        do {
+            protection = .bound(try migration.run(oldFile: data, json: old.json, entries: old.entries))
+            Self.logger.notice("The history is now encrypted with a key bound to this Mac")
+            return true
+        } catch {
+            Self.logger.error("The history could not be bound to this Mac; it keeps its key until the next launch: \(String(describing: error), privacy: .public)")
+            return false
+        }
+    }
+
+    /// The user wants the older file (`.olderFormat`): read it and bind it to this Mac.
+    /// - Returns: whether it is now the history. If not, the file is still there as it was.
+    @discardableResult
+    func useOlderFile() -> Bool {
+        guard unavailableReason == .olderFormat,
+              let data = try? PrivateFile.read(fileURL), !BoundHistoryFile.isBound(data),
+              let old = openOldFormat(data), migrate(data, old, settingUnusableKeyAside: true) else { return false }
+        entries = old.entries
+        unavailableReason = nil
         return true
     }
 
-    private func load() {
-        guard let data = try? Data(contentsOf: fileURL) else { return }
-        if let key = key(),
-           let json = HistoryCrypto.open(data, using: key),
-           let decoded = try? JSONDecoder().decode([HistoryEntry].self, from: json) {
-            entries = decoded
-        } else {
-            // Wrong or missing key, or a damaged file. Never fall back to reading plain text.
-            Self.logger.error("History file could not be decrypted; history is unavailable")
-            isUnavailable = true
-        }
-    }
+    // MARK: Saving
 
     private func save() {
         guard let json = try? JSONEncoder().encode(entries) else { return }
-        guard let key = key(), let sealed = HistoryCrypto.seal(json, using: key) else {
-            // Never write plain text.
-            Self.logger.error("History could not be encrypted; nothing was written")
-            isUnavailable = true
+        let sealed: Data
+        do {
+            sealed = try seal(json)
+        } catch {
+            // Never write plain text, nor with a key that may not be there next time.
+            Self.logger.error("History could not be encrypted; nothing was written: \(String(describing: error), privacy: .public)")
+            unavailableReason = .unreadable
             return
         }
         do {
-            // Atomic: an interrupted save never leaves a partial (undecryptable) file.
-            try sealed.write(to: fileURL, options: .atomic)
+            // In one rename: an interrupted save never leaves a partial (undecryptable) file.
+            try PrivateFile.replace(fileURL, with: sealed)
         } catch {
             Self.logger.error("History could not be written: \(String(describing: error), privacy: .public)")
+            return
         }
+        if case .bound = protection { recordBound() }
+    }
+
+    private func seal(_ json: Data) throws -> Data {
+        if case .undecided = protection { protection = try protectionForNewFile() }
+        switch protection {
+        case .bound(let key):
+            try keyring?.keepRecord(of: key)
+            return try key.seal(json)
+        case .undecided, .hardwareUUID:
+            // Another instance may have bound the file since.
+            guard try !BoundHistoryFile.isBound(at: fileURL) else { throw HistoryKeyError.wouldDowngrade }
+            guard let key = oldKey(), let sealed = HistoryCrypto.seal(json, using: key) else {
+                throw HistoryKeyError.oldKeyUnavailable
+            }
+            return sealed
+        }
+    }
+
+    /// No history file: a key bound to this Mac if it has a Secure Enclave.
+    private func protectionForNewFile() throws -> Protection {
+        guard let keyring = availableKeyring else {
+            // Once bound, never back to the old key: the enclave may answer later.
+            guard !isRecordedBound else { throw HistoryKeyError.noEnclave }
+            Self.logger.notice("No Secure Enclave: the history uses the key derived from the hardware UUID")
+            return .hardwareUUID
+        }
+        do {
+            return .bound(try keyring.existingOrNewKey())
+        } catch {
+            guard !isRecordedBound else { throw error }
+            Self.logger.error("No key bound to this Mac could be made; the old key is used until the next launch: \(String(describing: error), privacy: .public)")
+            return .hardwareUUID
+        }
+    }
+
+    // MARK: Bound to this Mac
+
+    /// Whether this history was bound to this Mac before: the old format is then refused.
+    private var isRecordedBound: Bool { defaults?.bool(forKey: HistorySettings.boundKey) ?? false }
+
+    private func recordBound() {
+        guard !isRecordedBound else { return }
+        defaults?.set(true, forKey: HistorySettings.boundKey)
     }
 }
 
@@ -183,6 +448,9 @@ enum HistorySettings {
     static let maxCountKey = "maxHistoryCount"
     /// Set once the cleanup below has nothing left to do (the file gone, or history on).
     static let offCleanupDoneKey = "historyOffCleanupDone"
+    /// Set once the history was encrypted with a key bound to this Mac: from then on a file in
+    /// the older format is not read unless the user says so.
+    static let boundKey = "historyBoundToThisMac"
 
     /// What History keeps when the user never chose (the maintainer's decision, 2026-11-21;
     /// it was 15). A stored choice is kept.
@@ -210,7 +478,7 @@ enum HistorySettings {
     @discardableResult
     static func runOffCleanupOnce(defaults: UserDefaults, store: HistoryStore) -> Bool {
         guard !defaults.bool(forKey: offCleanupDoneKey) else { return false }
-        guard !isEnabled(in: defaults), store.hasFile else {
+        guard !isEnabled(in: defaults), store.hasAnyFile else {
             defaults.set(true, forKey: offCleanupDoneKey)
             return false
         }
@@ -228,11 +496,12 @@ enum HistorySettings {
 
 // MARK: - Encryption
 
-/// AES-256-GCM with a key derived (HKDF-SHA256) from the Mac's hardware UUID.
+/// The history's encryption up to 0.1.0, and still on a Mac without a Secure Enclave: AES-256-GCM
+/// with a key derived (HKDF-SHA256) from the Mac's hardware UUID. Files in this format are
+/// migrated to a key bound to the Mac (`HistoryKey`, `HistoryMigration`).
 ///
-/// This keeps the file unreadable at rest and to casual inspection (a copied file, a backup,
-/// another Mac). It does not protect against other software running under the same user
-/// account: the hardware UUID is readable by any process, and the salt is in this source.
+/// It keeps the file alone unreadable to casual inspection. Someone with a copy of the home
+/// folder can rebuild the key: the hardware UUID is in it, and the salt is in this source.
 enum HistoryCrypto {
     private static let logger = Logger(subsystem: BuildFlavor.current.logSubsystem, category: "HistoryCrypto")
     /// Key-derivation constant, not an identifier: changing it would make existing
