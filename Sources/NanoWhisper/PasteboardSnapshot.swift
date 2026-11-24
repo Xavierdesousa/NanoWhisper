@@ -9,6 +9,8 @@ import AppKit
 /// - a type that does not fit in `maximumBytes` is not kept (the item's others are);
 /// - after `maximumDuration` nothing more is read (checked between two types: one read that
 ///   the owner answers slowly cannot be interrupted);
+/// - a file the app has no access to does not come back: the system drops its URL when it is put
+///   back on the general pasteboard (docs/wiki/architecture.md, Clipboard around a paste);
 /// - if an item would come back without any content (or is a file promise, which only its owner
 ///   can fulfill), only the plain text is put back, with the markers; without plain text,
 ///   nothing is.

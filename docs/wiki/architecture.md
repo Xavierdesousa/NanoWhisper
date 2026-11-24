@@ -600,7 +600,7 @@ approved 2026-11-21 with the maintainer's answers). Built in `feat/history-redes
   `.currentHostOnly`, so Universal Clipboard does not offer it to other devices (the markers alone
   do not control that). History's Copy is a user action and is not marked.
 - **What was there** (`PasteboardSnapshot`) comes back as it was, within the bounds below and
-  except for file promises and remote content: every item, every type with its bytes, in order,
+  except for file promises, remote content and files the app cannot read: every item, every type with its bytes, in order,
   markers included. Before, only plain text came back, without its markers.
   Content marked transient or confidential is put back with `.currentHostOnly` too: whether its
   owner had set it cannot be read.
@@ -617,6 +617,16 @@ approved 2026-11-21 with the maintainer's answers). Built in `feat/history-redes
     behavior before); an image alone over the bound is lost, as before.
   - The number of dropped types is logged (category `Paste`), never their content. It can count
     conversions the system adds by itself.
+- **Files the app cannot read do not come back** (found by the maintainer, 2026-11-24, macOS
+  27.2: a screenshot file copied in Finder came back as its name and icon). The snapshot holds
+  `public.file-url`, but the general pasteboard drops it on restore: writing a file URL needs a
+  sandbox extension, which the system does not issue for a file the app has no access to
+  (Desktop, Documents, Downloads without the permission; log category `CFPasteboard:sandbox`,
+  "Sandbox extension creation failed", then "Entry failed validation"). Same result as 0.1.0,
+  which only ever restored text. Image data itself (a screenshot to the clipboard, an image
+  copied in a browser) comes back: checked by the maintainer. A private pasteboard keeps the
+  entry despite the same error, so unit tests cannot show it. The way out is to insert the
+  text without the clipboard (Accessibility), not built; asking for folder access was rejected.
 - **Not asked for:** file promises (`com.apple.pasteboard.promised-…`, useless without their
   owner), and, when the content comes from another device (`com.apple.is-remote-clipboard`),
   anything but plain text: reading downloads it.
