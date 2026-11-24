@@ -525,13 +525,26 @@ struct SubprocessTests {
     }
 
     @Test("Kills a hung process and returns nil after the timeout")
-    func timeout() async {
+    func timeout() async throws {
+        let pidFile = FileManager.default.temporaryDirectory.appendingPathComponent("hung-\(UUID().uuidString).pid")
+        defer { try? FileManager.default.removeItem(at: pidFile) }
         let start = Date()
-        let out = await Subprocess.run(URL(fileURLWithPath: "/bin/sleep"), arguments: ["120"], timeout: 0.2)
+        let out = await Subprocess.run(
+            Self.sh, arguments: ["-c", "echo $$ > \"$0\"; exec /bin/sleep 120", pidFile.path], timeout: 2
+        )
         #expect(out == nil)
-        // Killed, not waited for. The time also counts the wait for a free dispatch thread: several
-        // seconds on a CI runner that runs the whole suite in parallel (2.7 s on 2026-11-24).
+        // Not waited for. The time also counts the wait for a free dispatch thread: seconds on a
+        // CI runner that runs the whole suite in parallel.
         #expect(Date().timeIntervalSince(start) < 60)
+
+        let pid = try #require(pid_t(String(contentsOf: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
+        var isRunning = true
+        for _ in 0..<100 where isRunning {
+            isRunning = kill(pid, 0) == 0
+            if isRunning { try await Task.sleep(for: .milliseconds(50)) }
+        }
+        #expect(!isRunning, "the process was killed")
+        if isRunning { kill(pid, SIGKILL) }
     }
 
     @Test("Large output does not dead-lock")
