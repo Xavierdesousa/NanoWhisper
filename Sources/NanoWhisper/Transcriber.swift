@@ -47,27 +47,37 @@ actor WhisperEngine {
     private let kit: WhisperKit
     private let gate = SerialGate()
 
-    /// Download (if needed), prewarm and load the given WhisperKit model variant.
-    /// - Parameter localFolder: load from this folder only, without downloading (the previous
-    ///   model during a switchover).
-    init(model: String, localFolder: URL? = nil) async throws {
-        let folder: URL
-        if let localFolder {
-            folder = localFolder
-        } else {
-            folder = try await WhisperModelFiles.download(model)
+    /// Prewarm and load a model, after downloading what is not on disk (`WhisperModelFiles`).
+    /// - Parameters:
+    ///   - localOnly: never download the model (the previous model during a switchover).
+    ///   - downloadBase: another cache root, in tests.
+    ///   - server: another server, in tests.
+    init(
+        _ size: WhisperModelSize,
+        localOnly: Bool = false,
+        downloadBase: URL? = nil,
+        server: String = ModelServer.address,
+        onPhase: @Sendable (WhisperLoadPhase) -> Void = { _ in }
+    ) async throws {
+        kit = try await WhisperModelFiles.load(
+            size, localOnly: localOnly, downloadBase: downloadBase, server: server, onPhase: onPhase
+        ) { folder in
+            try await WhisperKit(Self.configuration(
+                model: size.whisperKitModel, folder: folder, tokenizerBase: downloadBase
+            ))
         }
-        kit = try await WhisperKit(Self.configuration(model: model, folder: folder))
     }
 
-    /// Load from `folder` only. The server is the app's (`ModelServer`); WhisperKit itself only
-    /// downloads the tokenizer, when it is not on disk.
-    nonisolated static func configuration(model: String, folder: URL) -> WhisperKitConfig {
+    /// Load from `folder` only. The server is the app's (`ModelServer`); WhisperKit itself would
+    /// only download a tokenizer it cannot load, which `WhisperModelFiles.load` has checked.
+    /// - Parameter tokenizerBase: another cache root, in tests.
+    nonisolated static func configuration(model: String, folder: URL, tokenizerBase: URL? = nil) -> WhisperKitConfig {
         WhisperKitConfig(
             model: model,
             modelToken: "",
             modelEndpoint: ModelServer.address,
             modelFolder: folder.path,
+            tokenizerFolder: tokenizerBase,
             verbose: false,
             logLevel: .error,
             prewarm: true,

@@ -178,11 +178,19 @@ class SetupManager: ObservableObject {
             return .parakeet(try await loadParakeet(variant, role: role, generation: generation))
         case .whisper(let size):
             if role == .selected {
-                setupProgress = "Downloading Whisper \(size.displayName)..."
+                setupProgress = "Compiling model..."
             }
             // The previous model is loaded from its folder only: never download it again.
-            let folder = role == .previous ? store.url(of: .whisper(size)) : nil
-            return .whisper(try await WhisperEngine(model: size.whisperKitModel, localFolder: folder))
+            return .whisper(try await WhisperEngine(size, localOnly: role == .previous) { [weak self] phase in
+                guard role == .selected else { return }
+                Task { @MainActor in
+                    guard let self, generation == self.setupGeneration else { return }
+                    switch phase {
+                    case .downloading: self.setupProgress = "Downloading Whisper \(size.displayName)..."
+                    case .loading: self.setupProgress = "Compiling model..."
+                    }
+                }
+            })
         }
     }
 

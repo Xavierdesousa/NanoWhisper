@@ -219,14 +219,10 @@ struct ModelStore: Sendable {
         return total
     }
 
-    /// Whether a WhisperKit model folder holds the three Core ML bundles WhisperKit loads.
-    /// Reads the Whisper cache: call it only when the user is on Whisper.
+    /// Whether every file of a Whisper model is on disk (their content is checked when the
+    /// model is loaded). Reads the Whisper cache: call it only when the user is on Whisper.
     func isWhisperModelOnDisk(_ size: WhisperModelSize) -> Bool {
-        guard let url = url(of: .whisper(size)) else { return false }
-        let fm = FileManager.default
-        return ["MelSpectrogram", "AudioEncoder", "TextDecoder"].allSatisfy {
-            fm.fileExists(atPath: url.appendingPathComponent("\($0).mlmodelc").path)
-        }
+        WhisperModelFiles.isPresent(size.whisperKitModel, in: whisperKitDirectory)
     }
 
     // MARK: Removal
