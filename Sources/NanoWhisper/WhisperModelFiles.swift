@@ -320,7 +320,8 @@ enum WhisperModelFiles {
         with hub: HubApiWrapper
     ) async throws -> URL {
         let folder = HubRepositoryFolder(url: hub.localRepoLocation(repository))
-        let replaced = unusable.filter(Set(names).contains)
+        // Checked again: the other build shares the cache and may have repaired a file since.
+        let replaced = unusable.filter { names.contains($0) && folder.state(of: $0) != .present(verified: true) }
         replaced.forEach(folder.removeObstacle)
         let root = try await hub.snapshot(from: repository, matching: names)
         // Without a connection, WhisperKit returns what is on disk instead.

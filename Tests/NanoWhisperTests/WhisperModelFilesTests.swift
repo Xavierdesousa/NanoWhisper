@@ -289,6 +289,17 @@ extension ModelDownloadTests {
         }
     }
 
+    @Test("Whisper: a file repaired since it was found damaged is not removed")
+    func whisperRepairedMeanwhile() async throws {
+        try await withFixture { fixture in
+            let names = WhisperModelFiles.expectedFiles.map { "\(fixture.size.whisperKitModel)/\($0)" }
+            try await WhisperModelFiles.download(
+                fixture.size.whisperKitModel, replacing: names, downloadBase: fixture.cache, server: fixture.server.address
+            )
+            #expect(fixture.downloaded.isEmpty)
+        }
+    }
+
     @Test("Whisper: the second failure is the caller's")
     func whisperRepairOnce() async throws {
         try await withFixture(sidecars: false) { fixture in
