@@ -2,33 +2,14 @@ import Foundation
 import AppKit
 import os
 
-struct GitHubRelease: Codable {
-    let tagName: String
-    let assets: [Asset]
-
-    struct Asset: Codable {
-        let name: String
-        let browserDownloadUrl: String
-
-        enum CodingKeys: String, CodingKey {
-            case name
-            case browserDownloadUrl = "browser_download_url"
-        }
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case tagName = "tag_name"
-        case assets
-    }
-}
-
+/// Checks GitHub for a newer release and, when asked, installs it and relaunches the app.
+/// The release is parsed in `UpdateRelease.swift`; `UpdateInstaller` downloads, verifies and
+/// installs it.
 @MainActor
 class AutoUpdater: ObservableObject {
     static let shared = AutoUpdater()
 
     private let logger = Logger(subsystem: BuildFlavor.current.logSubsystem, category: "AutoUpdater")
-    private let owner = "Xavierdesousa"
-    private let repo = "nanowhisper"
 
     @Published var updateAvailable = false
     @Published var latestVersion: String?
@@ -39,20 +20,27 @@ class AutoUpdater: ObservableObject {
     /// When the last check reached GitHub (Settings: "Last checked …"). Not persisted.
     @Published private(set) var lastCheckDate: Date?
 
-    private var releaseAssetURL: URL?
+    private var latestRelease: GitHubRelease?
     private var checkTimer: Timer?
+    private let installer: UpdateInstaller
+    /// Opens the installed update and quits. Tests replace it.
+    private let relaunch: @MainActor (URL) throws -> Void
 
     /// False in debug builds: installing the latest release would replace the debug
     /// bundle with the production app. When disabled, checks and installs are no-ops.
     let isEnabled: Bool
 
-    init(isEnabled: Bool = BuildFlavor.current.autoUpdatesEnabled) {
+    init(
+        isEnabled: Bool = BuildFlavor.current.autoUpdatesEnabled,
+        installer: UpdateInstaller = UpdateInstaller(),
+        relaunch: @escaping @MainActor (URL) throws -> Void = { try AutoUpdater.relaunchAndQuit($0) }
+    ) {
         self.isEnabled = isEnabled
+        self.installer = installer
+        self.relaunch = relaunch
     }
 
-    var currentVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
-    }
+    var currentVersion: String { installer.installedVersion }
 
     func startPeriodicChecks(interval: TimeInterval = 3600) {
         checkTimer?.invalidate()
@@ -77,33 +65,18 @@ class AutoUpdater: ObservableObject {
 
         defer { isChecking = false }
 
-        let urlString = "https://api.github.com/repos/\(owner)/\(repo)/releases/latest"
-        guard let url = URL(string: urlString) else { return }
-
         do {
-            var request = URLRequest(url: url)
-            request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-            request.timeoutInterval = 15
-
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            guard let release = try await installer.latestRelease() else {
                 if !silent { self.error = "Could not reach GitHub" }
                 return
             }
-
-            let release = try JSONDecoder().decode(GitHubRelease.self, from: data)
-
-            let remoteVersion = release.tagName.hasPrefix("v") ? String(release.tagName.dropFirst()) : release.tagName
+            latestRelease = release
+            let remoteVersion = release.version
 
             // Only update @Published properties when values actually change
             if latestVersion != remoteVersion {
                 latestVersion = remoteVersion
             }
-
-            releaseAssetURL = release.assets
-                .first { $0.name.hasSuffix(".zip") }
-                .flatMap { URL(string: $0.browserDownloadUrl) }
 
             let newer = AutoUpdater.isNewerVersion(remoteVersion, than: currentVersion)
             if updateAvailable != newer {
@@ -123,9 +96,9 @@ class AutoUpdater: ObservableObject {
     }
 
     func downloadAndInstall() async {
-        guard isEnabled else { return }
-        guard let assetURL = releaseAssetURL else {
-            error = "No download URL available"
+        guard isEnabled, !isDownloading else { return }
+        guard let release = latestRelease else {
+            error = "No update to install. Check for updates first."
             return
         }
 
@@ -136,68 +109,18 @@ class AutoUpdater: ObservableObject {
         defer { isDownloading = false }
 
         do {
-            let (tempURL, response) = try await URLSession.shared.download(from: assetURL)
-
-            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-                error = "Download failed"
-                return
-            }
-
-            downloadProgress = 0.5
-
-            let fm = FileManager.default
-            let tempDir = fm.temporaryDirectory.appendingPathComponent("nanowhisper_update_\(UUID().uuidString)")
-            try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
-
-            // Unzip on a background thread to avoid blocking the UI
-            let unzipResult = await Task.detached {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-                process.arguments = ["-o", tempURL.path, "-d", tempDir.path]
-                process.standardOutput = FileHandle.nullDevice
-                process.standardError = FileHandle.nullDevice
-                try process.run()
-                process.waitUntilExit()
-                return process.terminationStatus
-            }.result
-
-            guard case .success(let status) = unzipResult, status == 0 else {
-                error = "Failed to extract update"
-                return
-            }
-
-            downloadProgress = 0.75
-
-            let contents = try fm.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil)
-            guard let newApp = contents.first(where: { $0.pathExtension == "app" }) else {
-                error = "No .app found in download"
-                return
-            }
-
-            let currentAppURL = Bundle.main.bundleURL
-
-            let backupURL = currentAppURL.deletingLastPathComponent()
-                .appendingPathComponent("NanoWhisper_backup.app")
-            try? fm.removeItem(at: backupURL)
-            try fm.moveItem(at: currentAppURL, to: backupURL)
-
+            let offer = try UpdateOffer(release: release)
+            try await installer.install(offer) { [weak self] in self?.downloadProgress = $0 }
+            logger.info("Update \(offer.version) installed, relaunching...")
             do {
-                try fm.moveItem(at: newApp, to: currentAppURL)
+                try relaunch(installer.installedApp)
             } catch {
-                try? fm.moveItem(at: backupURL, to: currentAppURL)
-                self.error = "Failed to install update: \(error.localizedDescription)"
-                return
+                logger.error("Relaunch failed: \(error.localizedDescription)")
+                throw UpdateError.relaunch(version: offer.version)
             }
-
-            try? fm.removeItem(at: backupURL)
-            try? fm.removeItem(at: tempDir)
-            try? fm.removeItem(at: tempURL)
-
-            downloadProgress = 1.0
-            logger.info("Update installed, relaunching...")
-
-            relaunch(at: currentAppURL)
-
+        } catch let error as UpdateError {
+            self.error = error.errorDescription
+            logger.error("Update failed: \(String(describing: error))")
         } catch {
             self.error = "Update failed: \(error.localizedDescription)"
             logger.error("Update failed: \(error.localizedDescription)")
@@ -206,27 +129,19 @@ class AutoUpdater: ObservableObject {
 
     // MARK: - Version comparison
 
+    /// False when either text is not a version made of numbers.
     nonisolated static func isNewerVersion(_ remote: String, than current: String) -> Bool {
-        let remoteParts = remote.split(separator: ".").compactMap { Int($0) }
-        let currentParts = current.split(separator: ".").compactMap { Int($0) }
-
-        for i in 0..<max(remoteParts.count, currentParts.count) {
-            let r = i < remoteParts.count ? remoteParts[i] : 0
-            let c = i < currentParts.count ? currentParts[i] : 0
-            if r > c { return true }
-            if r < c { return false }
-        }
-        return false
+        guard let remote = AppVersion(remote), let current = AppVersion(current) else { return false }
+        return current < remote
     }
 
     // MARK: - Relaunch
 
-    private func relaunch(at appURL: URL) {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/bin/sh")
-        task.arguments = ["-c", "sleep 1 && open \"\(appURL.path)\""]
-        try? task.run()
+    /// Kept until this process exits (see `Relaunch`).
+    private static var relaunchHandle: FileHandle?
 
+    private static func relaunchAndQuit(_ app: URL) throws {
+        relaunchHandle = try Relaunch.afterExit(app)
         NSApplication.shared.terminate(nil)
     }
 }
