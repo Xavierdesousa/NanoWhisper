@@ -119,7 +119,7 @@ struct BuildFlavorTests {
         #expect(updater.latestVersion == nil)
         #expect(updater.error == nil)
         await updater.downloadAndInstall()
-        // An enabled updater with no release would report "No download URL available".
+        // An enabled updater with no release would ask to check for updates first.
         #expect(updater.error == nil)
         #expect(!updater.isDownloading)
     }

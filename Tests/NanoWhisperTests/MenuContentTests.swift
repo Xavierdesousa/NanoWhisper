@@ -125,6 +125,10 @@ struct MenuContentTests {
         #expect(lines { $0.lastError = "Empty transcription" }.contains(.status("Empty transcription", tone: .failure)))
         #expect(lines { $0.update = .available(version: "0.0.7") }
             .contains(.action(.installUpdate, title: "Install Update 0.0.7 and Relaunch")))
+        let failure = MenuLine.status("Could not finish the update: see Settings › Advanced", tone: .failure)
+        #expect(!lines { $0.update = .available(version: "0.0.7") }.contains(failure))
+        #expect(lines { $0.update = .available(version: "0.0.7"); $0.updateFailed = true }.contains(failure))
+        #expect(!lines { $0.updateFailed = true }.contains(failure))
         #expect(lines { $0.update = .downloading(version: "0.0.7", progress: 0.3) }
             .contains(.progress("Downloading update 0.0.7…", fraction: 0.3)))
         #expect(lines { $0.update = .disabled }.allSatisfy {

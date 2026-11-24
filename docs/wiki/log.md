@@ -14,6 +14,14 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
   [architecture](architecture.md#temporary-recordings)). Pages: architecture (new section
   [Clipboard around a paste](architecture.md#clipboard-around-a-paste)), media-pause, testing,
   open-questions.
+- **Verify the update before installing** (`fix/updater-hardening`, PR #49): the updater checks the
+  running app's and the new app's signature against pinned requirements, the identifier, the version
+  (equal to the tag's, newer than the running one), the asset's name, address, size and SHA-256, and
+  the archive's content, all in a private directory, before replacing the app; it relaunches without
+  a shell once the old instance has exited; a failed install now shows in the menu too. New files
+  `UpdateRelease.swift`, `UpdateSignature.swift`, `UpdateInstaller.swift`; `Subprocess.run` gained
+  `stopWhen`. How to change the signing certificate (bridge release) is written down. Pages:
+  [build-and-release](build-and-release.md#auto-updater), testing, architecture, open-questions.
 - **README and release workflow tightened** (`chore/release-and-readme-hardening`): the README no longer
   says a backup of the history cannot be read, nor suggests `xattr`; the workflows pin actions by
   commit; a release must be tagged on `main`; the build keychain is removed at the end of the job;

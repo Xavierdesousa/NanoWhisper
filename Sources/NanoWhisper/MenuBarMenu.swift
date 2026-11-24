@@ -18,6 +18,8 @@ struct MenuState: Equatable {
     var isTranscribing: Bool
     var lastError: String?
     var update: UpdateStatus.State
+    /// The last attempt to install the update did not succeed (Settings › Advanced says why).
+    var updateFailed = false
 }
 
 /// What a menu item does.
@@ -104,6 +106,9 @@ enum MenuContent {
         case .available(let version):
             lines.append(.separator)
             lines.append(.action(.installUpdate, title: "Install Update \(version) and Relaunch"))
+            if state.updateFailed {
+                lines.append(.status("Could not finish the update: see Settings › Advanced", tone: .failure))
+            }
         case .downloading(let version, let progress):
             lines.append(.separator)
             lines.append(.progress(version.map { "Downloading update \($0)…" } ?? "Downloading the update…",

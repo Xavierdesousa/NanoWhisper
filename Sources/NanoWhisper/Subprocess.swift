@@ -10,13 +10,20 @@ struct SubprocessOutput: Sendable, Equatable {
     }
 }
 
-/// Runs short-lived helper processes (`osascript`, for Now Playing) with an empty environment, off the
-/// caller's actor, never letting one hang.
+/// Runs short-lived helper processes (`osascript`, for Now Playing; `ditto`, for updates) with an empty
+/// environment, off the caller's actor, never letting one hang.
 enum Subprocess {
-    /// Runs `executable` to completion. Returns `nil` when it cannot start or does not exit
-    /// within `timeout` (it is then killed).
-    static func run(_ executable: URL, arguments: [String], timeout: TimeInterval) async -> SubprocessOutput? {
-        await onBackgroundQueue { runBlocking(executable, arguments: arguments, timeout: timeout) }
+    /// Runs `executable` to completion. Returns `nil` when it cannot start, does not exit
+    /// within `timeout`, or `stopWhen` (asked every 0.1 s) says to stop (it is then killed).
+    static func run(
+        _ executable: URL,
+        arguments: [String],
+        timeout: TimeInterval,
+        stopWhen: (@Sendable () -> Bool)? = nil
+    ) async -> SubprocessOutput? {
+        await onBackgroundQueue {
+            runBlocking(executable, arguments: arguments, timeout: timeout, stopWhen: stopWhen)
+        }
     }
 
     /// Starts `executable` and returns its first stdout line as soon as it is printed, leaving
@@ -55,7 +62,12 @@ enum Subprocess {
         return process
     }
 
-    private static func runBlocking(_ executable: URL, arguments: [String], timeout: TimeInterval) -> SubprocessOutput? {
+    private static func runBlocking(
+        _ executable: URL,
+        arguments: [String],
+        timeout: TimeInterval,
+        stopWhen: (@Sendable () -> Bool)?
+    ) -> SubprocessOutput? {
         let process = makeProcess(executable, arguments: arguments)
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -73,7 +85,13 @@ enum Subprocess {
         let stdout = PipeReader(stdoutPipe.fileHandleForReading)
         let stderr = PipeReader(stderrPipe.fileHandleForReading)
 
-        guard exited.wait(timeout: .now() + timeout) == .success else {
+        let deadline = DispatchTime.now() + timeout
+        var didExit = false
+        repeat {
+            didExit = exited.wait(timeout: stopWhen == nil ? deadline : min(deadline, .now() + 0.1)) == .success
+        } while !didExit && DispatchTime.now() < deadline && stopWhen?() == false
+
+        guard didExit else {
             process.terminate()
             if exited.wait(timeout: .now() + 0.5) == .timedOut {
                 kill(process.processIdentifier, SIGKILL)
