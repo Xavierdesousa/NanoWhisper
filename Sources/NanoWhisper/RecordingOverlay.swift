@@ -114,8 +114,8 @@ class RecordingOverlayController {
     /// A resize to the content's new ideal size is scheduled (see `scheduleFit()`).
     private var fitScheduled = false
 
-    /// How long the result stays before the fade-out: longer when final text is shown, to
-    /// leave time to read its start.
+    /// How long the result stays before the fade-out: longer when final text or a detail is
+    /// shown, to leave time to read its start.
     static let resultHold: TimeInterval = 0.8
     static let resultHoldWithText: TimeInterval = 1.2
 
@@ -287,13 +287,14 @@ class RecordingOverlayController {
         viewModel.stopTimer()
         viewModel.state = .finished(result)
         let presentation = self.presentation
-        let hold = viewModel.visibleTranscript == nil ? Self.resultHold : Self.resultHoldWithText
+        let hasText = viewModel.visibleTranscript != nil || result.detail != nil
+        let hold = hasText ? Self.resultHoldWithText : Self.resultHold
         if window != nil {
             NSAccessibility.post(
                 element: NSApp as Any,
                 notification: .announcementRequested,
                 userInfo: [
-                    .announcement: result.title,
+                    .announcement: result.announcement,
                     .priority: NSAccessibilityPriorityLevel.high.rawValue,
                 ]
             )
@@ -385,6 +386,8 @@ class RecordingOverlayController {
 enum OverlayResult: Equatable, Sendable {
     /// The text was pasted into the frontmost app.
     case pasted
+    /// The text was recognized but not pasted (`PasteResult`).
+    case notPasted(savedInHistory: Bool)
     /// The text went elsewhere (onboarding's Try-it box), or nowhere because that box is gone.
     case done
     /// The engine ran and recognized nothing.
@@ -394,9 +397,10 @@ enum OverlayResult: Equatable, Sendable {
     /// The engine failed (see `TranscriptionFailure`).
     case failed
 
-    init(_ outcome: DictationOutcome) {
+    /// - Parameter deliver: saves and pastes a text to deliver, and says what became of it.
+    init(_ outcome: DictationOutcome, deliver: () -> OverlayResult) {
         switch outcome {
-        case .deliver: self = .pasted
+        case .deliver: self = deliver()
         case .showTestResult(let text): self = text.isEmpty ? .noSpeech : .done
         case .discard: self = .done
         case .noResult: self = .noSpeech
@@ -404,10 +408,21 @@ enum OverlayResult: Equatable, Sendable {
         }
     }
 
-    /// Header text, also announced to VoiceOver.
+    /// Saves a dictated text, then pastes it: what the overlay shows.
+    /// - Parameter saveToHistory: nil with history off; returns whether the text was saved.
+    static func delivering(saveToHistory: (() -> Bool)?, paste: () -> PasteResult) -> OverlayResult {
+        let saved = saveToHistory?() ?? false
+        switch paste() {
+        case .pasted: return .pasted
+        case .noTarget, .notPermitted: return .notPasted(savedInHistory: saved)
+        }
+    }
+
+    /// Header text.
     var title: String {
         switch self {
         case .pasted: return "Pasted"
+        case .notPasted: return "Not pasted"
         case .done: return "Done"
         case .noSpeech: return "No speech detected"
         case .noAudio: return "No audio recorded"
@@ -415,11 +430,21 @@ enum OverlayResult: Equatable, Sendable {
         }
     }
 
+    /// Where to find the text, at the end of the header.
+    var detail: String? {
+        self == .notPasted(savedInHistory: true) ? "Saved in History" : nil
+    }
+
+    /// What VoiceOver announces.
+    var announcement: String {
+        [title, detail].compactMap(\.self).joined(separator: ". ")
+    }
+
     /// A check (success) or a warning sign.
     var isSuccess: Bool {
         switch self {
         case .pasted, .done: return true
-        case .noSpeech, .noAudio, .failed: return false
+        case .notPasted, .noSpeech, .noAudio, .failed: return false
         }
     }
 }

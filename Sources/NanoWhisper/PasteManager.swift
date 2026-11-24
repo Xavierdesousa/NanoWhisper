@@ -2,33 +2,68 @@ import AppKit
 import Carbon
 import os
 
+/// What became of a dictated text.
+enum PasteResult: Equatable, Sendable {
+    /// ⌘V was sent to the app in front. Whether that app took the text cannot be known.
+    case pasted
+    /// NanoWhisper itself is in front, or no app is: nothing was sent.
+    case noTarget
+    /// Without Accessibility, macOS drops the ⌘V.
+    case notPermitted
+}
+
 @MainActor
 final class PasteManager {
     /// Time in seconds before the clipboard is restored after pasting
     private static let clipboardClearDelay: TimeInterval = 3.0
 
-    private let clipboard = BorrowedClipboard(pasteboard: .general)
+    private let clipboard: BorrowedClipboard
+    private let isOtherAppInFront: () -> Bool
+    private let isAccessibilityGranted: () -> Bool
+    private let sendPaste: () -> Void
 
-    /// Paste transcribed text into the active application
-    /// Returns false if no suitable target app was found
-    @discardableResult
-    func pasteText(_ text: String) -> Bool {
-        // Verify there's a frontmost app that can receive paste (not us)
-        guard let frontApp = NSWorkspace.shared.frontmostApplication,
-              frontApp.bundleIdentifier != Bundle.main.bundleIdentifier else {
-            return false
-        }
+    convenience init() {
+        self.init(
+            pasteboard: .general,
+            isOtherAppInFront: {
+                guard let frontApp = NSWorkspace.shared.frontmostApplication else { return false }
+                return frontApp.bundleIdentifier != Bundle.main.bundleIdentifier
+            },
+            isAccessibilityGranted: { PasteManager.checkAccessibility(prompt: false) },
+            sendPaste: PasteManager.simulatePaste
+        )
+    }
 
-        // Put the text on the clipboard, simulate Cmd+V, then restore the clipboard after a delay
+    /// Tests pass a private pasteboard and their own answers.
+    init(
+        pasteboard: NSPasteboard,
+        isOtherAppInFront: @escaping () -> Bool,
+        isAccessibilityGranted: @escaping () -> Bool,
+        sendPaste: @escaping () -> Void
+    ) {
+        clipboard = BorrowedClipboard(pasteboard: pasteboard)
+        self.isOtherAppInFront = isOtherAppInFront
+        self.isAccessibilityGranted = isAccessibilityGranted
+        self.sendPaste = sendPaste
+    }
+
+    /// Paste transcribed text into the active application (never NanoWhisper itself).
+    func pasteText(_ text: String) -> PasteResult {
+        guard isOtherAppInFront() else { return .noTarget }
+        let isGranted = isAccessibilityGranted()
+
+        // Put the text on the clipboard, simulate Cmd+V, then restore the clipboard after a delay.
+        // Also without Accessibility, as before: the text can be pasted by hand until the
+        // clipboard is restored.
         let changeCount = clipboard.put(text)
-        simulatePaste()
+        sendPaste()
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.clipboardClearDelay) { [clipboard] in
             MainActor.assumeIsolated { clipboard.giveBack(ifUnchangedSince: changeCount) }
         }
-        return true
+        return isGranted ? .pasted : .notPermitted
     }
 
-    private func simulatePaste() {
+    private static func simulatePaste() {
         // Small delay to ensure pasteboard is ready
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             let source = CGEventSource(stateID: .hidSystemState)

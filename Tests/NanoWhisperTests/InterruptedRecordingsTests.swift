@@ -143,6 +143,90 @@ final class InterruptedRecordingsTests {
         #expect(!exists(url))
     }
 
+    // MARK: - Copies left by earlier versions
+
+    /// What FluidAudio wrote for `recording`: its samples, as they are.
+    private func copy(of recording: URL, name: String? = nil, change: (inout Data) -> Void = { _ in }) throws -> URL {
+        let file = try AVAudioFile(forReading: recording)
+        let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 16_384)!
+        var samples = Data()
+        while file.framePosition < file.length {
+            try file.read(into: buffer)
+            samples.append(Data(bytes: buffer.floatChannelData![0], count: Int(buffer.frameLength) * 4))
+        }
+        #expect(samples.count == Int(file.length) * 4)
+        change(&samples)
+        let url = directory.appendingPathComponent(name ?? "fluidaudio-streaming-\(UUID().uuidString).raw")
+        try samples.write(to: url)
+        return url
+    }
+
+    @Test("A copy of a recording is zeroed and deleted at launch, whatever becomes of the recording",
+          arguments: [true, false])
+    func copiesDeleted(historyAvailable: Bool) throws {
+        let url = try recording(seconds: 31)
+        let attempted = try recording(seconds: 32, name: "nanowhisper-debug_\(UUID().uuidString).attempted.wav")
+        let copies = try [copy(of: url), copy(of: attempted), copy(of: url)]
+        let handle = try FileHandle(forReadingFrom: copies[0])
+        let result = InterruptedRecordings.collect(in: directory, flavor: debug, historyAvailable: historyAvailable)
+        #expect(result.deletedCopies == 3)
+        for copy in copies { #expect(!exists(copy)) }
+        let content = try #require(try handle.readToEnd())
+        let allZero = content.allSatisfy { $0 == 0 }
+        #expect(allZero && content.count > 31 * 16000 * 3)
+        #expect(result.candidates.count == (historyAvailable ? 1 : 0))
+        #expect(exists(url) == historyAvailable, "the recording itself is still recovered")
+    }
+
+    @Test("A file that is not exactly a copy of this build's recording stays as it is")
+    func otherCopiesKept() throws {
+        let url = try recording(seconds: 31)
+        let other = try recording(seconds: 33, flavor: production)
+        let short = try recording(seconds: 1)
+        let kept = try [
+            copy(of: other), // the other build's
+            copy(of: short), // too short to have been copied
+            copy(of: url) { $0[$0.count - 1] ^= 1 }, // another recording of the same length
+            copy(of: url) { $0.removeLast(4) }, // shorter
+            copy(of: url) { $0.append(Data(count: 4)) }, // longer
+            copy(of: url, name: "fluidaudio-streaming-notes.raw"),
+            copy(of: url, name: "copy.raw"),
+        ]
+        let before = try kept.map { try Data(contentsOf: $0) }
+        let result = InterruptedRecordings.collect(in: directory, flavor: debug, historyAvailable: true)
+        #expect(result.deletedCopies == 0)
+        let after = try kept.map { try Data(contentsOf: $0) }
+        let unchanged = after == before
+        #expect(unchanged)
+    }
+
+    @Test("Links and other kinds of files under a copy's name are left alone")
+    func copyLinksKept() throws {
+        let url = try recording(seconds: 31)
+        let target = try copy(of: url, name: "target.raw")
+        let before = try Data(contentsOf: target)
+        let name = { "fluidaudio-streaming-\(UUID().uuidString).raw" }
+        let link = try symlink(to: target, name: name())
+        let hardLink = directory.appendingPathComponent(name())
+        try FileManager.default.linkItem(at: target, to: hardLink)
+        let folder = directory.appendingPathComponent(name(), isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+        let pipe = directory.appendingPathComponent(name())
+        try #require(mkfifo(pipe.path, 0o600) == 0)
+        let result = InterruptedRecordings.collect(in: directory, flavor: debug, historyAvailable: true)
+        #expect(result.deletedCopies == 0)
+        #expect(isSymlink(link) && exists(hardLink) && exists(folder) && exists(pipe))
+        let unchanged = try Data(contentsOf: target) == before
+        #expect(unchanged)
+        // Nor does a recording that is a link make a file ours.
+        let copied = try copy(of: url)
+        let elsewhere = directory.appendingPathComponent("elsewhere.wav")
+        try FileManager.default.moveItem(at: url, to: elsewhere)
+        try FileManager.default.createSymbolicLink(at: url, withDestinationURL: elsewhere)
+        #expect(InterruptedRecordings.collect(in: directory, flavor: debug, historyAvailable: true).deletedCopies == 0)
+        #expect(exists(copied))
+    }
+
     // MARK: - Files that are not ours
 
     private func symlink(to target: URL, name: String? = nil) throws -> URL {

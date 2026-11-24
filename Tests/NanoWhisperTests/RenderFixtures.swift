@@ -234,6 +234,7 @@ struct OverlaySheet: View {
     let reduceTransparency: Bool
     private let compact: [(String, RecordingOverlayViewModel)]
     private let cards: [(String, RecordingOverlayViewModel)]
+    private let notPasted: [(String, RecordingOverlayViewModel)]
 
     @MainActor
     init(wallpaper: Wallpaper, reduceTransparency: Bool) {
@@ -253,6 +254,13 @@ struct OverlaySheet: View {
             ("Pasted", OverlayFixtures.model(.finished(.pasted), elapsed: 12)),
             ("No speech detected", OverlayFixtures.model(.finished(.noSpeech), elapsed: 4)),
         ]
+        notPasted = [
+            ("Not pasted, history off", OverlayFixtures.model(.finished(.notPasted(savedInHistory: false)), elapsed: 12)),
+            ("Not pasted", OverlayFixtures.model(.finished(.notPasted(savedInHistory: true)), elapsed: 12)),
+            ("Not pasted: the final text", OverlayFixtures.model(
+                .finished(.notPasted(savedInHistory: true)), elapsed: 9, transcript: final
+            )),
+        ]
         cards = [
             ("Live text, first line", OverlayFixtures.model(.recording, elapsed: 2, transcript: first)),
             ("Live text, long", OverlayFixtures.model(.recording, elapsed: 9, transcript: long)),
@@ -265,6 +273,7 @@ struct OverlaySheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             row(compact)
+            row(notPasted)
             row(Array(cards.prefix(2)))
             row(Array(cards.dropFirst(2)))
         }

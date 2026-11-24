@@ -45,6 +45,38 @@ final class PasteboardSnapshotTests {
         #expect(pasteboard.canReadObject(forClasses: [NSString.self], options: nil), "an ordinary paste reads it")
     }
 
+    // MARK: - What became of the text
+
+    private func paste(otherAppInFront: Bool, accessibility: Bool) -> (result: PasteResult, sent: Int) {
+        var sent = 0
+        let manager = PasteManager(
+            pasteboard: pasteboard, isOtherAppInFront: { otherAppInFront },
+            isAccessibilityGranted: { accessibility }, sendPaste: { sent += 1 }
+        )
+        return (manager.pasteText("Dictée"), sent)
+    }
+
+    @Test("Another app in front, with Accessibility: pasted")
+    func pasted() {
+        let (result, sent) = paste(otherAppInFront: true, accessibility: true)
+        #expect(result == .pasted && sent == 1)
+        #expect(pasteboard.string(forType: .string) == "Dictée")
+    }
+
+    @Test("NanoWhisper in front: nothing is sent and the clipboard is not touched", arguments: [true, false])
+    func noTarget(accessibility: Bool) {
+        write([[(.string, utf8("mine"))]])
+        let before = pasteboard.changeCount
+        let (result, sent) = paste(otherAppInFront: false, accessibility: accessibility)
+        #expect(result == .noTarget && sent == 0)
+        #expect(pasteboard.changeCount == before)
+    }
+
+    @Test("Without Accessibility: not reported as pasted")
+    func notPermitted() {
+        #expect(paste(otherAppInFront: true, accessibility: false).result == .notPermitted)
+    }
+
     // MARK: - Restoring
 
     @Test("Everything comes back: several items, every type in order, markers, images, files, rich text")

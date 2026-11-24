@@ -1,6 +1,7 @@
 # Transcription engines and models
 
-Last verified against the code: 2026-11-20 (`feat/model-migration-and-cleanup`). Source: PR #13, the
+Last verified against the code: 2026-11-20 (`feat/model-migration-and-cleanup`); "Parakeet reads a
+recording into memory" on 2026-11-24 (`fix/recording-copy-and-paste-state`). Source: PR #13, the
 model migration PR and the code.
 
 ## What it is
@@ -231,6 +232,45 @@ update, and a rename in the same parent folder is atomic.
   `invalidatePendingInitialization()` (called on model switch). A Parakeet initialization that
   finishes after a newer one started is discarded (`installParakeet` returns `false`).
 - `Transcriber.transcriptionHandler` is a test seam that replaces inference.
+
+## Parakeet reads a recording into memory (2026-11-24)
+
+With `ASRConfig.streamingEnabled` (FluidAudio's default), `AsrManager.transcribe(URL)` copies a file
+over 480,000 samples (30 s) to `fluidaudio-streaming-<UUID>.raw` in the temp directory, as plain
+Float32 samples, maps it, and deletes it without overwriting it; a crash leaves it. All our
+managers (dictation, upgraded engine, preview) use `Transcriber.asrConfig`: the defaults with
+`streamingEnabled: false`, so the file is read into a `[Float]` instead. Crash recovery goes
+through the same `transcribe(audioURL:)`; the live preview always passed samples, never a file.
+WhisperKit 1.1.1 has no such copy (no use of the temp directory in the library).
+
+Measured on `say` speech (Daniel in English, Thomas in French; 20, 31, 45, 60, 120, 300 and 600 s,
+and 240 s with noise added; written by the app's `RecordingWriter`), a clone of Parakeet Ultra, a
+release-build harness, M3 Pro 18 GB, macOS 27.2:
+
+| | Copy on disk (before) | In memory (now) | 16-bit WAV read in place |
+|---|---|---|---|
+| Samples decoded | — | the same bytes, 18 files of 18 | quantized |
+| Text | — | identical, 16 of 16 (token times too) | **differs at 600 s, both languages** |
+| Time, 600 s, en / fr (median of 5) | 1.55 / 1.59 s | 1.71 / 1.61 s | 1.44 / 1.53 s (1 run) |
+| The same, median of 4, alone in its process | 1.49 / 1.68 s | 1.52 / 1.55 s | — |
+| Peak footprint, 600 s, alone in its process | 80–89 MB | 119–127 MB | — |
+| Footprint 3 s later | 43–55 MB | 42–55 MB | — |
+
+Speed: no difference beyond the run-to-run noise (about 0.15 s). Memory: 3.8 MB per minute of audio,
+only while it is transcribed (38 MB for 10 min, about 230 MB for an hour, not run). The footprint
+counts the process only, not what the Neural Engine holds.
+
+- **Rejected:** recording a 16-bit mono WAV, which FluidAudio maps in place: not the same samples,
+  and the text changes on long audio. Reading the file ourselves and passing samples: same text,
+  no gain (118–131 MB). Keeping the samples in memory while recording: the WAV is what a crash
+  leaves to recover.
+- One read of `AVAudioFile` can return fewer frames than asked for, even with a buffer for the whole
+  file (about 1,000 fewer here): loop until every frame is read.
+- The check is `RecordingCopyTests` (opt-in, real model): the copy appears with the defaults and
+  never with ours, and the text is the same. Re-run it when FluidAudio is upgraded.
+- Copies left by earlier versions: [architecture](architecture.md#temporary-recordings).
+- **Not measured:** Parakeet v3 (not on this Mac; same code path), real dictations, a Mac with
+  little memory.
 
 ## Measured speed on real dictations (2026-11-21)
 
