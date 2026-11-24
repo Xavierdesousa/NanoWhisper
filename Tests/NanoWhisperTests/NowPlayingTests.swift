@@ -527,9 +527,11 @@ struct SubprocessTests {
     @Test("Kills a hung process and returns nil after the timeout")
     func timeout() async {
         let start = Date()
-        let out = await Subprocess.run(URL(fileURLWithPath: "/bin/sleep"), arguments: ["10"], timeout: 0.2)
+        let out = await Subprocess.run(URL(fileURLWithPath: "/bin/sleep"), arguments: ["120"], timeout: 0.2)
         #expect(out == nil)
-        #expect(Date().timeIntervalSince(start) < 2)
+        // Killed, not waited for. The time also counts the wait for a free dispatch thread: several
+        // seconds on a CI runner that runs the whole suite in parallel (2.7 s on 2026-11-24).
+        #expect(Date().timeIntervalSince(start) < 60)
     }
 
     @Test("Large output does not dead-lock")
