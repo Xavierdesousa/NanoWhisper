@@ -348,7 +348,10 @@ final class LiveTranscriptionSession {
         guard failure == nil, !isStopped else { return }
         failure = error
         transcript = LiveTranscript()
-        Self.logger.error("Live preview stopped: \(String(describing: error), privacy: .public)")
+        // As in `Transcriber.failedResult`: the description could quote decoded text.
+        let type = String(reflecting: Swift.type(of: error))
+        let description = String(describing: error)
+        Self.logger.error("Live preview stopped (\(type, privacy: .public)): \(description, privacy: .private)")
         stop()
         onFailure?(error)
     }

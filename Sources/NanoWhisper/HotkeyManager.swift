@@ -60,20 +60,29 @@ struct Shortcut: Equatable {
     /// e.g. "Control Option Space", for VoiceOver.
     var spokenDescription: String { keys.map(\.spokenName).joined(separator: " ") }
 
+    /// The modifiers a shortcut can have.
+    static let supportedModifiers = UInt32(controlKey | optionKey | shiftKey | cmdKey)
+
     // Persist to UserDefaults
-    func save() {
-        UserDefaults.standard.set(Int(keyCode), forKey: "shortcut_keyCode")
-        UserDefaults.standard.set(Int(modifiers), forKey: "shortcut_modifiers")
+    func save(to defaults: UserDefaults = .standard) {
+        defaults.set(Int(keyCode), forKey: "shortcut_keyCode")
+        defaults.set(Int(modifiers), forKey: "shortcut_modifiers")
     }
 
-    static func load() -> Shortcut {
-        let defaults = UserDefaults.standard
+    /// The stored shortcut, or the default when there is none or it is not one the app could
+    /// have stored: a key code is 16 bits (`NSEvent.keyCode`), and the recorder has always
+    /// required a modifier, function keys included (`ShortcutRecorderView`).
+    static func load(from defaults: UserDefaults = .standard) -> Shortcut {
         guard defaults.object(forKey: "shortcut_keyCode") != nil else {
             return .default
         }
-        let keyCode = UInt32(defaults.integer(forKey: "shortcut_keyCode"))
-        let modifiers = UInt32(defaults.integer(forKey: "shortcut_modifiers"))
-        return Shortcut(keyCode: keyCode, modifiers: modifiers)
+        guard let keyCode = UInt16(exactly: defaults.integer(forKey: "shortcut_keyCode")),
+              let storedModifiers = UInt32(exactly: defaults.integer(forKey: "shortcut_modifiers")) else {
+            return .default
+        }
+        let modifiers = storedModifiers & supportedModifiers
+        guard modifiers != 0 else { return .default }
+        return Shortcut(keyCode: UInt32(keyCode), modifiers: modifiers)
     }
 
     /// Convert NSEvent modifier flags to Carbon modifier mask

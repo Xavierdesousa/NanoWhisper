@@ -1,6 +1,6 @@
 # Media pause during dictation
 
-Last verified against the code: 2026-11-19 (`main` at 29e84c9). Source: PR #12, PR #10, the
+Last verified against the code: 2026-11-19 (`main` at 29e84c9); `send` on 2026-11-24. Source: PR #12, PR #10, the
 maintainer, and the code.
 
 ## What it is
@@ -41,7 +41,7 @@ Three layers, each replaceable:
    (`MediaRemoteJXA.swift`): runs `/usr/bin/osascript -l JavaScript -e <script> <args>` through
    `Subprocess` (`Subprocess.swift`).
    - `get` prints `null` or one JSON object (pid, bundle id, title, unique identifier, playing).
-   - `send 0|1 PID TITLE ID` re-checks inside the script that the same pid still owns Now
+   - `send 0|1 PID`, with the expected title and identifier on standard input, re-checks inside the script that the same pid still owns Now
      Playing with the same item and the opposite state, then calls
      `MRMediaRemoteSendCommand` with play (0) or pause (1). The toggle (2) is never used.
    - Calls are serialized by a `SerialGate` (the actor is reentrant), and each call first waits
@@ -54,9 +54,19 @@ exit, anything on stderr, unparsable output or the 3 s timeout gives
 ## Gotchas found (2026-11-19, macOS 27.2)
 
 - **`Process` passes arguments in decomposed Unicode (NFD).** A title with an accent never
-  matched the one read back, so the pause was never sent. Titles and identifiers therefore
-  travel as `none` or `some:` + base64 of their UTF-8 (`MediaRemoteJXA.identityArgument(_:)`).
+  matched the one read back, so the pause was never sent. Titles and identifiers were therefore
+  encoded as `none` or `some:` + base64 of their UTF-8.
   Found end to end with the title `Ça "quoted" it's $HOME; …`.
+- **What is playing is not an argument** (2026-11-24): the arguments of a process are listed for
+  every account of the Mac. `send` now gets the title and identifier on standard input
+  (`MediaRemoteJXA.sendInput(for:)`): two lines in the same encoding, which keeps "no title"
+  distinct and a title on one line. The script (`readIdentity`) reads them *before* the state it
+  checks, so the window between check and command is unchanged, and stops at the second newline
+  without waiting for the end of the input. The app writes in the background
+  (`Subprocess.start(input:)`), without `SIGPIPE`, so a process that never reads changes none of
+  the timeouts. Missing or malformed input fails closed, like malformed arguments before.
+  Measured (macOS 27.2, the real script, a process that owns nothing, so `skipped`): 64 ms median.
+- **Logs:** `osascript`'s stderr is private in the log, its exit status public.
 - **A play with no Now Playing owner launches Music.app.** Hence the owner re-check inside the
   script just before sending.
 - **osascript drops the command if it exits right after sending.** The script prints `sent`,
@@ -109,5 +119,6 @@ Review decisions kept deliberately (PR #12):
   paused item is not resumed (deliberate: resume only what we can identify).
 - **Untested:** macOS 14–26 (before 15.4 MediaRemote had other entry points and
   `MRNowPlayingRequest` may be missing), Spotify, Safari, Apple Music playback, real YouTube.
-  Tested: Chrome tab and VLC on macOS 27.2, through a harness built from the app's sources.
+  Tested: Chrome tab and VLC on macOS 27.2, through a harness built from the app's sources,
+  before the item moved to standard input; with real players, that has not been tested.
   See [open-questions.md](open-questions.md).

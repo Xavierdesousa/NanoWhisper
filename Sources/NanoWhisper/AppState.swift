@@ -647,9 +647,10 @@ class AppState: ObservableObject {
         let collection = InterruptedRecordings.collect(historyAvailable: historyAvailable)
         let found = collection.candidates.count + collection.deletedAttempted + collection.deletedTooShort
             + collection.deletedTooOld + collection.deletedUnreadable + collection.deletedHistoryOff
+            + collection.ignored
         if found > 0 {
             InterruptedRecordings.logger.notice(
-                "Interrupted recordings at launch: \(collection.candidates.count, privacy: .public) to transcribe (\(collection.repairedHeaders, privacy: .public) headers repaired); deleted \(collection.deletedAttempted, privacy: .public) already attempted, \(collection.deletedTooShort, privacy: .public) too short, \(collection.deletedTooOld, privacy: .public) too old, \(collection.deletedUnreadable, privacy: .public) unreadable, \(collection.deletedHistoryOff, privacy: .public) with history off"
+                "Interrupted recordings at launch: \(collection.candidates.count, privacy: .public) to transcribe (\(collection.repairedHeaders, privacy: .public) headers repaired); deleted \(collection.deletedAttempted, privacy: .public) already attempted, \(collection.deletedTooShort, privacy: .public) too short, \(collection.deletedTooOld, privacy: .public) too old, \(collection.deletedUnreadable, privacy: .public) unreadable, \(collection.deletedHistoryOff, privacy: .public) with history off; ignored \(collection.ignored, privacy: .public)"
             )
         }
         guard !collection.candidates.isEmpty else { return }

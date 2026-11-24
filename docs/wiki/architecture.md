@@ -23,14 +23,14 @@ There is no Xcode project and no app sandbox; the bundle is assembled and signed
 | Component | Type (file) | Role |
 |---|---|---|
 | Menu bar UI | `MenuBarController` (`MenuBarController.swift`), `MenuContent` (`MenuBarMenu.swift`) | `NSStatusItem` and its `NSMenu`, built from `MenuContent.lines(for:)` (see below). `AppDelegate` (`NanoWhisperApp.swift`) creates `AppState` and the controller at launch. |
-| Hotkey | `HotkeyManager` (`HotkeyManager.swift`) | Carbon `RegisterEventHotKey`; `Shortcut` persisted in `UserDefaults` (`shortcut_keyCode`, `shortcut_modifiers`). |
+| Hotkey | `HotkeyManager` (`HotkeyManager.swift`) | Carbon `RegisterEventHotKey`; `Shortcut` persisted in `UserDefaults` (`shortcut_keyCode`, `shortcut_modifiers`). A stored value the app could not have written (key code not 16 bits, out-of-range modifiers, no modifier) gives the default: the recorder has required a modifier since the first commit, function keys included. |
 | Recorder | `AudioRecorder`, `RecordingWriter` (`AudioRecorder.swift`) | One `AVAudioEngine` per recording; its input tap hands buffers to `RecordingWriter`, which converts them to 16 kHz mono Float32 and writes the WAV in the temp dir; publishes an RMS level for the overlay. Stop order and input changes: [Stopping the recorder](#stopping-the-recorder-crash-of-2026-11-20). |
 | Overlay | `RecordingOverlayController` (`RecordingOverlay.swift`) | Floating panel ("Voice note" design): record capsule, scrolling waveform, timer, result; placed by `RecorderPosition`; follows display changes. See [Recording overlay](#recording-overlay) below. |
 | Model setup | `SetupManager` (`SetupManager.swift`) | Downloads and loads the selected model. See [transcription-engines.md](transcription-engines.md). |
 | Transcription | `Transcriber` (`Transcriber.swift`) | Serial queue of transcriptions over the installed engine. An engine error is logged and returned as `TranscriptionResult.failure`, never as empty text. |
 | History | `HistoryStore`, `HistorySettings` (`HistoryStore.swift`) | Encrypted history file: entries, load/save, max-count trimming, unavailable state, deleting everything; the stored settings and the one-time cleanup of a file kept while history was off. See below. |
-| Temp recordings | `TemporaryRecordings` (`TemporaryRecordings.swift`) | Zero-then-delete of a WAV; removal of this build's leftovers at launch. |
-| Paste | `PasteManager` (`PasteManager.swift`) | Puts text on the pasteboard, posts ⌘V with `CGEvent`, restores the previous clipboard after 3 s if untouched. Needs Accessibility. |
+| Temp recordings | `TemporaryRecordings` (`TemporaryRecordings.swift`) | Zero-then-delete of a WAV, in 256 KB blocks; `OwnedFile`: the only files zeroed, repaired or collected. |
+| Paste | `PasteManager` (`PasteManager.swift`) | Puts text on the pasteboard, posts ⌘V with `CGEvent`, restores the previous clipboard after 3 s if untouched (`BorrowedClipboard`, `PasteboardSnapshot`; see [Clipboard around a paste](#clipboard-around-a-paste)). Needs Accessibility. |
 | Media pause | `MediaController` (`MediaController.swift`) | See [media-pause.md](media-pause.md). |
 | Sounds | `SoundManager` (`SoundManager.swift`) | Start, stop and no-result cues. |
 | Settings, onboarding windows | `SettingsWindowController`, `OnboardingWindowController` | See [onboarding-and-settings.md](onboarding-and-settings.md). |
@@ -590,8 +590,67 @@ approved 2026-11-21 with the maintainer's answers). Built in `feat/history-redes
   VoiceOver (row labels, key boxes, announcements), the toolbar's glass and scroll edge as the
   window server draws them, macOS 14 and 15.
 
+## Clipboard around a paste
+
+`PasteManager` borrows the clipboard for 3 s (`BorrowedClipboard`, 2026-11-24).
+
+- **The dictated text** is one item: plain text with the empty markers
+  `org.nspasteboard.TransientType` and `org.nspasteboard.ConcealedType`
+  (<https://nspasteboard.org>), which clipboard managers honor by not recording it, and
+  `.currentHostOnly`, so Universal Clipboard does not offer it to other devices (the markers alone
+  do not control that). History's Copy is a user action and is not marked.
+- **What was there** (`PasteboardSnapshot`) comes back as it was, within the bounds below and
+  except for file promises, remote content and files the app cannot read: every item, every type with its bytes, in order,
+  markers included. Before, only plain text came back, without its markers.
+  Content marked transient or confidential is put back with `.currentHostOnly` too: whether its
+  owner had set it cannot be read.
+- **Only if unchanged:** nothing is restored when the change count moved after our write. A
+  second dictation within the 3 s reuses the first one's snapshot; otherwise it would save, then
+  restore, the first dictation's text.
+- **Promised data.** Many apps declare formats and produce them when asked; saving them all makes
+  them produce everything, on the main thread, just before the paste. Hence the bounds
+  (`PasteboardSnapshot.Limits`): markers, then plain text, then the rest in the owner's order.
+  - Over 128 MB in total: the types that do not fit are dropped.
+  - After 0.5 s: no further type is read. One read cannot be interrupted, so an owner that does
+    not answer still delays the paste (as reading its plain text already did).
+  - If an item would come back empty, only the plain text is restored, with the markers (the
+    behavior before); an image alone over the bound is lost, as before.
+  - The number of dropped types is logged (category `Paste`), never their content. It can count
+    conversions the system adds by itself.
+- **Files the app cannot read do not come back** (found by the maintainer, 2026-11-24, macOS
+  27.2: a screenshot file copied in Finder came back as its name and icon). The snapshot holds
+  `public.file-url`, but the general pasteboard drops it on restore: writing a file URL needs a
+  sandbox extension, which the system does not issue for a file the app has no access to
+  (Desktop, Documents, Downloads without the permission; log category `CFPasteboard:sandbox`,
+  "Sandbox extension creation failed", then "Entry failed validation"). Same result as 0.1.0,
+  which only ever restored text. Image data itself (a screenshot to the clipboard, an image
+  copied in a browser) comes back: checked by the maintainer. A private pasteboard keeps the
+  entry despite the same error, so unit tests cannot show it. The way out is to insert the
+  text without the clipboard (Accessibility), not built; asking for folder access was rejected.
+- **Not asked for:** file promises (`com.apple.pasteboard.promised-…`, useless without their
+  owner), and, when the content comes from another device (`com.apple.is-remote-clipboard`),
+  anything but plain text: reading downloads it.
+- Rejected: reading on a background thread with a hard time limit (`NSPasteboard`'s shared
+  object would then be used from two threads at once).
+- Measured with private pasteboards (macOS 27.2): an item's `types` leaves out some conversions
+  the system offers (TIFF for a PNG) but includes others (UTF-16 text next to RTF). Putting back
+  everything read gives an identical list.
+- **Not verified:** real apps, clipboard managers, password managers and Universal Clipboard (see
+  [open-questions](open-questions.md)). Quitting within the 3 s leaves the dictated text.
+
 ## Temporary recordings
 
+- **Only `OwnedFile`s are opened for writing** (zeroing, header repair) or collected at launch: a
+  regular file of the current user with a single hard link, opened with `O_NOFOLLOW` and checked
+  on the open descriptor. `securelyDelete` on anything else only removes that name with
+  `unlink` (never recursive); `collect` leaves it in place and counts it as ignored;
+  `markAttempted` checks again before the rename, since a recording waits for the engine.
+  History's file is deleted through the same function: if it is a symbolic link, the link goes
+  and its target is left as it is.
+- The recordings stay in `$TMPDIR` (already private to the user, 0700). Moving them to a subfolder
+  was considered and rejected: it adds nothing against software of the same user, and leftovers of
+  earlier versions must be looked for in `$TMPDIR` anyway. The file format and names are
+  unchanged, so leftovers of earlier versions are recovered.
 - Prefix `nanowhisper_` (production) or `nanowhisper-debug_` (debug), from
   `BuildFlavor.temporaryAudioFilePrefix`.
 - A leftover at launch is a recording whose app crashed before it was transcribed; its header
@@ -639,6 +698,6 @@ approved 2026-11-21 with the maintainer's answers). Built in `feat/history-redes
 ## Known limits
 
 - `PasteManager.pasteText` does nothing when NanoWhisper itself is frontmost.
-- The clipboard is restored only for plain-text content; other pasteboard types are lost.
-  (Read from `PasteManager`; not re-tested.)
+- The clipboard saved around a paste is bounded: see
+  [Clipboard around a paste](#clipboard-around-a-paste).
 - Apple Silicon only (README); not tested on Intel.
