@@ -19,7 +19,8 @@ extension AppState {
             isRecording: isRecording,
             isTranscribing: isTranscribing,
             lastError: lastError,
-            update: UpdateStatus(autoUpdater).state
+            update: UpdateStatus(autoUpdater).state,
+            updateFailed: autoUpdater.error != nil
         )
     }
 }

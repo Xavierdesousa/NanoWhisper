@@ -1,7 +1,7 @@
 # Build flavors, signing and release
 
 Last verified against the code: 2026-11-19 (`main` at 29e84c9); the SDK version section on
-2026-11-21 (`fix/welcome-faster`). Source: PR #14, PR #11, the maintainer, `Makefile`,
+2026-11-21 (`fix/welcome-faster`); the auto-updater on 2026-11-24 (`fix/updater-hardening`). Source: PR #14, PR #11, the maintainer, `Makefile`,
 `.github/workflows/release.yml`.
 
 ## Distribution decisions
@@ -138,7 +138,8 @@ Decision (maintainer, 2026-11-23): two channels, **Stable** (default, everyone) 
   pre-release part (`beta.1`) goes in a separate custom key (e.g. `NWPrereleaseLabel`, empty for
   a stable). The zip name, the release-workflow check (`make -s release-zip-name` must equal
   `NanoWhisper-<tag>.zip`) and the updater's comparison build the full version from both keys
-  (`0.1.1-beta.1`).
+  (`0.1.1-beta.1`). The updater refuses such a version today: `AppVersion` (numbers only) and the
+  "bundle version equals the tag's" check (`UpdateInstaller.verify`) have to be extended with it.
 - **Workflow:** `release.yml` marks the release as pre-release when the tag contains a `-`
   (`gh release create … --prerelease`).
 - **Settings:** Advanced › "Update channel: Stable / Beta" (stored in defaults). Moving from Beta
@@ -175,13 +176,130 @@ being cut (2026-11-23).
 
 ## Auto-updater
 
-`AutoUpdater` (`AutoUpdater.swift`), production only: checks
+Production only (`BuildFlavor.autoUpdatesEnabled`). `AutoUpdater` asks
 `api.github.com/repos/Xavierdesousa/nanowhisper/releases/latest` 5 s after launch and every hour,
-compares versions numerically (`isNewerVersion(_:than:)`), and on request downloads the first
-`.zip` asset, unzips it with `/usr/bin/unzip`, swaps the bundle (keeping a backup until the move
-succeeds) and relaunches. The updater only needs a `.zip` asset, but the tag must match the
-version in Info.plist: otherwise the installed version stays below the tag and the updater keeps
-offering the same release (this is what the workflow's name check guards).
+and on request installs the release and relaunches. `UpdateRelease.swift` parses the release
+(`GitHubRelease`, `AppVersion`, `UpdateOffer`) and holds the messages (`UpdateError`);
+`UpdateSignature.swift` holds the accepted signatures; `UpdateInstaller.swift` downloads, verifies
+and replaces (`UpdateInstaller`), and relaunches (`Relaunch`). Since the release after 0.1.0.
 
-Not verified: an update from 0.0.4 to the next release through this path
-([open-questions.md](open-questions.md)).
+### What is checked, in order, before the installed app is replaced
+
+1. **The running app** satisfies one of `UpdateSignature.acceptedRequirements`
+   (`SecCodeCheckValidity` on the process itself). An ad-hoc or unsigned build, a build signed with
+   another certificate, or a bundle whose files changed while it runs cannot update itself; nothing
+   is downloaded.
+2. **The asset** is the one named exactly `NanoWhisper-v<version>.zip`, at
+   `https://github.com/<owner>/<repo>/releases/download/<tag>/<name>`, no port, user, query or
+   fragment. Owner and repository are compared without case, as GitHub does: **the API answers with
+   the repository's own spelling, `Xavierdesousa/NanoWhisper`**, while the app asks for
+   `nanowhisper`.
+3. **The download**: at most 100 MB (`UpdateInstaller.Limits`; 0.1.0 is 5.7 MB), status 200,
+   redirects over https only (`HTTPSRedirects`). GitHub answers 302 to
+   `release-assets.githubusercontent.com` (2026-11-24). That host is not checked: GitHub has renamed
+   it several times, and the digest and signature cover the content.
+4. **The digest**: the file's SHA-256 equals the asset's `digest` when the API gives one; a `digest`
+   that is not `sha256:` and 64 hex digits refuses too.
+5. **The archive**: extracted by `/usr/bin/ditto -x -k` (no shell, 120 s at most, stopped when the
+   content passes 300 MB; 0.1.0 extracts to 15.8 MB) into a new 0700 directory. Exactly one
+   top-level `.app`, which is a directory, and every symbolic link resolves (`realpath`) inside it.
+   `ditto` keeps entries named `../x` or `/x` inside the destination and does not write through a
+   link (checked on macOS 27.2, and by the tests).
+6. **The signature** (`SecStaticCodeCheckValidity`): all architectures, nested code, strict,
+   symlinks restricted, app-like bundle only, against the accepted requirements.
+7. **The identifier and version**, read from the Info.plist sealed by that signature
+   (`SecCodeCopySigningInformation`): production's identifier; the version text equals the tag's;
+   strictly newer than the running version. `AppVersion` is numbers separated by periods, compared
+   number by number; anything else (`0.1.1-beta.1`) is not a version and is never offered.
+
+The app verified is the app installed: download, extraction and verification happen in one
+`itemReplacementDirectory` (0700, on the installed app's volume), then
+`FileManager.replaceItemAt` renames that directory over the installed bundle. Checked 2026-11-24 in
+a test program: same inode after the replacement on APFS and HFS+; on failure (folder not writable)
+the old bundle keeps its inode and content; with `.usingNewMetadataOnly` the old bundle's quarantine
+attribute is not copied. The staging directory is removed in every case.
+
+A failure leaves the installed app as it was, with a plain message in Settings › Advanced
+(`UpdateError`) and "Could not finish the update: see Settings › Advanced" under the menu's update
+line (the menu showed nothing before).
+
+### What a release must look like
+
+Installed versions refuse a release that does not follow this, and their users then have to
+download by hand:
+
+- tag `v<version>`, numbers and periods only; `CFBundleShortVersionString` equal to it (the release
+  workflow checks both against the zip's name);
+- zip made by `make release` (one app at the top level), under 100 MB, 300 MB extracted;
+- bundle id `com.moonji.nanowhisper`, signed with the "Moonji Dev" certificate whose SHA-1 is in
+  `acceptedRequirements`;
+- the repository keeps its owner and name (GitHub redirects the API after a rename, but the download
+  address then no longer matches).
+
+### The signing requirement
+
+Pinned text: `identifier "com.moonji.nanowhisper" and certificate root = H"f863580b…b1f4"`, exactly
+what `codesign -d -r-` prints for the published 0.0.6 and 0.1.0 (the certificate's O is "Moonji", it
+is self-signed, so root and leaf are the same; valid until 2036-03-15). A bundle built with
+`make ci SIGN_IDENTITY=` has `cdhash H"…"` instead: an ad-hoc requirement names that one build,
+so it can never accept another.
+
+Pinned rather than read from the running app: reading it would need the same fail-closed rule for
+ad-hoc builds, and could not express a transition to another certificate. macOS does not need to
+trust the certificate: a self-signed root validates on a Mac with no trust settings at all (checked,
+macOS 27.2).
+
+### Changing the signing certificate
+
+Planned: from "Moonji Dev" to an Apple Developer ID. A release signed with a certificate that is not
+in an installed version's `acceptedRequirements` is refused by it, so the change takes **two
+releases**:
+
+1. Get the new requirement from a bundle signed with the new certificate (`codesign -d -r-`); it
+   names the team. Do not write it from memory.
+2. **Bridge release**: signed with **Moonji Dev**, with both requirements in `acceptedRequirements`.
+   Before publishing, check both ways with `codesign --verify --deep --strict -R='<requirement>'`:
+   the bridge bundle against the old one, a bundle signed with the new certificate against the new
+   one.
+3. Keep the bridge as the latest release long enough for most users to install it.
+4. **Next release**: signed with the new certificate, still with both requirements.
+5. Later, in a release signed with the new certificate, remove the Moonji Dev requirement. Never
+   remove the requirement of the certificate that signs the release itself: the running app must
+   satisfy one of its own.
+
+**A user who skips the bridge** (updates are offered from `releases/latest` only, so a version older
+than the bridge goes straight to the newest release) gets "its signature is not the one NanoWhisper
+expects. Download the latest version from …". Their installed app keeps working and keeps saying so;
+they download once by hand. Settings, history and models are outside the bundle and stay. Versions
+up to 0.1.0 have the previous updater and are not concerned.
+
+Also to expect: macOS attaches Microphone and Accessibility permissions to the designated
+requirement, so step 4 may ask for them again (not verified; test it before publishing). Losing or
+regenerating the "Moonji Dev" certificate is the same change without the possibility of a bridge:
+keep its backup. Whether updates still verify after it expires (2036) was not checked.
+
+### Relaunch
+
+`Relaunch.afterExit` starts `/usr/bin/xargs -0 /usr/bin/open -n` with the app's path in a pipe whose
+other end only this process holds: `xargs` runs `open` when the pipe closes, which the process's exit
+does. No shell, the path is one literal argument, no fixed delay, and the two instances never
+overlap (they share the hotkey, the history and the temporary recordings). Rejected:
+`NSWorkspace.openApplication` with `createsNewApplicationInstance` (both run at once for a moment),
+a shell with a one-second delay (the previous way; neither is needed). If the relaunch cannot start, the app stays open and says the update is installed.
+
+### Verified and not
+
+- Unit tests: `UpdateTests.swift` (fixtures in `UpdateFixtures.swift`), with ad-hoc signed bundles in
+  temporary directories and a stub `URLProtocol`. Ad-hoc bundles satisfy a test requirement; the
+  releases' requirement refuses them.
+- Harness compiling the app's sources (2026-11-24, macOS 27.2): the real requirement accepts the
+  published 0.0.6 and 0.1.0 and refuses a modified copy and an ad-hoc re-signed copy; a temporary copy
+  of 0.0.6 was replaced by 0.1.0 downloaded from GitHub through the real redirect, digest and
+  signature included; `verifyRunningApp` refuses an ad-hoc process with production's identifier. The
+  relaunch was run in a small test app whose path has spaces and `$(…)` and which quits slowly: the
+  second instance started 0.1 s after the first ended.
+- The dynamic requirement check was confirmed on a running release with `codesign --verify -R=…
+  <pid>` (read-only).
+- **Not verified:** an update of a real installed release with this code (it can only be tried from
+  the first release that contains it to the next one), an install in a folder the user cannot write,
+  macOS 14 and 15 ([open-questions.md](open-questions.md)).

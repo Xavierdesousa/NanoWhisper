@@ -21,6 +21,7 @@ Swift Testing (`@Suite`, `@Test`) in `Tests/NanoWhisperTests/`. CI runs `swift t
 | `OverlayWindowTests.swift` | Opt-in (`NANOWHISPER_WINDOW_TESTS`): the real overlay panel grows with live text from its pinned edges at each position; the record capsule stays in place when started from a SwiftUI button; the header does not move across states. With `NANOWHISPER_CAPTURE_DIR` too: PNGs of every state over light and dark wallpapers, each position on a whole screen, Reduce Motion/Transparency variants and the position picker |
 | `RecorderPositionTests.swift`, `OverlayWaveformTests.swift` | Position persistence and default, placement and growth maths, picker geometry; level ring buffer, bar mapping, transcribing sweep, `OverlayResult` |
 | `CodableModelTests.swift`, `GitHubReleaseTests.swift`, `VersionComparisonTests.swift` | Persistence formats, updater parsing and version comparison |
+| `UpdateTests.swift`, `UpdateFixtures.swift` | The updater: versions, asset name and address, digest; code signature (ad-hoc, unsigned, changed bundles; several requirements); extraction (zero or two apps, links, entry names, size limit); installation in a temporary folder (every refusal leaves the installed app untouched and no temporary file; redirects; size limits) and the whole `AutoUpdater` flow; the relaunch. Bundles are copies of `/usr/bin/true` signed ad hoc, never launched; the network is `StubProtocol`. Removing any one check makes a test fail (19 checks tried, 2026-11-24) |
 | `TranscriptionFailureTests.swift` | Engine error and missing engine reported as a failure, not as empty text; `DictationOutcome` with a failure |
 | `InterruptedRecordingsTests.swift` | Recordings left by a crash: header repair of the crash state (copied from an open `RecordingWriter` file), what is kept or deleted (too short, too old, unreadable, already attempted, history off; the other build's files untouched), the silent recovery to History at the recording's date, exactly once (a crash during the attempt is not retried), the user's dictation first (a real `Transcriber` queue with its test handler), `HistoryStore.insert` order |
 | `HistoryStoreTests.swift` | Encrypted round trip (no plain text on disk), trimming, unreadable file ⇒ unavailable and never overwritten, plain-text file never read, pinned key derivation |
@@ -39,7 +40,7 @@ Swift Testing (`@Suite`, `@Test`) in `Tests/NanoWhisperTests/`. CI runs `swift t
 
 Seams used by tests: `Transcriber.transcriptionHandler`, `Transcriber.installParakeet(_:)`,
 `MediaPlaybackController` and `NowPlayingSource` fakes, `SetupManager.migrateLegacyParakeetV3Cache(currentDirectory:)`,
-`SettingsContext` fixtures (`Fixtures` in `ViewRenderTests.swift`), `HistoryStore(fileURL:key:)`, `BuildFlavor(bundleIdentifier:)`, `AutoUpdater(isEnabled:)`.
+`SettingsContext` fixtures (`Fixtures` in `ViewRenderTests.swift`), `HistoryStore(fileURL:key:)`, `BuildFlavor(bundleIdentifier:)`, `AutoUpdater(isEnabled:installer:relaunch:)`, `UpdateInstaller`'s properties.
 
 ## Techniques that work without a screen
 

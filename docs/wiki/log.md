@@ -3,6 +3,17 @@
 Dated entries, newest first. One entry per change to the project or to this wiki: what changed,
 why if not obvious, and the PR. Older history is summarized from `git log`.
 
+## 2026-11-24
+
+- **Verify the update before installing** (`fix/updater-hardening`, PR #NN): the updater checks the
+  running app's and the new app's signature against pinned requirements, the identifier, the version
+  (equal to the tag's, newer than the running one), the asset's name, address, size and SHA-256, and
+  the archive's content, all in a private directory, before replacing the app; it relaunches without
+  a shell once the old instance has exited; a failed install now shows in the menu too. New files
+  `UpdateRelease.swift`, `UpdateSignature.swift`, `UpdateInstaller.swift`; `Subprocess.run` gained
+  `stopWhen`. How to change the signing certificate (bridge release) is written down. Pages:
+  [build-and-release](build-and-release.md#auto-updater), testing, architecture, open-questions.
+
 ## 2026-11-23
 
 - **README rewritten as a product page** (`docs/readme-0.1.0`): hero with a download link, the

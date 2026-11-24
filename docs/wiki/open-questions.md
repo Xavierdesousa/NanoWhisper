@@ -1,6 +1,6 @@
 # Open questions and untested matrix
 
-Last updated: 2026-11-20. Remove an item (and add a [log](log.md) entry) once someone has tested
+Last updated: 2026-11-24. Remove an item (and add a [log](log.md) entry) once someone has tested
 it, with the date, machine and macOS version.
 
 ## For a human to test
@@ -9,6 +9,7 @@ it, with the date, machine and macOS version.
 |---|---|---|
 | First install | Download the release zip from GitHub in a browser, unzip, move to Applications, open. Note what Gatekeeper shows and what the user must do. | Releases are self-signed and not notarized. Never tested from a real download. The README's Install section now gives Apple's "Open Anyway" steps (System Settings → Privacy & Security), checked against Apple's support page on 2026-11-20, not on a real download. |
 | Upgrade from 0.0.4 | Let 0.0.4 auto-update to the next release. Then check: if the legacy v3 cache is accepted as complete, v3 starts right away, Ultra downloads in the background and the app switches to it; otherwise Ultra downloads in the foreground (no v3 start). In both cases `parakeet-tdt-0.6b-v3-coreml` is gone, a stored Whisper Medium becomes Large v3 Turbo (Medium works meanwhile, then its folder is deleted), history is readable, permissions still granted. | Each piece is unit-tested; the whole path through the 0.0.4 updater is not. See [transcription-engines.md](transcription-engines.md), [build-and-release.md](build-and-release.md#auto-updater). |
+| Verified update | From the first release after 0.1.0 to the next one: Install Update in the menu; the new version runs, only one instance, the shortcut works, permissions still granted, settings and history kept, nothing left in `$TMPDIR/TemporaryItems`. Also from an account that cannot write to the app's folder: message in Settings › Advanced and in the menu, the installed app still opens. | Unit tests and a harness on temporary copies only; the installed app was never replaced by agents ([build-and-release.md](build-and-release.md#auto-updater)). |
 | Model migration (from 0.0.5) | On a 0.0.5 install on Parakeet v3 with Ultra not on disk: dictation works at once on v3; the menu and Settings › Model show "Downloading the improved model (~630 MB)… N%"; dictating during the download works; a recording in progress when Ultra finishes is transcribed with v3, the next one with Ultra; v3 stays on disk and in the picker. Offline: v3 keeps working, Settings says Ultra will download at next launch, nothing in the menu. Re-select v3 in Settings, relaunch: still v3. With production 0.0.5 (on v3) and the new debug build side by side: the debug build does not delete anything production uses. "Remove Unused Models…": list, sizes, total, Documents prompt, access denied, freed space. On a Whisper Tiny / Large v3 install: replaced by Base / Turbo with the old one working until then, then its folder deleted. | Unit tests in temporary directories and offscreen renders only; nothing was run against the real caches or apps, by design ([transcription-engines.md](transcription-engines.md#known-limits--not-verified)). |
 | Media pause, other players | Spotify, Apple Music, Safari, real YouTube (Chrome and Safari). Pause and resume, already paused, nothing playing, two sources. | Only Chrome and VLC on macOS 27.2 were tested ([media-pause.md](media-pause.md)). Spotify was not installed. |
 | Media pause, other macOS | macOS 14, 15 (before and after 15.4), 26. Expected: works, or fails closed (does nothing). It must never start playback. | MediaRemote entry points differ before 15.4; `MRNowPlayingRequest` may be missing. |
@@ -67,7 +68,8 @@ it, with the date, machine and macOS version.
   listed options (the pulse in Core Animation, a cheaper live-text transition) is worth a visible
   check side by side. Not measured: watts, 60 Hz displays, WindowServer's share.
 
-- Notarization with a Developer ID: planned "long term", not now. Note that the
+- Notarization with a Developer ID: planned "long term", not now. It needs a bridge release first
+  ([build-and-release.md](build-and-release.md#changing-the-signing-certificate)). Note that the
   `mediaremote-adapter` option for media pause was rejected because the app is not notarized
   ([media-pause.md](media-pause.md#why-it-is-this-way)).
 - CodeQL: return when it supports Swift 6.4 ([ci-and-review.md](ci-and-review.md)).

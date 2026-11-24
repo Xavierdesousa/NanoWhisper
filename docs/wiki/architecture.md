@@ -35,7 +35,7 @@ There is no Xcode project and no app sandbox; the bundle is assembled and signed
 | Sounds | `SoundManager` (`SoundManager.swift`) | Start, stop and no-result cues. |
 | Settings, onboarding windows | `SettingsWindowController`, `OnboardingWindowController` | See [onboarding-and-settings.md](onboarding-and-settings.md). |
 | History window | `HistoryWindowController`, `HistoryWindow`, `HistoryWindowModel` (`HistoryWindow.swift`, `HistoryWindowModel.swift`, `HistoryView.swift`, `HistoryAlerts.swift`) | List and detail of the kept dictations. See [History window](#history-window). |
-| Updates | `AutoUpdater` (`AutoUpdater.swift`) | See [build-and-release.md](build-and-release.md). |
+| Updates | `AutoUpdater` (`AutoUpdater.swift`), `UpdateInstaller`, `UpdateSignature`, `UpdateOffer` | See [build-and-release.md](build-and-release.md#auto-updater). |
 
 ## Menu bar menu
 
@@ -63,7 +63,8 @@ text button, so it cannot draw the download bar or the shortcut as key caps.
   and "Download <model> (<size>)"; loading → "Loading <model>…"; recording → "Recording…"
   (red); transcribing → "Transcribing…"; else "<model in use> is ready" (during a migration's
   switchover the previous model, plus "Downloading <new>, 42%" with a bar; nothing after a
-  failed background download). Update: "Install Update <v> and Relaunch", or "Downloading
+  failed background download). Update: "Install Update <v> and Relaunch" (and, after a
+  failed attempt, "Could not finish the update: see Settings › Advanced" in red), or "Downloading
   update <v>…" with a bar.
 - The board draws only "ready" and "setup not finished"; the other states keep their previous
   content in the board's form. Changed from before: "Show Setup…" is now "Finish Setup…"
