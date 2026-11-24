@@ -5,6 +5,8 @@ struct NanoWhisperApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     init() {
+        // Before anything can download a model.
+        ModelServer.configure()
         // Before AppState reads the flag (it decides whether the first download waits).
         if LaunchOptions.current.resetOnboarding {
             UserDefaults.standard.removeObject(forKey: AppState.onboardingCompleteKey)

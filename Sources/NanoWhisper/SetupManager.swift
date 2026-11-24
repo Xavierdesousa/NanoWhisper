@@ -204,8 +204,11 @@ class SetupManager: ObservableObject {
         case replacedIncomplete
         /// The current location already held a complete cache; the legacy folder was deleted.
         case removedDuplicate
-        /// The move failed; leftovers were cleaned up best effort and FluidAudio downloads normally.
+        /// The move failed; leftovers were cleaned up best effort and v3 downloads normally.
         case failed
+        /// Another process kept the models lock: nothing was touched, v3 downloads normally if
+        /// it is missing.
+        case lockBusy
     }
 
     /// Move a Parakeet v3 cache downloaded by FluidAudio <= 0.12 to the folder FluidAudio 0.18
@@ -218,20 +221,29 @@ class SetupManager: ObservableObject {
     /// - Current folder incomplete (e.g. an interrupted download): it is removed and the legacy
     ///   folder is moved in, rather than throwing away the complete legacy weights.
     ///
-    /// FluidAudio then only fetches the files that changed (the ~12 MB JointDecisionv3 model).
+    /// The download then only fetches the files that changed (the ~12 MB JointDecisionv3 model).
     /// Never throws: on any failure the app falls back to a normal download. A failed move
     /// never leaves a partial folder at the current location; the legacy folder is removed
-    /// too, best effort. Synchronous and called on the main actor, so setups cannot race on it.
+    /// too, best effort. Runs off the main actor.
     /// Production and debug builds share this cache and can launch together, so the whole
-    /// check-and-move holds the models lock (`ModelStore.withExclusiveLock`): otherwise the
-    /// process that loses the rename would delete the winner's moved folder in its failure
-    /// path. If the lock file cannot be opened, it migrates unlocked.
+    /// check-and-move holds the models lock (`ModelStore.withExclusiveLock`, which also keeps
+    /// two setups of this process apart): otherwise the process that loses the rename would
+    /// delete the winner's moved folder in its failure path. If the lock file cannot be opened,
+    /// it migrates unlocked; if the lock stays taken, it does not migrate.
     @discardableResult
     nonisolated static func migrateLegacyParakeetV3Cache(
-        currentDirectory: URL = AsrModels.defaultCacheDirectory(for: .v3)
-    ) -> LegacyCacheMigration {
-        ModelStore.withExclusiveLock(in: currentDirectory.deletingLastPathComponent()) {
-            migrateLegacyParakeetV3CacheLocked(currentDirectory: currentDirectory)
+        currentDirectory: URL = AsrModels.defaultCacheDirectory(for: .v3),
+        lockTimeout: Duration = ModelStore.lockTimeout
+    ) async -> LegacyCacheMigration {
+        do {
+            return try await ModelStore.withExclusiveLock(
+                in: currentDirectory.deletingLastPathComponent(), timeout: lockTimeout
+            ) {
+                migrateLegacyParakeetV3CacheLocked(currentDirectory: currentDirectory)
+            }
+        } catch {
+            logger.error("Legacy Parakeet v3 cache not migrated: \(String(describing: error), privacy: .public)")
+            return .lockBusy
         }
     }
 
@@ -280,30 +292,21 @@ class SetupManager: ObservableObject {
         // The legacy folder only matters to v3. For Ultra it is an obsolete folder that the
         // automatic cleanup removes (moving it would only create a v3 copy nobody selected).
         if variant == .v3 {
-            Self.migrateLegacyParakeetV3Cache()
+            await Self.migrateLegacyParakeetV3Cache()
         }
-        return try await AsrModels.downloadAndLoad(
-            version: variant.asrModelVersion,
-            progressHandler: { [weak self] progress in
-                Task { @MainActor in
-                    guard let self, generation == self.setupGeneration else { return }
-                    self.handleParakeetProgress(progress, role: role)
-                }
+        return try await ParakeetModelFiles.load(variant) { [weak self] progress in
+            Task { @MainActor in
+                guard let self, generation == self.setupGeneration else { return }
+                self.handleParakeetProgress(progress, role: role)
             }
-        )
-    }
-
-    /// ModelHub reports each model component as one operation where the download phase
-    /// occupies the first half of `fractionCompleted` and compilation the rest.
-    nonisolated static func downloadFraction(_ progress: DownloadProgress) -> Double {
-        min(progress.fractionCompleted / 0.5, 1.0)
+        }
     }
 
     private func handleParakeetProgress(_ progress: DownloadProgress, role: ModelLoadRole) {
         if role == .upgrade {
             guard upgrade != nil else { return }
             switch progress.phase {
-            case .downloading: upgrade?.status = .downloading(fraction: Self.downloadFraction(progress))
+            case .downloading: upgrade?.status = .downloading(fraction: progress.fractionCompleted)
             case .listing, .compiling: upgrade?.status = .downloading(fraction: nil)
             }
             return
@@ -312,7 +315,7 @@ class SetupManager: ObservableObject {
         case .listing:
             setupProgress = "Preparing download..."
         case .downloading:
-            setupProgress = "Downloading model (\(Int(Self.downloadFraction(progress) * 100))%)..."
+            setupProgress = "Downloading model (\(Int(progress.fractionCompleted * 100))%)..."
         case .compiling:
             setupProgress = "Compiling model..."
         }

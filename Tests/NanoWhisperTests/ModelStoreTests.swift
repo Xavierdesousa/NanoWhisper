@@ -99,19 +99,19 @@ struct ModelStoreTests {
     }
 
     @Test("A symbolic link with a known name is not followed or listed")
-    func symlinkSkipped() throws {
+    func symlinkSkipped() async throws {
         let (store, root) = try makeStore()
         defer { cleanup(root) }
         let target = try makeFolder("elsewhere", in: root)
         try fm.createSymbolicLink(at: store.whisperKitDirectory.appendingPathComponent("openai_whisper-medium"),
                                   withDestinationURL: target)
         #expect(store.scan(.whisperKit) == .scanned([]))
-        _ = store.removeObsoleteModels(keeping: [], includeWhisperCache: true)
+        _ = await store.removeObsoleteModels(keeping: [], includeWhisperCache: true)
         #expect(exists(target.appendingPathComponent("Model.mlmodelc/weight.bin")))
     }
 
     @Test("Documents access denied: reported, nothing removed, Parakeet side still cleaned")
-    func accessDenied() throws {
+    func accessDenied() async throws {
         let (store, root) = try makeStore()
         defer { cleanup(root) }
         try makeFolder("openai_whisper-medium", in: store.whisperKitDirectory)
@@ -119,7 +119,7 @@ struct ModelStoreTests {
         try fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: store.whisperKitDirectory.path)
 
         #expect(store.scan(.whisperKit) == .accessDenied)
-        let report = store.removeObsoleteModels(keeping: [], includeWhisperCache: true)
+        let report = await store.removeObsoleteModels(keeping: [], includeWhisperCache: true)
         #expect(report.whisperAccessDenied)
         #expect(report.removed.map(\.folder) == [.parakeetV3Legacy])
         #expect(!exists(legacy))
@@ -147,7 +147,7 @@ struct ModelStoreTests {
     // MARK: - Automatic cleanup
 
     @Test("Automatic cleanup removes obsolete folders only, never selectable or kept ones, never parents")
-    func automaticCleanup() throws {
+    func automaticCleanup() async throws {
         let (store, root) = try makeStore()
         defer { cleanup(root) }
         let fluid = store.fluidAudioDirectory, whisper = store.whisperKitDirectory
@@ -162,7 +162,7 @@ struct ModelStoreTests {
         let other = try makeFolder("openai_whisper-large-v2", in: whisper)
 
         // On Whisper Large v3 Turbo; Tiny is the other flavor's model.
-        let report = store.removeObsoleteModels(keeping: [.whisperLargeV3Turbo, .whisperTiny], includeWhisperCache: true)
+        let report = await store.removeObsoleteModels(keeping: [.whisperLargeV3Turbo, .whisperTiny], includeWhisperCache: true)
         #expect(Set(report.removed.map(\.folder)) == [.parakeetV3Legacy, .whisperMedium, .whisperLargeV3])
         #expect(report.freedBytes > 0)
         for gone in [legacy, medium, large] { #expect(!exists(gone)) }
@@ -170,42 +170,42 @@ struct ModelStoreTests {
     }
 
     @Test("Parakeet users: the Whisper cache is not read at all")
-    func whisperCacheUntouchedForParakeet() throws {
+    func whisperCacheUntouchedForParakeet() async throws {
         let (store, root) = try makeStore()
         defer { cleanup(root) }
         let medium = try makeFolder("openai_whisper-medium", in: store.whisperKitDirectory)
         // Unreadable: any read would be reported as access denied.
         try fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: store.whisperKitDirectory.path)
-        let report = store.removeObsoleteModels(keeping: [.parakeetUltra], includeWhisperCache: false)
+        let report = await store.removeObsoleteModels(keeping: [.parakeetUltra], includeWhisperCache: false)
         #expect(!report.whisperAccessDenied)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: store.whisperKitDirectory.path)
         #expect(exists(medium))
     }
 
     @Test("The obsolete model of a pending replacement is kept until the replacement is loaded")
-    func pendingReplacementKept() throws {
+    func pendingReplacementKept() async throws {
         let (store, root) = try makeStore()
         defer { cleanup(root) }
         let medium = try makeFolder("openai_whisper-medium", in: store.whisperKitDirectory)
         var pending = PendingModelMoves(parakeet: nil, whisper: .medium)
         var keep = ModelCleanupPolicy.inUse(selected: .whisper(.largev3Turbo), loaded: [.whisper(.medium)], pending: pending)
-        _ = store.removeObsoleteModels(keeping: keep, includeWhisperCache: true)
+        _ = await store.removeObsoleteModels(keeping: keep, includeWhisperCache: true)
         #expect(exists(medium))
 
         // Turbo loaded: the move is finished.
         pending.clear(.whisper)
         keep = ModelCleanupPolicy.inUse(selected: .whisper(.largev3Turbo), loaded: [.whisper(.largev3Turbo)], pending: pending)
-        _ = store.removeObsoleteModels(keeping: keep, includeWhisperCache: true)
+        _ = await store.removeObsoleteModels(keeping: keep, includeWhisperCache: true)
         #expect(!exists(medium))
     }
 
     @Test("Parakeet v3 is never removed automatically after the migration (still selectable)")
-    func v3NotAutoRemoved() throws {
+    func v3NotAutoRemoved() async throws {
         let (store, root) = try makeStore()
         defer { cleanup(root) }
         let v3 = try makeFolder("parakeet-tdt-0.6b-v3", in: store.fluidAudioDirectory)
         let keep = ModelCleanupPolicy.inUse(selected: .parakeet(.ultra), loaded: [.parakeet(.ultra)], pending: PendingModelMoves())
-        _ = store.removeObsoleteModels(keeping: keep, includeWhisperCache: false)
+        _ = await store.removeObsoleteModels(keeping: keep, includeWhisperCache: false)
         #expect(exists(v3))
     }
 
@@ -221,7 +221,7 @@ struct ModelStoreTests {
         #expect(fd >= 0)
         flock(fd, LOCK_EX)
 
-        let cleanup = Task.detached { store.removeObsoleteModels(keeping: [], includeWhisperCache: false) }
+        let cleanup = Task.detached { await store.removeObsoleteModels(keeping: [], includeWhisperCache: false) }
         try await Task.sleep(nanoseconds: 300_000_000)
         #expect(exists(legacy)) // blocked on the lock
 
@@ -232,8 +232,96 @@ struct ModelStoreTests {
         #expect(!exists(legacy))
     }
 
+    @Test("Cleanup gives up when the lock stays taken: nothing is removed, and it says so")
+    func cleanupLockTimeout() async throws {
+        let (store, root) = try makeStore()
+        defer { cleanup(root) }
+        let legacy = try makeFolder("parakeet-tdt-0.6b-v3-coreml", in: store.fluidAudioDirectory)
+        let fd = open(store.fluidAudioDirectory.appendingPathComponent(ModelStore.lockFileName).path, O_CREAT | O_RDWR, 0o644)
+        #expect(fd >= 0)
+        flock(fd, LOCK_EX)
+        defer { close(fd) }
+
+        let report = await store.removeObsoleteModels(
+            keeping: [], includeWhisperCache: true, lockTimeout: .milliseconds(150)
+        )
+        #expect(report == ModelRemovalReport(lockBusy: true))
+        #expect(exists(legacy))
+        #expect(ModelStorageText.result(report)
+            == "Nothing was removed. Another copy of NanoWhisper is using the models folder. Try again later.")
+    }
+
+    @Test("Waiting for the lock leaves the main actor free")
+    @MainActor
+    func lockWaitOffMainActor() async throws {
+        let (store, root) = try makeStore()
+        defer { cleanup(root) }
+        let fd = open(store.fluidAudioDirectory.appendingPathComponent(ModelStore.lockFileName).path, O_CREAT | O_RDWR, 0o644)
+        #expect(fd >= 0)
+        flock(fd, LOCK_EX)
+        defer { close(fd) }
+
+        let directory = store.fluidAudioDirectory
+        let waiting = Task { @MainActor in
+            try await ModelStore.withExclusiveLock(in: directory, timeout: .seconds(30)) { pthread_main_np() != 0 }
+        }
+        // The main actor keeps running while the lock is awaited, and can release it.
+        for _ in 0..<5 { try await Task.sleep(for: .milliseconds(20)) }
+        flock(fd, LOCK_UN)
+        #expect(try await waiting.value == false) // and the body itself runs off the main thread
+    }
+
+    @Test("The lock: exclusive, released afterwards (also on error), immediate when free")
+    func lockBasics() async throws {
+        struct Failure: Error {}
+        let (store, root) = try makeStore()
+        defer { cleanup(root) }
+        let directory = store.fluidAudioDirectory
+        let path = directory.appendingPathComponent(ModelStore.lockFileName).path
+        let isTaken: @Sendable () -> Bool = {
+            let fd = open(path, O_RDWR)
+            defer { close(fd) }
+            return flock(fd, LOCK_EX | LOCK_NB) != 0
+        }
+        // Free: a zero timeout is enough.
+        #expect(try await ModelStore.withExclusiveLock(in: directory, timeout: .zero) { isTaken() })
+        #expect(!isTaken())
+        await #expect(throws: Failure.self) {
+            try await ModelStore.withExclusiveLock(in: directory, timeout: .zero) { throw Failure() }
+        }
+        #expect(!isTaken())
+        // Taken: not run.
+        let fd = open(path, O_RDWR)
+        flock(fd, LOCK_EX)
+        defer { close(fd) }
+        await #expect(throws: ModelStore.LockTimeout.self) {
+            try await ModelStore.withExclusiveLock(in: directory, timeout: .milliseconds(120)) { Issue.record("ran") }
+        }
+    }
+
+    @Test("A symbolic link in place of the lock file is not followed")
+    func lockSymlink() async throws {
+        let (store, root) = try makeStore()
+        defer { cleanup(root) }
+        let target = root.appendingPathComponent("elsewhere")
+        try fm.createSymbolicLink(
+            at: store.fluidAudioDirectory.appendingPathComponent(ModelStore.lockFileName), withDestinationURL: target
+        )
+        // As with a lock file that cannot be opened: runs unlocked.
+        #expect(try await ModelStore.withExclusiveLock(in: store.fluidAudioDirectory, timeout: .zero) { true })
+        #expect(!exists(target))
+    }
+
+    @Test("A pipe in place of the lock file does not block")
+    func lockPipe() async throws {
+        let (store, root) = try makeStore()
+        defer { cleanup(root) }
+        #expect(mkfifo(store.fluidAudioDirectory.appendingPathComponent(ModelStore.lockFileName).path, 0o644) == 0)
+        #expect(try await ModelStore.withExclusiveLock(in: store.fluidAudioDirectory, timeout: .zero) { true })
+    }
+
     @Test("A folder that cannot be removed is reported and does not stop the others")
-    func removalFailureReported() throws {
+    func removalFailureReported() async throws {
         let (store, root) = try makeStore()
         defer {
             try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: store.fluidAudioDirectory.path)
@@ -246,7 +334,7 @@ struct ModelStoreTests {
         #expect(fm.createFile(atPath: lockPath, contents: nil))
         // Read-only parent: the Parakeet removal fails.
         try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: store.fluidAudioDirectory.path)
-        let report = store.removeObsoleteModels(keeping: [], includeWhisperCache: true)
+        let report = await store.removeObsoleteModels(keeping: [], includeWhisperCache: true)
         #expect(report.failed == [.parakeetV3Legacy])
         #expect(report.removed.map(\.folder) == [.whisperMedium])
         #expect(!exists(medium))
@@ -255,7 +343,7 @@ struct ModelStoreTests {
     // MARK: - Remove Unused Models…
 
     @Test("Preview: everything known except in use and the other flavor's; sizes and total")
-    func unusedPreview() throws {
+    func unusedPreview() async throws {
         let (store, root) = try makeStore()
         defer { cleanup(root) }
         try makeFolder("parakeet-ultra", in: store.fluidAudioDirectory, bytes: 30_000)
@@ -271,7 +359,7 @@ struct ModelStoreTests {
         #expect(preview.totalBytes == preview.removable.reduce(0) { $0 + $1.bytes })
         #expect(preview.totalBytes >= 30_000)
 
-        let report = store.removeUnusedModels(preview, keeping: [.parakeetUltra, .whisperSmall])
+        let report = await store.removeUnusedModels(preview, keeping: [.parakeetUltra, .whisperSmall])
         #expect(Set(report.removed.map(\.folder)) == [.parakeetV3, .whisperBase])
         #expect(report.freedBytes == preview.totalBytes)
         guard case .scanned(let left) = store.scan(.fluidAudio) else { Issue.record("not scanned"); return }
@@ -280,14 +368,14 @@ struct ModelStoreTests {
     }
 
     @Test("Confirmed removal never deletes the model in use, even if it was in the preview")
-    func unusedRemovalRechecksKeep() throws {
+    func unusedRemovalRechecksKeep() async throws {
         let (store, root) = try makeStore()
         defer { cleanup(root) }
         let ultra = try makeFolder("parakeet-ultra", in: store.fluidAudioDirectory)
         let preview = store.unusedModelsPreview(keepingInUse: [], otherFlavor: [], otherFlavorName: "x")
         #expect(preview.removable.map(\.folder) == [.parakeetUltra])
         // The user switched to Ultra before confirming.
-        let report = store.removeUnusedModels(preview, keeping: [.parakeetUltra])
+        let report = await store.removeUnusedModels(preview, keeping: [.parakeetUltra])
         #expect(report.removed.isEmpty)
         #expect(exists(ultra))
         #expect(ModelStorageText.result(report) == "Nothing was removed.")

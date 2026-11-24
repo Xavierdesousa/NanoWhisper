@@ -449,7 +449,7 @@ class AppState: ObservableObject {
         let includeWhisper = selectedModelType == .whisper
         let store = modelStore
         Task.detached(priority: .utility) {
-            let report = store.removeObsoleteModels(keeping: keep, includeWhisperCache: includeWhisper)
+            let report = await store.removeObsoleteModels(keeping: keep, includeWhisperCache: includeWhisper)
             if !report.removed.isEmpty {
                 Self.logger.info("Removed \(report.removed.count) obsolete model folder(s), \(report.freedBytes) bytes")
             }

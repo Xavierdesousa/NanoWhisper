@@ -17,6 +17,13 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
   says a backup of the history cannot be read, nor suggests `xattr`; the workflows pin actions by
   commit; a release must be tagged on `main`; the build keychain is removed at the end of the job;
   argmax-oss-swift is pinned `exact:`. Updated [architecture](architecture.md).
+- **Model downloads: a fixed server address, only the model's files; a lock that cannot freeze the
+  app** (`fix/model-download-hardening`): `ModelServer` sets `https://huggingface.co` at launch and
+  ignores the libraries' address and token variables (proxy variables kept); `ParakeetModelFiles` and
+  `WhisperModelFiles` take only the files a model needs, in the same folders, then load from disk;
+  the models lock is awaited off the main actor, at most 10 s, without following a symbolic link.
+  Assessed and not built: pinned revisions, an embedded manifest. Pages: transcription-engines
+  (Download), open-questions, testing (fake server).
 
 ## 2026-11-23
 
