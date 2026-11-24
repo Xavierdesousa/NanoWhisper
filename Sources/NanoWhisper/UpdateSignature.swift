@@ -39,8 +39,8 @@ enum UpdateSignature {
         )
     }
 
-    /// Checks that the running process satisfies one of `requirements` and that its bundle has
-    /// not changed since it started. Ad-hoc and unsigned builds fail here.
+    /// Checks that the running process satisfies one of `requirements` and that the executable
+    /// on disk is still the one it runs. Ad-hoc and unsigned builds fail here.
     static func verifyRunningApp(requirements: [String] = acceptedRequirements) throws {
         do {
             let requirement = try makeRequirement(anyOf: requirements)

@@ -115,7 +115,7 @@ enum UpdateRepository {
 
 /// Why an update was not installed, in words shown in Settings › Advanced.
 enum UpdateError: LocalizedError, Equatable {
-    /// The running app is not a release, or its files were changed while it runs.
+    /// The running app is not a release, or its executable was replaced while it runs.
     case runningAppNotVerified
     case noArchive(version: String)
     case download

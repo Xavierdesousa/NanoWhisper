@@ -187,8 +187,9 @@ and replaces (`UpdateInstaller`), and relaunches (`Relaunch`). Since the release
 
 1. **The running app** satisfies one of `UpdateSignature.acceptedRequirements`
    (`SecCodeCheckValidity` on the process itself). An ad-hoc or unsigned build, a build signed with
-   another certificate, or a bundle whose files changed while it runs cannot update itself; nothing
-   is downloaded.
+   another certificate, or one whose executable was replaced while it runs cannot update itself;
+   nothing is downloaded. The running app's resources are not checked: they are about to be
+   replaced.
 2. **The asset** is the one named exactly `NanoWhisper-v<version>.zip`, at
    `https://github.com/<owner>/<repo>/releases/download/<tag>/<name>`, no port, user, query or
    fragment. Owner and repository are compared without case, as GitHub does: **the API answers with
@@ -217,7 +218,9 @@ The app verified is the app installed: download, extraction and verification hap
 `FileManager.replaceItemAt` renames that directory over the installed bundle. Checked 2026-11-24 in
 a test program: same inode after the replacement on APFS and HFS+; on failure (folder not writable)
 the old bundle keeps its inode and content; with `.usingNewMetadataOnly` the old bundle's quarantine
-attribute is not copied. The staging directory is removed in every case.
+attribute is not copied. If the replacement fails after moving the old bundle aside, the old bundle is
+put back from where the error says it is (`NSFileOriginalItemLocationKey`). The staging directory is
+removed in every case, except while the installed app is missing (it could hold the only copy).
 
 A failure leaves the installed app as it was, with a plain message in Settings › Advanced
 (`UpdateError`) and "Could not finish the update: see Settings › Advanced" under the menu's update
@@ -274,9 +277,9 @@ they download once by hand. Settings, history and models are outside the bundle 
 up to 0.1.0 have the previous updater and are not concerned.
 
 Also to expect: macOS attaches Microphone and Accessibility permissions to the designated
-requirement, so step 4 may ask for them again (not verified; test it before publishing). Losing or
-regenerating the "Moonji Dev" certificate is the same change without the possibility of a bridge:
-keep its backup. Whether updates still verify after it expires (2036) was not checked.
+requirement, so step 4 may ask for them again (not verified; test it before publishing). Regenerating
+a "Moonji Dev" certificate is the same change (another hash), and losing its key makes the bridge
+impossible: keep its backup. Whether updates still verify after it expires (2036) was not checked.
 
 ### Relaunch
 
@@ -285,7 +288,8 @@ other end only this process holds: `xargs` runs `open` when the pipe closes, whi
 does. No shell, the path is one literal argument, no fixed delay, and the two instances never
 overlap (they share the hotkey, the history and the temporary recordings). Rejected:
 `NSWorkspace.openApplication` with `createsNewApplicationInstance` (both run at once for a moment),
-a shell with a one-second delay (the previous way; neither is needed). If the relaunch cannot start, the app stays open and says the update is installed.
+a shell with a one-second delay (the previous way; neither is needed). If the relaunch cannot start,
+the app stays open and says the update is installed.
 
 ### Verified and not
 

@@ -556,6 +556,28 @@ struct UpdateInstallationTests {
         try expectUntouched()
     }
 
+    @Test("An app moved aside by a replacement that then fails is put back")
+    func replacementFailsHalfway() async throws {
+        let data = try archive()
+        StubProtocol.reply { _ in .data(data) }
+        let aside = sandbox.stagingDirectory.appendingPathComponent("aside.app")
+        var installer = sandbox.installer()
+        installer.replaceItem = { installed, _ in
+            try FileManager.default.moveItem(at: installed, to: aside)
+            throw CocoaError(.fileWriteUnknown, userInfo: ["NSFileOriginalItemLocationKey": aside])
+        }
+        await #expect(throws: UpdateError.self) { try await installer.install(offer()) }
+        try expectUntouched()
+
+        // Without its location, the only copy is not deleted with the temporary files.
+        installer.replaceItem = { installed, _ in
+            try FileManager.default.moveItem(at: installed, to: aside)
+            throw CocoaError(.fileWriteUnknown)
+        }
+        await #expect(throws: UpdateError.self) { try await installer.install(offer()) }
+        #expect(try UpdateSandbox.snapshot(aside) == before)
+    }
+
     // MARK: The updater as a whole
 
     @MainActor

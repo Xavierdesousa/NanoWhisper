@@ -28,6 +28,11 @@ struct UpdateInstaller: Sendable {
             for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: app, create: true
         )
     }
+    /// Renames the second app over the first. Without the first one's metadata: its quarantine
+    /// flag, if any, is not copied.
+    var replaceItem: @Sendable (_ installed: URL, _ new: URL) throws -> Void = { installed, new in
+        _ = try FileManager.default.replaceItemAt(installed, withItemAt: new, options: .usingNewMetadataOnly)
+    }
 
     static func makeSession(_ configuration: URLSessionConfiguration = .ephemeral) -> URLSession {
         configuration.timeoutIntervalForResource = 30 * 60
@@ -38,7 +43,12 @@ struct UpdateInstaller: Sendable {
         try verifyRunningApp()
 
         let staging = try makeStagingDirectory(installedApp)
-        defer { try? FileManager.default.removeItem(at: staging) }
+        defer {
+            // Kept when the installed app is missing: it may be in there (`replaceInstalledApp`).
+            if FileManager.default.fileExists(atPath: installedApp.path) {
+                try? FileManager.default.removeItem(at: staging)
+            }
+        }
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: staging.path)
 
         let archive = staging.appendingPathComponent("update.zip")
@@ -190,14 +200,16 @@ struct UpdateInstaller: Sendable {
         }
     }
 
-    /// Renames `app` over the installed one. Without its metadata: a quarantine flag on the
-    /// installed app is not copied to the new one.
     private func replaceInstalledApp(with app: URL) throws {
         do {
-            _ = try FileManager.default.replaceItemAt(
-                installedApp, withItemAt: app, options: .usingNewMetadataOnly
-            )
+            try replaceItem(installedApp, app)
         } catch {
+            // `replaceItemAt` can fail after moving the original aside; its error says where.
+            let fm = FileManager.default
+            if !fm.fileExists(atPath: installedApp.path),
+               let original = (error as NSError).userInfo["NSFileOriginalItemLocationKey"] as? URL {
+                try? fm.moveItem(at: original, to: installedApp)
+            }
             throw UpdateError.replacement(error.localizedDescription)
         }
     }
