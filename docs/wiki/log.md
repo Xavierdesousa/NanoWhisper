@@ -5,7 +5,7 @@ why if not obvious, and the PR. Older history is summarized from `git log`.
 
 ## 2026-11-24
 
-- **The history key is bound to this Mac** (`feat/history-key-secure-enclave`): a random key wrapped by
+- **The history key is bound to this Mac** (`feat/history-key-secure-enclave`, PR #53): a random key wrapped by
   the Secure Enclave in `history.key`, history format 2, crash-safe migration of older files, modes
   0600/0700, an older file put back is only used on request, the history switch works while the
   history cannot be read (it asks first). Found: damaged enclave blobs trap in CryptoKit and crash
