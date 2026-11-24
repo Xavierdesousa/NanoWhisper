@@ -1,7 +1,8 @@
 # Transcription engines and models
 
-Last verified against the code: 2026-11-20 (`feat/model-migration-and-cleanup`). Source: PR #13, the
-model migration PR and the code.
+Last verified against the code: 2026-11-24 (`fix/model-download-hardening`: download, loading, lock;
+the rest 2026-11-20, `feat/model-migration-and-cleanup`). Source: PR #13, the model migration PR and
+the code.
 
 ## What it is
 
@@ -40,8 +41,9 @@ User-facing model descriptions and published error rates are in the [README](../
 ## How it works
 
 - `SetupManager.runSetup(modelType:parakeetVariant:whisperSettings:)` downloads and loads the
-  model. Parakeet: `AsrModels.downloadAndLoad(version:progressHandler:)`. Whisper:
-  `WhisperEngine(model:)` (download, prewarm, load).
+  model. Parakeet: `ParakeetModelFiles.load(_:progressHandler:)`. Whisper:
+  `WhisperEngine(model:)` (`WhisperModelFiles.download`, then prewarm and load). See
+  [Download](#download-modeldownloadswift).
   - `setupGeneration` drops results and progress of a download that a newer request replaced.
   - `loadedParakeetVariant` / `loadedWhisperModelSize` record what is in memory, so
     `AppState.switchModel(to:parakeetVariant:)` reuses a model that is already loaded.
@@ -52,6 +54,64 @@ User-facing model descriptions and published error rates are in the [README](../
   encoded with the kit's tokenizer, with a leading space and special tokens removed, as
   WhisperKit's CLI does (`WhisperEngine.promptTokens(for:encode:specialTokenBegin:)`), and
   passed as `DecodingOptions.promptTokens`.
+
+## Download (`ModelDownload.swift`)
+
+Since 2026-11-24 (`fix/model-download-hardening`) the app, not the libraries' defaults, decides
+where models come from and which files are taken. Cache folders and file names are unchanged, so
+existing downloads (and interrupted ones) are reused.
+
+**A fixed server address.** `ModelServer.configure()` is the first line of `NanoWhisperApp.init`, and
+runs again before each download. It sets FluidAudio's `ModelRegistry.baseURL` to
+`https://huggingface.co` and removes from this process the variables below (both libraries read them
+at each use, so removing them is enough; `WhisperKitConfig.modelEndpoint` is explicit too).
+
+| Variable | Read by | Now |
+|---|---|---|
+| `REGISTRY_URL`, `MODEL_REGISTRY_URL` | FluidAudio 0.18.3 (`ModelRegistry.baseURL`) | no effect |
+| `HF_ENDPOINT` | WhisperKit 1.1.1, only to download the tokenizer when it is not on disk (its model download already used `modelEndpoint`, default `https://huggingface.co`) | no effect |
+| `HF_TOKEN`, `HUGGING_FACE_HUB_TOKEN` (both), `HUGGINGFACEHUB_API_TOKEN` (FluidAudio) | sent as a bearer token with every request | no effect: the repositories are public, and an expired token would make downloads fail |
+| `https_proxy`, `http_proxy` (lower case) | FluidAudio's session, instead of the system proxy | **kept**: someone may need them, and TLS still authenticates the server. WhisperKit ignores them (system proxy only) |
+| `CI_DISABLE_NETWORK_MONITOR` (WhisperKit), `TDT_EMISSION_DELAY_FRAMES`, `CI` (FluidAudio) | offline detection, decoder tuning, compute units in a function the app does not call | kept, nothing to do with the download |
+
+Consequence: a mirror of the model server set with these variables is no longer used.
+
+**Only the model's files** (`ModelFileRule`: plain relative names in the model's own folders).
+- Parakeet: `ModelHub.download(subdirectory: "", shouldSkip:)` applies the rule to the listing it
+  downloads: the four compiled models and `parakeet_vocab.json`, exactly what
+  `AsrModels.modelsExist` requires (FluidAudio's own download also took the top-level `config.json`
+  and `parakeet_v3_vocab.json`, which nothing loads). Then `AsrModels.loadLocal`, which makes no
+  request. FluidAudio's own loader purges and downloads again a compiled model that does not load;
+  `ParakeetModelFiles.load` does the same, once, with the rule.
+  - `loadLocal` compared with `load` on a copy of the real Ultra folder (FluidAudio 0.18.3, release
+    harness, M3 Pro, 2026-11-24): same text, 0.050–0.067 s on a 5 s clip for both, load 0.08–0.12 s
+    once compiled. It skips the "encoder ladder" (multifunction encoders); Ultra's and v3's encoders
+    have one function, so it was empty with `load` too. **Re-check at a FluidAudio bump.**
+- Whisper: `HubApiWrapper.getFilenames`, the rule, then `HubApiWrapper.snapshot` with the accepted
+  names as patterns. `snapshot` lists the repository again, but an exact name matches only itself.
+  Then WhisperKit loads the folder with `download: false`. WhisperKit downloads the tokenizer itself
+  when it is missing (fixed names).
+
+Tests: `ModelDownloadTests`, against `FakeModelServer` (an HTTP server on 127.0.0.1), in temporary
+directories. Checked once against the real server (2026-11-24, temporary directories, with
+`HF_ENDPOINT`, `REGISTRY_URL` and `MODEL_REGISTRY_URL` naming a closed port and an invalid `HF_TOKEN`):
+Ultra completed from a partial folder, loaded and transcribed; Whisper Tiny and its tokenizer
+downloaded, loaded and transcribed.
+
+**Not built** (assessed 2026-11-24, maintainer's decision):
+- *Pinning a revision.* Models come from the `main` branch. WhisperKit: `getFilenames` and `snapshot`
+  take a `revision`, one argument each; `WhisperKitConfig` and the tokenizer download do not.
+  FluidAudio: `ModelRegistry.revisionOverrides` works, but a pinned revision needs a
+  `.fluidaudio-revision` marker in the folder: FluidAudio compares (over the network) a folder that
+  has none, and an older NanoWhisper or another FluidAudio app sharing the cache **deletes** a folder
+  whose marker is not the revision it expects. Not usable on the shared cache.
+- *An embedded manifest* (per model: repository, revision, files, sizes, SHA-256) with an app-owned
+  downloader. Both libraries load from a folder (`AsrModels.loadLocal`,
+  `WhisperKitConfig(modelFolder:download: false)`, `tokenizerFolder`), so no fork is needed. Existing
+  caches would be checked in place, file by file, and only files that differ downloaded again, with
+  the smooth switchover while that happens.
+- *Whisper without a request when it is complete on disk.* Today Whisper contacts the server at each
+  load (as before), and cannot start offline.
 
 ## Model migrations (`ModelMigrations.swift`)
 
@@ -105,7 +165,7 @@ tested with fakes), driven by `SetupManager.runSetup(...previousModel:)`:
 | Selected on disk | Previous on disk | Plan |
 |---|---|---|
 | yes | any | load the selected model |
-| no | yes | `.startOnPrevious`: load the previous model (Parakeet: `downloadAndLoad`, which skips the download when complete; Whisper: `WhisperEngine(model:localFolder:)`, local only) → engine ready, dictation works offline → download the selected model in the background (`SetupManager.upgrade`, progress in the menu and the Model section: "Downloading the improved model (~630 MB)… 42%") → `onUpgradeLoaded` |
+| no | yes | `.startOnPrevious`: load the previous model (Parakeet: `ParakeetModelFiles.load`, which skips the download when complete; Whisper: `WhisperEngine(model:localFolder:)`, local only) → engine ready, dictation works offline → download the selected model in the background (`SetupManager.upgrade`, progress in the menu and the Model section: "Downloading the improved model (~630 MB)… 42%") → `onUpgradeLoaded` |
 | no | no | normal download of the selected model |
 
 - Previous model fails to load: the selected one downloads in the foreground instead.
@@ -174,13 +234,17 @@ All file operations go through `ModelStore` (roots injectable: `ModelStore(root:
   [onboarding-and-settings.md](onboarding-and-settings.md)).
 - **Lock:** every removal holds the same `flock` as the legacy migration
   (`FluidAudio/Models/.parakeet-v3-migration.lock`, name kept for 0.0.5 compatibility,
-  `ModelStore.withExclusiveLock`), and re-lists the folders under the lock.
+  `ModelStore.withExclusiveLock`), and re-lists the folders under the lock. Since 2026-11-24 the
+  lock is awaited with `LOCK_NB` every 50 ms, off the main actor and for at most 10 s
+  (`ModelStore.lockTimeout`); the file is opened with `O_NOFOLLOW | O_NONBLOCK`. Lock still taken:
+  nothing is removed (`ModelRemovalReport.lockBusy`; the automatic cleanup tries again the next time
+  an engine is ready, Settings says so after "Remove Unused Models…").
 - **Production and debug share the caches.** Each flavor protects what the *other* flavor may use,
   read from its preferences (`UserDefaults(suiteName:)` of the other bundle id, read only;
   `ModelCleanupPolicy.usedByOtherFlavor`): its selected engine's model; for an install with no
   `parakeetVariant` key (0.0.4) both v3 folders; its pending move's previous model. Only the other
   flavor's *selected engine* counts: if it later switches engine it re-downloads what it needs,
-  like any flavor that finds its model gone (`downloadAndLoad` / WhisperKit download on setup).
+  like any flavor that finds its model gone (downloaded again on setup).
   Not handled: a model the other flavor has loaded but no longer has selected in its stored
   settings (memory-mapped Core ML files survive deletion on macOS; not verified).
 
@@ -200,15 +264,17 @@ selected, and the legacy folder is now removed by the automatic cleanup) and ret
 | New folder missing | legacy folder **moved** (atomic rename, same parent) | `.moved` |
 | New folder complete (`AsrModels.modelsExist(at:version:)`) | legacy folder deleted | `.removedDuplicate` |
 | New folder incomplete (interrupted download) | new folder removed, legacy moved in | `.replacedIncomplete` |
-| Move fails | both folders removed best effort; FluidAudio downloads normally | `.failed` |
+| Move fails | both folders removed best effort; v3 downloads normally | `.failed` |
+| Lock still taken after 10 s | nothing; v3 downloads normally if it is missing, and the next launch migrates (`.removedDuplicate`) | `.lockBusy` |
 
-After a move, FluidAudio downloads only the files that changed (`JointDecisionv3`, ~12 MB).
+After a move, only the files that changed are downloaded (`JointDecisionv3`, ~12 MB).
 
 The whole check-and-move holds an exclusive `flock` on
 `FluidAudio/Models/.parakeet-v3-migration.lock`. Why: production and debug share the cache and
 can launch together; without the lock, the process that lost the rename deleted the winner's
 freshly moved folder in its failure path (a test reproduced it in 13 of 40 runs, PR #14). If the
-lock file cannot be opened, the migration runs unlocked.
+lock file cannot be opened, the migration runs unlocked. It runs off the main actor (until
+2026-11-24 it ran on it, and waited for the lock without a limit).
 
 Why a move: the maintainer's requirement is that nothing remains at the old path after the
 update, and a rename in the same parent folder is atomic.
@@ -297,5 +363,8 @@ are text in under a quarter of a second", "9½ minutes of speech, text in 1.8 s"
   `ModelAvailability.parakeetIsOnDisk(.v3)` accepts only if FluidAudio 0.18 considers it
   complete; otherwise the plan is a foreground Ultra download instead of starting on v3. Not
   checked against a real 0.0.4 cache.
+- Download changes of 2026-11-24: not run in the app itself; a clean first download of a whole
+  model in the app, and a load repaired by a second download with a real model, not checked; a
+  proxy set with `https_proxy` not checked.
 - A transcription error returns an empty text, reported to the user as "Empty transcription";
   the error itself is not logged by `Transcriber`.

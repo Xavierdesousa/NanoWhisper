@@ -77,6 +77,8 @@ struct ModelRemovalReport: Equatable, Sendable {
     var failed: [ModelFolder] = []
     /// The Whisper cache could not be read (Documents access denied).
     var whisperAccessDenied = false
+    /// Another process kept the models lock: nothing was looked at or removed.
+    var lockBusy = false
 
     var freedBytes: Int64 { removed.reduce(0) { $0 + $1.bytes } }
 }
@@ -135,19 +137,39 @@ struct ModelStore: Sendable {
     /// (production and debug share the caches). The name must not change: 0.0.5 uses it.
     static let lockFileName = ".parakeet-v3-migration.lock"
 
-    /// Run `body` holding an exclusive `flock` on `directory/lockFileName`. Blocks until the
-    /// lock is free. If the lock file cannot be opened (e.g. the directory does not exist),
-    /// `body` runs unlocked.
-    static func withExclusiveLock<T>(in directory: URL, _ body: () throws -> T) rethrows -> T {
-        let lockPath = directory.appendingPathComponent(lockFileName).path
-        let lock = open(lockPath, O_CREAT | O_RDWR | O_CLOEXEC, 0o644)
-        if lock >= 0 { flock(lock, LOCK_EX) }
-        defer { if lock >= 0 { flock(lock, LOCK_UN); close(lock) } }
-        return try body()
-    }
+    /// How long to wait for the lock. Its holders rename or delete a few folders.
+    static let lockTimeout: Duration = .seconds(10)
 
-    func withExclusiveLock<T>(_ body: () throws -> T) rethrows -> T {
-        try Self.withExclusiveLock(in: fluidAudioDirectory, body)
+    /// The lock stayed taken for the whole timeout.
+    struct LockTimeout: Error {}
+
+    /// Run `body` holding an exclusive `flock` on `directory/lockFileName`, off the main actor.
+    /// Waits (without blocking a thread) until the lock is free, at most `timeout`; then throws
+    /// `LockTimeout` without running `body`. If the lock file cannot be opened (e.g. the
+    /// directory does not exist, or the file is a symbolic link), `body` runs unlocked.
+    static func withExclusiveLock<T: Sendable>(
+        in directory: URL,
+        timeout: Duration = lockTimeout,
+        _ body: @Sendable () throws -> T
+    ) async throws -> T {
+        let lockPath = directory.appendingPathComponent(lockFileName).path
+        // O_NONBLOCK: never wait on something that is not a regular file.
+        let lock = open(lockPath, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK, 0o644)
+        guard lock >= 0 else { return try body() }
+        defer {
+            flock(lock, LOCK_UN)
+            close(lock)
+        }
+        let deadline = ContinuousClock.now + timeout
+        while flock(lock, LOCK_EX | LOCK_NB) != 0 {
+            let code = errno
+            if code == EINTR { continue }
+            // Not a lockable file: same as a lock file that cannot be opened.
+            guard code == EWOULDBLOCK else { break }
+            guard ContinuousClock.now < deadline else { throw LockTimeout() }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        return try body()
     }
 
     // MARK: Listing
@@ -220,40 +242,60 @@ struct ModelStore: Sendable {
     }
 
     /// Under the lock: list the known folders of `caches`, let `choose` pick among them, remove
-    /// the chosen ones. Failures are logged and reported, never thrown.
+    /// the chosen ones. Failures (and a lock that stays taken) are logged and reported, never
+    /// thrown.
     func removeModels(
+        in caches: Set<ModelFolder.Cache>,
+        lockTimeout: Duration = ModelStore.lockTimeout,
+        choose: @Sendable ([StoredModel]) -> Set<ModelFolder>
+    ) async -> ModelRemovalReport {
+        do {
+            return try await Self.withExclusiveLock(in: fluidAudioDirectory, timeout: lockTimeout) {
+                removeModelsLocked(in: caches, choose: choose)
+            }
+        } catch {
+            Self.logger.error("No model removed: \(String(describing: error), privacy: .public)")
+            return ModelRemovalReport(lockBusy: true)
+        }
+    }
+
+    private func removeModelsLocked(
         in caches: Set<ModelFolder.Cache>,
         choose: ([StoredModel]) -> Set<ModelFolder>
     ) -> ModelRemovalReport {
-        withExclusiveLock {
-            var report = ModelRemovalReport()
-            var found: [StoredModel] = []
-            for cache in ModelFolder.Cache.allCases where caches.contains(cache) {
-                switch scan(cache) {
-                case .scanned(let models): found += models
-                case .accessDenied: if cache == .whisperKit { report.whisperAccessDenied = true }
-                }
+        var report = ModelRemovalReport()
+        var found: [StoredModel] = []
+        for cache in ModelFolder.Cache.allCases where caches.contains(cache) {
+            switch scan(cache) {
+            case .scanned(let models): found += models
+            case .accessDenied: if cache == .whisperKit { report.whisperAccessDenied = true }
             }
-            let chosen = choose(found)
-            for stored in found where chosen.contains(stored.folder) {
-                do {
-                    try remove(stored.folder)
-                    report.removed.append(stored)
-                    Self.logger.info("Removed model folder \(stored.folder.name, privacy: .public)")
-                } catch {
-                    report.failed.append(stored.folder)
-                    Self.logger.error("Could not remove \(stored.folder.name, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                }
-            }
-            return report
         }
+        let chosen = choose(found)
+        for stored in found where chosen.contains(stored.folder) {
+            do {
+                try remove(stored.folder)
+                report.removed.append(stored)
+                Self.logger.info("Removed model folder \(stored.folder.name, privacy: .public)")
+            } catch {
+                report.failed.append(stored.folder)
+                Self.logger.error("Could not remove \(stored.folder.name, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        return report
     }
 
     /// Automatic cleanup: obsolete folders not in `keep`. The Whisper cache is included only
     /// when `includeWhisperCache` (the user is on Whisper), so Parakeet users never get the
     /// Documents prompt.
-    func removeObsoleteModels(keeping keep: Set<ModelFolder>, includeWhisperCache: Bool) -> ModelRemovalReport {
-        removeModels(in: includeWhisperCache ? [.fluidAudio, .whisperKit] : [.fluidAudio]) { found in
+    func removeObsoleteModels(
+        keeping keep: Set<ModelFolder>,
+        includeWhisperCache: Bool,
+        lockTimeout: Duration = ModelStore.lockTimeout
+    ) async -> ModelRemovalReport {
+        await removeModels(
+            in: includeWhisperCache ? [.fluidAudio, .whisperKit] : [.fluidAudio], lockTimeout: lockTimeout
+        ) { found in
             ModelCleanupPolicy.obsolete(in: found, keeping: keep)
         }
     }

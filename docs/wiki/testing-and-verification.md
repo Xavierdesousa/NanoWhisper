@@ -11,6 +11,7 @@ Swift Testing (`@Suite`, `@Test`) in `Tests/NanoWhisperTests/`. CI runs `swift t
 | File | Covers |
 |---|---|
 | `TranscriptionEngineTests.swift` | Model enums, variant resolution, Medium migration, legacy cache migration incl. concurrent migrations |
+| `ModelDownloadTests.swift`, `FakeModelServer.swift` | Fixed server address with the environment variables set, accepted file names, Parakeet and Whisper downloads from an HTTP server on 127.0.0.1 (Network framework) into a temporary directory, resume and repair, no token sent. Serialized: the environment and FluidAudio's address are global |
 | `TranscriberConcurrencyTests.swift` | FIFO queue, configuration captured at submission, stale initializations |
 | `MediaControllerTests.swift` | Media session state machine against a fake controller, `pauseMediaEnabled` |
 | `NowPlayingTests.swift` | JXA output parsing (real macOS 27.2 outputs), resume rule, `NowPlayingPlaybackController`, `Subprocess` (standard input included); the part of the script that reads standard input, in the real `osascript` (no MediaRemote) |

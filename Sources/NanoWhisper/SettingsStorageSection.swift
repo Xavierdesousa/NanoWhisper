@@ -43,10 +43,10 @@ extension ModelStore {
     }
 
     /// Remove what `preview` listed (the user confirmed it), minus anything `keep` names now.
-    func removeUnusedModels(_ preview: UnusedModelsPreview, keeping keep: Set<ModelFolder>) -> ModelRemovalReport {
+    func removeUnusedModels(_ preview: UnusedModelsPreview, keeping keep: Set<ModelFolder>) async -> ModelRemovalReport {
         let confirmed = Set(preview.removable.map(\.folder))
         let caches = Set(confirmed.map(\.cache))
-        return removeModels(in: caches) { found in
+        return await removeModels(in: caches) { found in
             confirmed.intersection(ModelCleanupPolicy.unused(in: found, keeping: keep))
         }
     }
@@ -89,6 +89,9 @@ enum ModelStorageText {
         if !report.failed.isEmpty {
             parts.append("Could not remove \(report.failed.map(\.displayName).joined(separator: ", ")).")
         }
+        if report.lockBusy {
+            parts.append("Another copy of NanoWhisper is using the models folder. Try again later.")
+        }
         if report.whisperAccessDenied {
             parts.append("Whisper models were not checked (no access to the Documents folder).")
         }
@@ -114,7 +117,7 @@ extension AppState {
                 let keep = modelFoldersInUse.union(modelFoldersOfOtherFlavor)
                 let store = modelStore
                 return await Task.detached(priority: .userInitiated) {
-                    store.removeUnusedModels(preview, keeping: keep)
+                    await store.removeUnusedModels(preview, keeping: keep)
                 }.value
             }
         )

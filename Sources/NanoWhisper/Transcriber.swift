@@ -51,16 +51,29 @@ actor WhisperEngine {
     /// - Parameter localFolder: load from this folder only, without downloading (the previous
     ///   model during a switchover).
     init(model: String, localFolder: URL? = nil) async throws {
-        let config = WhisperKitConfig(
+        let folder: URL
+        if let localFolder {
+            folder = localFolder
+        } else {
+            folder = try await WhisperModelFiles.download(model)
+        }
+        kit = try await WhisperKit(Self.configuration(model: model, folder: folder))
+    }
+
+    /// Load from `folder` only. The server is the app's (`ModelServer`); WhisperKit itself only
+    /// downloads the tokenizer, when it is not on disk.
+    nonisolated static func configuration(model: String, folder: URL) -> WhisperKitConfig {
+        WhisperKitConfig(
             model: model,
-            modelFolder: localFolder?.path,
+            modelToken: "",
+            modelEndpoint: ModelServer.address,
+            modelFolder: folder.path,
             verbose: false,
             logLevel: .error,
             prewarm: true,
             load: true,
-            download: localFolder == nil
+            download: false
         )
-        kit = try await WhisperKit(config)
     }
 
     /// Transcribe an audio file and return the joined, trimmed text.

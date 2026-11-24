@@ -250,27 +250,27 @@ struct TranscriptionEngineTests {
     }
 
     @Test("Legacy v3 cache is moved: contents at the new path, nothing left at the old one")
-    func migrateLegacyCacheMoves() throws {
+    func migrateLegacyCacheMoves() async throws {
         let models = try makeModelsDirectory()
         defer { try? FileManager.default.removeItem(at: models) }
         let legacy = try makeLegacyCache(in: models)
         let current = models.appendingPathComponent("parakeet-tdt-0.6b-v3")
 
-        #expect(SetupManager.migrateLegacyParakeetV3Cache(currentDirectory: current) == .moved)
+        #expect(await SetupManager.migrateLegacyParakeetV3Cache(currentDirectory: current) == .moved)
         let moved = current.appendingPathComponent("Encoder.mlmodelc/weight.bin")
         #expect(try Data(contentsOf: moved) == Data("weights".utf8))
         #expect(!FileManager.default.fileExists(atPath: legacy.path))
         // Idempotent.
-        #expect(SetupManager.migrateLegacyParakeetV3Cache(currentDirectory: current) == .notNeeded)
+        #expect(await SetupManager.migrateLegacyParakeetV3Cache(currentDirectory: current) == .notNeeded)
     }
 
     @Test("Legacy migration without a legacy folder does nothing")
-    func migrateLegacyCacheNotNeeded() throws {
+    func migrateLegacyCacheNotNeeded() async throws {
         let models = try makeModelsDirectory()
         defer { try? FileManager.default.removeItem(at: models) }
         let current = models.appendingPathComponent("parakeet-tdt-0.6b-v3")
 
-        #expect(SetupManager.migrateLegacyParakeetV3Cache(currentDirectory: current) == .notNeeded)
+        #expect(await SetupManager.migrateLegacyParakeetV3Cache(currentDirectory: current) == .notNeeded)
         #expect(!FileManager.default.fileExists(atPath: current.path))
     }
 
@@ -300,14 +300,14 @@ struct TranscriptionEngineTests {
     }
 
     @Test("When the new folder is complete, the legacy folder is deleted and the new one kept")
-    func migrateLegacyCacheRemovesDuplicate() throws {
+    func migrateLegacyCacheRemovesDuplicate() async throws {
         let models = try makeModelsDirectory()
         defer { try? FileManager.default.removeItem(at: models) }
         let legacy = try makeLegacyCache(in: models)
         let current = models.appendingPathComponent("parakeet-tdt-0.6b-v3")
         try makeCompleteV3Cache(at: current)
 
-        #expect(SetupManager.migrateLegacyParakeetV3Cache(currentDirectory: current) == .removedDuplicate)
+        #expect(await SetupManager.migrateLegacyParakeetV3Cache(currentDirectory: current) == .removedDuplicate)
         #expect(!FileManager.default.fileExists(atPath: legacy.path))
         #expect(AsrModels.modelsExist(at: current, version: .v3))
         #expect(!FileManager.default.fileExists(
@@ -315,7 +315,7 @@ struct TranscriptionEngineTests {
     }
 
     @Test("When the new folder is an interrupted download, it is replaced by the legacy cache")
-    func migrateLegacyCacheReplacesIncomplete() throws {
+    func migrateLegacyCacheReplacesIncomplete() async throws {
         let models = try makeModelsDirectory()
         defer { try? FileManager.default.removeItem(at: models) }
         let legacy = try makeLegacyCache(in: models)
@@ -326,7 +326,7 @@ struct TranscriptionEngineTests {
         try Data("half".utf8).write(to: partialWeights.appendingPathComponent("weight.bin.partial"))
         #expect(!AsrModels.modelsExist(at: current, version: .v3))
 
-        #expect(SetupManager.migrateLegacyParakeetV3Cache(currentDirectory: current) == .replacedIncomplete)
+        #expect(await SetupManager.migrateLegacyParakeetV3Cache(currentDirectory: current) == .replacedIncomplete)
         #expect(!FileManager.default.fileExists(atPath: legacy.path))
         let moved = current.appendingPathComponent("Encoder.mlmodelc/weight.bin")
         #expect(try Data(contentsOf: moved) == Data("weights".utf8))
@@ -334,8 +334,8 @@ struct TranscriptionEngineTests {
     }
 
     @Test("Two concurrent migrations (production and debug app launching together) keep the moved cache")
-    func migrateLegacyCacheConcurrently() throws {
-        // Each call opens its own lock file description, so two threads contend exactly like
+    func migrateLegacyCacheConcurrently() async throws {
+        // Each call opens its own lock file description, so two tasks contend exactly like
         // two processes. Repeat to make the unguarded race (one move wins, the other's failure
         // path deleted the winner's folder) show up reliably.
         for _ in 0..<40 {
@@ -344,13 +344,12 @@ struct TranscriptionEngineTests {
             _ = try makeLegacyCache(in: models)
             let current = models.appendingPathComponent("parakeet-tdt-0.6b-v3")
 
-            let results = OSAllocatedUnfairLock(initialState: [SetupManager.LegacyCacheMigration]())
-            DispatchQueue.concurrentPerform(iterations: 2) { _ in
-                let result = SetupManager.migrateLegacyParakeetV3Cache(currentDirectory: current)
-                results.withLock { $0.append(result) }
+            let outcomes = await withTaskGroup(of: SetupManager.LegacyCacheMigration.self) { group in
+                for _ in 0..<2 {
+                    group.addTask { await SetupManager.migrateLegacyParakeetV3Cache(currentDirectory: current) }
+                }
+                return await group.reduce(into: []) { $0.append($1) }
             }
-
-            let outcomes = results.withLock { $0 }
             #expect(outcomes.filter { $0 == .moved }.count == 1)
             #expect(outcomes.filter { $0 == .notNeeded }.count == 1)
             let moved = current.appendingPathComponent("Encoder.mlmodelc/weight.bin")
@@ -359,7 +358,7 @@ struct TranscriptionEngineTests {
     }
 
     @Test("A failed move does not crash and leaves no folder at the new path")
-    func migrateLegacyCacheFailure() throws {
+    func migrateLegacyCacheFailure() async throws {
         let models = try makeModelsDirectory()
         defer {
             try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: models.path)
@@ -370,11 +369,30 @@ struct TranscriptionEngineTests {
         // A read-only models directory makes the rename fail (and the cleanup too).
         try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: models.path)
 
-        #expect(SetupManager.migrateLegacyParakeetV3Cache(currentDirectory: current) == .failed)
+        #expect(await SetupManager.migrateLegacyParakeetV3Cache(currentDirectory: current) == .failed)
         // FluidAudio will see no cache at the new path and download normally.
         #expect(!FileManager.default.fileExists(atPath: current.path))
         // Cleanup of the old folder is best effort; here the directory is read-only.
         #expect(FileManager.default.fileExists(atPath: legacy.path))
+    }
+
+    @Test("When the lock stays taken, nothing is migrated and the setup goes on")
+    func migrateLegacyCacheLockBusy() async throws {
+        let models = try makeModelsDirectory()
+        defer { try? FileManager.default.removeItem(at: models) }
+        let legacy = try makeLegacyCache(in: models)
+        let current = models.appendingPathComponent("parakeet-tdt-0.6b-v3")
+        let fd = open(models.appendingPathComponent(ModelStore.lockFileName).path, O_CREAT | O_RDWR, 0o644)
+        #expect(fd >= 0)
+        flock(fd, LOCK_EX)
+
+        #expect(await SetupManager.migrateLegacyParakeetV3Cache(
+            currentDirectory: current, lockTimeout: .milliseconds(120)) == .lockBusy)
+        #expect(FileManager.default.fileExists(atPath: legacy.path))
+        #expect(!FileManager.default.fileExists(atPath: current.path))
+
+        close(fd)
+        #expect(await SetupManager.migrateLegacyParakeetV3Cache(currentDirectory: current) == .moved)
     }
 
     @Test("New installs default to Ultra, existing installs stay on v3")
