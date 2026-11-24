@@ -109,12 +109,12 @@ Parakeet and with Whisper Base.
   one when you choose to install it). There is no account and no analytics. With Parakeet, dictation
   works offline once the model is downloaded.
 - **The microphone is used only between the two presses** of your shortcut.
-- **Recordings are not kept.** Each recording is a temporary file, overwritten with zeros and deleted
-  once it is transcribed.
+- **Recordings are not kept.** Each recording is a temporary file, overwritten and deleted once it is
+  transcribed (on an SSD, overwriting cannot guarantee that no trace remains on the disk).
 - **History is encrypted** with AES-256-GCM, with a key derived from this Mac’s hardware UUID
-  (HKDF-SHA256). A copy of the file, a backup, or the file on another Mac cannot be read. It does not
-  protect against other software running under your user account, which can read the same hardware
-  UUID. If you want nothing kept, turn History off.
+  (HKDF-SHA256). The file alone is unreadable. It is not protected from software running under your
+  user account, nor from someone who has your whole home folder (a full backup or a copy of the
+  disk), because the hardware UUID can be found there. If you want nothing kept, turn History off.
 - **Open source** under the GPL v3: you can read and build every line.
 
 NanoWhisper asks for two permissions:
@@ -139,9 +139,6 @@ NanoWhisper asks for two permissions:
 > 2. Open **System Settings › Privacy & Security** and scroll to **Security**. Next to the message about
 >    NanoWhisper, click **Open Anyway** (shown for about an hour after the attempt), then enter your login password.
 > 3. Open NanoWhisper again. From then on it opens normally.
->
-> Or, in Terminal: `xattr -dr com.apple.quarantine /Applications/NanoWhisper.app`. Both allow this
-> app only; Gatekeeper’s settings are not changed.
 
 ## Usage
 
