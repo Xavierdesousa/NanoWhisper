@@ -226,6 +226,11 @@ A failure leaves the installed app as it was, with a plain message in Settings â
 (`UpdateError`) and "Could not finish the update: see Settings â€º Advanced" under the menu's update
 line (the menu showed nothing before).
 
+**Trap:** `SecStaticCodeCheckValidity` hands parts of its work to other dispatch threads and waits
+for them. Called directly from async code (Swift concurrency's threads), it never returned when
+those threads were all busy: the test suite stopped on the 3-core CI machine. `UpdateSignature`
+therefore runs its checks on a dispatch queue (`onDispatchQueue`).
+
 ### What a release must look like
 
 Installed versions refuse a release that does not follow this, and their users then have to

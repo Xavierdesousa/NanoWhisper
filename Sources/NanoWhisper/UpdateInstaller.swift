@@ -21,7 +21,7 @@ struct UpdateInstaller: Sendable {
     var limits = Limits()
     var session = UpdateInstaller.makeSession()
     /// Fails when the running app may not update itself (an ad-hoc build, for example).
-    var verifyRunningApp: @Sendable () throws -> Void = { try UpdateSignature.verifyRunningApp() }
+    var verifyRunningApp: @Sendable () async throws -> Void = { try await UpdateSignature.verifyRunningApp() }
     /// A new private directory on the same volume as the given app.
     var makeStagingDirectory: @Sendable (URL) throws -> URL = { app in
         try FileManager.default.url(
@@ -40,7 +40,7 @@ struct UpdateInstaller: Sendable {
     }
 
     func install(_ offer: UpdateOffer, progress: @MainActor @Sendable (Double) -> Void = { _ in }) async throws {
-        try verifyRunningApp()
+        try await verifyRunningApp()
 
         let staging = try makeStagingDirectory(installedApp)
         defer {
@@ -58,7 +58,7 @@ struct UpdateInstaller: Sendable {
         }
         let app = try await extract(archive, into: staging.appendingPathComponent("contents", isDirectory: true))
         await progress(0.9)
-        try verify(app, version: offer.version)
+        try await verify(app, version: offer.version)
         try replaceInstalledApp(with: app)
         await progress(1)
     }
@@ -189,8 +189,8 @@ struct UpdateInstaller: Sendable {
     // MARK: - Verification and replacement
 
     /// Checks the signature, the identifier and the version of `app`.
-    func verify(_ app: URL, version: String) throws {
-        let info = try UpdateSignature.verify(app, requirements: requirements)
+    func verify(_ app: URL, version: String) async throws {
+        let info = try await UpdateSignature.verify(app, requirements: requirements)
         guard info.identifier == BuildFlavor.productionBundleIdentifier else { throw UpdateError.wrongApp }
         guard info.version == version, let found = AppVersion(version) else {
             throw UpdateError.wrongVersion(found: info.version ?? "?", expected: version)

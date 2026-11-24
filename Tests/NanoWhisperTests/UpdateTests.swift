@@ -131,68 +131,68 @@ struct UpdateSignatureTests {
     }
 
     @Test("A valid bundle gives its sealed identifier and version")
-    func validBundle() throws {
+    func validBundle() async throws {
         try sandbox.makeApp(at: app, version: "0.1.1")
-        #expect(try UpdateSignature.verify(app, requirements: UpdateSandbox.requirements)
+        #expect(try await UpdateSignature.verify(app, requirements: UpdateSandbox.requirements)
             == .init(identifier: "com.moonji.nanowhisper", version: "0.1.1"))
     }
 
     @Test("One of several requirements is enough; none of them, or no requirement, is refused")
-    func severalRequirements() throws {
+    func severalRequirements() async throws {
         try sandbox.makeApp(at: app, version: "0.1.1")
         let other = #"identifier "com.example.other""#
-        _ = try UpdateSignature.verify(app, requirements: [other] + UpdateSandbox.requirements)
-        #expect(throws: UpdateError.signature) { try UpdateSignature.verify(app, requirements: [other, other]) }
-        #expect(throws: UpdateError.signature) { try UpdateSignature.verify(app, requirements: []) }
+        _ = try await UpdateSignature.verify(app, requirements: [other] + UpdateSandbox.requirements)
+        await #expect(throws: UpdateError.signature) { try await UpdateSignature.verify(app, requirements: [other, other]) }
+        await #expect(throws: UpdateError.signature) { try await UpdateSignature.verify(app, requirements: []) }
     }
 
     @Test("An ad-hoc signature is refused by the releases' requirements")
-    func adHoc() throws {
+    func adHoc() async throws {
         try sandbox.makeApp(at: app, version: "0.1.1")
-        #expect(throws: UpdateError.signature) { try UpdateSignature.verify(app) }
+        await #expect(throws: UpdateError.signature) { try await UpdateSignature.verify(app) }
     }
 
     @Test("An unsigned bundle is refused")
-    func unsigned() throws {
+    func unsigned() async throws {
         try sandbox.makeApp(at: app, version: "0.1.1", signed: false)
-        #expect(throws: UpdateError.signature) {
-            try UpdateSignature.verify(app, requirements: UpdateSandbox.requirements)
+        await #expect(throws: UpdateError.signature) {
+            try await UpdateSignature.verify(app, requirements: UpdateSandbox.requirements)
         }
     }
 
     @Test("A bundle changed after signing is refused", arguments: [
         "Contents/Resources/file.txt", "Contents/Info.plist", "Contents/MacOS/NanoWhisper",
     ])
-    func changedFile(path: String) throws {
+    func changedFile(path: String) async throws {
         try sandbox.makeApp(at: app, version: "0.1.1")
         let file = app.appendingPathComponent(path)
         var data = try Data(contentsOf: file)
         // In the middle: inside the plist's text, and inside a signed page of the executable.
         data[data.count / 2] ^= 0x01
         try data.write(to: file)
-        #expect(throws: UpdateError.signature) {
-            try UpdateSignature.verify(app, requirements: UpdateSandbox.requirements)
+        await #expect(throws: UpdateError.signature) {
+            try await UpdateSignature.verify(app, requirements: UpdateSandbox.requirements)
         }
     }
 
     @Test("A bundle with a file added after signing is refused")
-    func addedFile() throws {
+    func addedFile() async throws {
         try sandbox.makeApp(at: app, version: "0.1.1")
         try Data("x".utf8).write(to: app.appendingPathComponent("Contents/Resources/added.txt"))
-        #expect(throws: UpdateError.signature) {
-            try UpdateSignature.verify(app, requirements: UpdateSandbox.requirements)
+        await #expect(throws: UpdateError.signature) {
+            try await UpdateSignature.verify(app, requirements: UpdateSandbox.requirements)
         }
     }
 
     @Test("A process that is not a release cannot update itself")
-    func runningApp() {
+    func runningApp() async {
         // The test runner: validly signed, but not NanoWhisper.
-        #expect(throws: UpdateError.runningAppNotVerified) { try UpdateSignature.verifyRunningApp() }
-        #expect(throws: UpdateError.runningAppNotVerified) { try UpdateSignature.verifyRunningApp(requirements: []) }
+        await #expect(throws: UpdateError.runningAppNotVerified) { try await UpdateSignature.verifyRunningApp() }
+        await #expect(throws: UpdateError.runningAppNotVerified) { try await UpdateSignature.verifyRunningApp(requirements: []) }
     }
 }
 
-@Suite("Update: extraction")
+@Suite("Update: extraction", .serialized)
 struct UpdateExtractionTests {
     private let sandbox: UpdateSandbox
     private let contents: URL
@@ -218,7 +218,7 @@ struct UpdateExtractionTests {
         try sandbox.makeApp(at: contents.appendingPathComponent("NanoWhisper.app"), version: "0.1.1")
         let app = try await extract(sandbox.zip(contentsOf: contents))
         #expect(app.lastPathComponent == "NanoWhisper.app")
-        _ = try UpdateSignature.verify(app, requirements: UpdateSandbox.requirements)
+        _ = try await UpdateSignature.verify(app, requirements: UpdateSandbox.requirements)
         let permissions = try FileManager.default.attributesOfItem(atPath: output.path)[.posixPermissions] as? Int
         #expect(permissions == 0o700)
     }
@@ -254,7 +254,7 @@ struct UpdateExtractionTests {
             links: ["Contents/Resources/link": "file.txt", "Contents/Resources/up": "../Resources"]
         )
         let app = try await extract(sandbox.zip(contentsOf: contents))
-        _ = try UpdateSignature.verify(app, requirements: UpdateSandbox.requirements)
+        _ = try await UpdateSignature.verify(app, requirements: UpdateSandbox.requirements)
     }
 
     @Test("A link out of the app is refused", arguments: [
@@ -397,8 +397,8 @@ struct UpdateInstallationTests {
         try expectUntouched()
     }
 
-    private func installedVersion() throws -> String? {
-        try UpdateSignature.verify(sandbox.installed, requirements: UpdateSandbox.requirements).version
+    private func installedVersion() async throws -> String? {
+        try await UpdateSignature.verify(sandbox.installed, requirements: UpdateSandbox.requirements).version
     }
 
     @Test("A valid update replaces the installed app, and nothing else is left")
@@ -409,7 +409,7 @@ struct UpdateInstallationTests {
         try await sandbox.installer().install(offer(digest: digest(data))) { value in
             progress.withLock { $0.append(value) }
         }
-        #expect(try installedVersion() == "0.1.1")
+        #expect(try await installedVersion() == "0.1.1")
         #expect(!FileManager.default.fileExists(atPath: sandbox.stagingDirectory.path))
         let folder = sandbox.installed.deletingLastPathComponent()
         #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == ["NanoWhisper.app"])
@@ -520,7 +520,7 @@ struct UpdateInstallationTests {
         StubProtocol.reply { $0.host == "github.com" ? .redirect(Self.assetHostURL) : .data(data) }
         try await sandbox.installer().install(offer())
         #expect(StubProtocol.requestedURLs.map(\.absoluteString) == [Self.archiveURL, Self.assetHostURL])
-        #expect(try installedVersion() == "0.1.1")
+        #expect(try await installedVersion() == "0.1.1")
     }
 
     @Test("A redirect to http is not followed, not even the second one")
@@ -614,7 +614,7 @@ struct UpdateInstallationTests {
         #expect(updater.error == nil)
         #expect(updater.downloadProgress == 1)
         #expect(relaunched == [sandbox.installed])
-        #expect(try installedVersion() == "0.1.1")
+        #expect(try await installedVersion() == "0.1.1")
     }
 
     @Test("A refused update says so, changes nothing and does not relaunch")

@@ -239,6 +239,12 @@ Agents had **no screen capture** until 2026-11-21. These worked on 2026-11-19:
     time=`) is too noisy to attribute while other apps draw; `pgrep -f` on a binary started as
     `./name` does not match a path, use `$!`; a free-standing Swift file with top-level code must
     be named `main.swift`.
+12. **A CI machine's three concurrency threads, locally** (2026-11-24). A test that blocks its thread
+    can stop the suite on CI (3 cores) and never here. Add a temporary test (not committed) that
+    starts `activeProcessorCount - 3` `Task.detached` blocks of `usleep(40_000_000)`, run the suite,
+    and `sample` the `swiftpm-testing-helper` process if it stops: the stack names the blocked call.
+    `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1` (one thread) is not the same: it showed nothing here, and
+    `ModelStoreTests.cleanupWaitsForLock` needs two threads.
 
 ## What agents cannot verify
 

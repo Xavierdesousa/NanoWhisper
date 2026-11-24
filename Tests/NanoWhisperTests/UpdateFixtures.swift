@@ -6,7 +6,7 @@ import Testing
 /// Small signed apps and archives in a temporary directory, removed with the instance. The
 /// apps are copies of `/usr/bin/true` under NanoWhisper's identifier, signed ad hoc; nothing
 /// here is ever launched.
-final class UpdateSandbox {
+final class UpdateSandbox: Sendable {
     /// Ad-hoc signatures satisfy this; they never satisfy the real requirements.
     static let requirements = [#"identifier "com.moonji.nanowhisper""#]
 
